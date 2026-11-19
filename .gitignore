@@ -1,0 +1,8 @@
+/build/
+/dist/
+/test-output/
+/.vs/
+*.user
+*.wbench
+aqtinstall.log
+/build-attempt.log

@@ -1,0 +1,1545 @@
+Worldbench 0.1.0 - third-party component notices
+Private P0 testing build. Final public project licensing is recorded in DEVELOPMENT.md.
+
+KDDockWidgets: commit 66e66fa5d8a824488538558e274023822ac13952
+Copyright KDAB / Klaralvdalens Datakonsult AB and contributors.
+GPL-2.0-only OR GPL-3.0-only; this build uses the GPL-3.0-only option.
+https://github.com/KDAB/KDDockWidgets
+
+Qt 6.8.3: Copyright The Qt Company Ltd. and contributors.
+Qt is dynamically linked. Applicable open-source license texts are included here.
+https://download.qt.io/archive/qt/6.8/6.8.3/
+https://code.qt.io/cgit/qt/qtbase.git/?h=v6.8.3
+https://code.qt.io/cgit/qt/qtdeclarative.git/?h=v6.8.3
+
+The following upstream Qt SBOM attributions include components beyond the minimal runtime.
+ShaderTools also participates at build time. Preserve original notices when redistributing.
+
+qtbase / Platform_Attribution_extra-cmake-modules
+Copyright © 2011-2018 The KDE community
+License: BSD-3-Clause
+
+CMake target name: Platform_Attribution_extra-cmake-modules
+    Information extracted from:
+     /src_dir/qtbase/cmake/3rdparty/extra-cmake-modules/qt_attribution.json
+    Entry index: 0
+    Id: extra-cmake-modules
+    Name: extra-cmake-modules
+    Description: Additional CMake modules.
+    Qt usage: Used as part of the build system.
+    License: BSD-3-Clause
+    License file: COPYING-CMAKE-SCRIPTS
+
+Source: https://api.kde.org/ecm/
+
+qtbase / Platform_Attribution_kwin
+Copyright 2014 Alex Merry <alex.merry@kde.org>
+Copyright 2014 Martin Gräßlin <mgraesslin@kde.org>,
+Copyright (c) 2006,2007 Laurent Montel, <montel@kde.org>
+License: BSD-3-Clause
+
+CMake target name: Platform_Attribution_kwin
+    Information extracted from:
+     /src_dir/qtbase/cmake/3rdparty/kwin/qt_attribution.json
+    Entry index: 0
+    Id: kwin
+    Name: KWin
+    Description: Additional CMake modules for graphics system dependencies.
+    Qt usage: Used as part of the build system.
+    License: BSD-3-Clause
+    License file: COPYING-CMAKE-SCRIPTS
+
+Source: https://www.kde.org/
+
+qtbase / Bootstrap_Attribution_pcre2
+Copyright (c) 1997-2024 University of Cambridge
+Copyright (c) 2010-2024 Zoltan Herczeg
+License: LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception
+
+CMake target name: Bootstrap_Attribution_pcre2
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/pcre2/qt_attribution.json
+    Entry index: 0
+    Id: pcre2
+    Name: PCRE2
+    Description: The PCRE library is a set of functions that implement regular expression pattern matching using the same syntax and semantics as Perl 5.
+    Qt usage: Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid.
+    License: BSD 3-clause "New" or "Revised" License with PCRE2 binary-like Packages Exception
+    License file: LICENCE.md
+
+Source: https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.45/pcre2-10.45.tar.bz2
+
+qtbase / Bootstrap_Attribution_pcre2-sljit
+Copyright (c) 2009-2024 Zoltan Herczeg
+License: BSD-2-Clause
+
+CMake target name: Bootstrap_Attribution_pcre2-sljit
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/pcre2/qt_attribution.json
+    Entry index: 1
+    Id: pcre2-sljit
+    Name: PCRE2 - Stack-less Just-In-Time Compiler
+    Description: The PCRE library is a set of functions that implement regular expression pattern matching using the same syntax and semantics as Perl 5.
+    Qt usage: Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid.
+    License: BSD 2-clause "Simplified" License
+    License file: LICENCE-SLJIT
+
+Source: https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.45/pcre2-10.45.tar.bz2
+
+qtbase / BundledPcre2_Attribution_pcre2-sljit
+Copyright (c) 2009-2024 Zoltan Herczeg
+License: BSD-2-Clause
+
+CMake target name: BundledPcre2_Attribution_pcre2-sljit
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/pcre2/qt_attribution.json
+    Entry index: 1
+    Id: pcre2-sljit
+    Name: PCRE2 - Stack-less Just-In-Time Compiler
+    Description: The PCRE library is a set of functions that implement regular expression pattern matching using the same syntax and semantics as Perl 5.
+    Qt usage: Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid.
+    License: BSD 2-clause "Simplified" License
+    License file: LICENCE-SLJIT
+
+Source: https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.45/pcre2-10.45.tar.bz2
+
+qtbase / BundledPcre2
+Copyright (c) 1997-2024 University of Cambridge
+Copyright (c) 2010-2024 Zoltan Herczeg
+License: LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception
+
+CMake target name: BundledPcre2
+CMake exported target name: Qt6::BundledPcre2
+Contained in CMake package: Qt6BundledPcre2
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/pcre2/qt_attribution.json
+    Entry index: 0
+    Id: pcre2
+    Name: PCRE2
+    Description: The PCRE library is a set of functions that implement regular expression pattern matching using the same syntax and semantics as Perl 5.
+    Qt usage: Optionally used in Qt Core (QRegularExpression). Configure with -system-pcre or -no-pcre to avoid.
+    License: BSD 3-clause "New" or "Revised" License with PCRE2 binary-like Packages Exception
+    License file: LICENCE.md
+
+Source: https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.45/pcre2-10.45.tar.bz2
+
+qtbase / BundledZLIB
+(C) 1995-2024 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: BundledZLIB
+CMake exported target name: Qt6::BundledZLIB
+Contained in CMake package: Qt6BundledZLIB
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/zlib/qt_attribution.json
+    Entry index: 0
+    Id: zlib
+    Name: Data Compression Library (zlib)
+    Description: zlib is a general purpose data compression library.
+    Qt usage: Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid.
+    License: zlib License
+    License file: LICENSE
+
+Source: https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+
+qtbase / ZlibPrivate
+(C) 1995-2024 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: ZlibPrivate
+CMake exported target name: Qt6::Zlib
+Contained in CMake package: Qt6ZlibPrivate
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/zlib/qt_attribution.json
+    Entry index: 0
+    Id: zlib
+    Name: Data Compression Library (zlib)
+    Description: zlib is a general purpose data compression library.
+    Qt usage: Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid.
+    License: zlib License
+    License file: LICENSE
+
+Source: https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+
+qtbase / Core_Attribution_unicode-character-database
+Copyright (C) 1991-2022 Unicode, Inc.
+License: Unicode-3.0
+
+CMake target name: Core_Attribution_unicode-character-database
+    Information extracted from:
+     /src_dir/qtbase/src/corelib/text/qt_attribution.json
+    Entry index: 0
+    Id: unicode-character-database
+    Name: Unicode Character Database (UCD)
+    Description: The Unicode Character Database (UCD) is a set of files that
+ define the Unicode character properties and internal mappings.
+    Qt usage: Qt Core uses data obtained from UCD files for working with characters and strings.
+    License: Unicode License Agreement - Data Files and Software (2016)
+
+Source: https://www.unicode.org/ucd/
+
+qtbase / Core_Attribution_unicode-cldr
+Copyright (C) 2004-2023 Unicode, Inc.
+License: Unicode-3.0
+
+CMake target name: Core_Attribution_unicode-cldr
+    Information extracted from:
+     /src_dir/qtbase/src/corelib/text/qt_attribution.json
+    Entry index: 1
+    Id: unicode-cldr
+    Name: Unicode Common Locale Data Repository (CLDR)
+    Description: The Unicode CLDR provides key building blocks for software to support the
+ world's languages, with the largest and most extensive standard repository of locale data
+ available.
+    Qt usage: Used in Qt Core (QTimeZone, QLocale).
+    License: Unicode License v3
+
+Source: https://cldr.unicode.org/
+
+qtbase / Core_Attribution_siphash
+Copyright (C) 2012-2014 Jean-Philippe Aumasson
+Copyright (C) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+Copyright (C) 2016 Intel Corporation
+License: CC0-1.0
+
+CMake target name: Core_Attribution_siphash
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/siphash/qt_attribution.json
+    Entry index: 0
+    Id: siphash
+    Name: SipHash Algorithm
+    Description: Implements the SipHash algorithm.
+    Qt usage: Used in Qt Core (QHash)
+    License: Creative Commons Zero v1.0 Universal
+
+Source: https://raw.githubusercontent.com/veorq/SipHash/adcbf09b1684a718f594faa650ffc56bacdb0777/siphash24.c
+
+qtbase / Core_Attribution_blake2
+Copyright 2012, Samuel Neves <sneves@dei.uc.pt>
+License: CC0-1.0 OR Apache-2.0
+
+CMake target name: Core_Attribution_blake2
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/blake2/qt_attribution.json
+    Entry index: 0
+    Id: blake2
+    Name: BLAKE2 (reference implementation)
+    Description: BLAKE2 is a cryptographic hash function faster than MD5, SHA-1, SHA-2, and SHA-3, yet is at least as secure as the latest standard SHA-3.
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: Creative Commons Zero v1.0 Universal or Apache License 2.0
+    License file: COPYING
+
+Source: https://github.com/BLAKE2/BLAKE2/tree/ed1974ea83433eba7b2d95c5dcd9ac33cb847913
+
+qtbase / Core_Attribution_md4
+Written by Alexander Peslyak - better known as Solar Designer <solar@openwall.com> - in 2001, and placed in the public domain. There's absolutely no warranty.
+License: CC0-1.0
+
+CMake target name: Core_Attribution_md4
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/md4/qt_attribution.json
+    Entry index: 0
+    Id: md4
+    Name: MD4
+    Description: An OpenSSL-compatible implementation of the RSA Data Security, Inc. MD4 Message-Digest Algorithm.
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: Public Domain
+
+Source: NOASSERTION
+
+qtbase / Core_Attribution_md5
+Written by Colin Plumb in 1993, no copyright is claimed. Ian Jackson <ian@chiark.greenend.org.uk>.
+License: CC0-1.0
+
+CMake target name: Core_Attribution_md5
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/md5/qt_attribution.json
+    Entry index: 0
+    Id: md5
+    Name: MD5
+    Description: MD5 message-digest algorithm.
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: Public Domain
+
+Source: NOASSERTION
+
+qtbase / Core_Attribution_sha1
+Copyright (C) Dominik Reichl <dominik.reichl@t-online.de>
+Copyright (C) 2016 The Qt Company Ltd
+License: LicenseRef-SHA1-Public-Domain
+
+CMake target name: Core_Attribution_sha1
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/sha1/qt_attribution.json
+    Entry index: 0
+    Id: sha1
+    Name: Secure Hash Algorithm SHA-1
+    Description: Implements the Secure Hash Algorithms SHA 1
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: Public Domain
+
+Source: http://www.dominik-reichl.de/projects/csha1/
+
+qtbase / Core_Attribution_sha3_endian
+Copyright (c) 1998-2013, Brian Gladman, Worcester, UK. All rights reserved.
+License: BSD-2-Clause
+
+CMake target name: Core_Attribution_sha3_endian
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/sha3/qt_attribution.json
+    Entry index: 0
+    Id: sha3_endian
+    Name: Secure Hash Algorithm SHA-3 - brg_endian
+    Description: SHA-3, originally known as Keccak, is a cryptographic hash function.
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: BSD 2-clause "Simplified" License
+    License file: BRG_ENDIAN_LICENSE
+
+Source: NOASSERTION
+
+qtbase / Core_Attribution_sha3_keccak
+Guido Bertoni, Joan Daemen, Michaël Peeters and Gilles Van Assche.
+To the extent possible under law, the implementers have waived all copyright
+and related or neighboring rights to the source code in this file.
+License: CC0-1.0
+
+CMake target name: Core_Attribution_sha3_keccak
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/sha3/qt_attribution.json
+    Entry index: 1
+    Id: sha3_keccak
+    Name: Secure Hash Algorithm SHA-3 - Keccak
+    Description: SHA-3, originally known as Keccak, is a cryptographic hash function.
+    Qt usage: Used in Qt Core (QCryptographicHash).
+    License: Creative Commons Zero v1.0 Universal
+    License file: CC0_LICENSE
+
+Source: NOASSERTION
+
+qtbase / Core_Attribution_rfc6234
+Copyright (c) 2011 IETF Trust and the persons identified as authors of the code.
+License: BSD-3-Clause
+
+CMake target name: Core_Attribution_rfc6234
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/rfc6234/qt_attribution.json
+    Entry index: 0
+    Id: rfc6234
+    Name: Secure Hash Algorithms SHA-384 and SHA-512
+    Description: Implements the Secure Hash Algorithms SHA 384 and SHA-521
+    Qt usage: Used in Qt Core (QCryptographicHash and QMessageAuthenticationCode)
+    License: BSD 3-clause "New" or "Revised" License
+    License file: LICENSE
+
+Source: NOASSERTION
+
+qtbase / Core_Attribution_tinycbor
+Copyright (C) 2015-2021 Intel Corporation
+License: MIT
+
+CMake target name: Core_Attribution_tinycbor
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/tinycbor/qt_attribution.json
+    Entry index: 0
+    Id: tinycbor
+    Name: TinyCBOR
+    Description: Concise Binary Object Representation (CBOR) Library
+    Qt usage: Used for QCborStreamReader and QCborStreamWriter.
+    License: MIT License
+    License file: LICENSE
+
+Source: https://github.com/intel/tinycbor/archive/v0.6.1/tinycbor-0.6.1.tar.gz
+
+qtbase / Core_Attribution_doubleconversion
+Copyright 2006-2012, the V8 project authors
+License: BSD-3-Clause
+
+CMake target name: Core_Attribution_doubleconversion
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/double-conversion/qt_attribution.json
+    Entry index: 0
+    Id: doubleconversion
+    Name: Efficient Binary-Decimal and Decimal-Binary Conversion Routines for IEEE Doubles
+    Qt usage: Used in Qt Core. Configure with -system-doubleconversion or -no-doubleconversion to avoid.
+    License: BSD 3-clause "New" or "Revised" License
+    License file: LICENSE
+
+Source: https://github.com/google/double-conversion/releases/tag/v3.3.0
+
+qtbase / Core_Attribution_easing
+Copyright (c) 2001 Robert Penner
+License: BSD-3-Clause
+
+CMake target name: Core_Attribution_easing
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/easing/qt_attribution.json
+    Entry index: 0
+    Id: easing
+    Name: Easing Equations by Robert Penner
+    Qt usage: Used in Qt Core (QEasingCurve).
+    License: BSD 3-clause "New" or "Revised" License
+    License file: LICENSE
+
+Source: http://robertpenner.com/easing/
+
+qtbase / Core_Attribution_tika-mimetypes
+Copyright 2024 The Apache Software Foundation
+License: Apache-2.0
+
+CMake target name: Core_Attribution_tika-mimetypes
+    Information extracted from:
+     /src_dir/qtbase/src/corelib/mimetypes/3rdparty/qt_attribution.json
+    Entry index: 0
+    Id: tika-mimetypes
+    Name: Apache Tika MimeType Definitions
+    Description: The Apache Tika MimeTypes list many known MIME types and how to match files (using globs and/or 'magic' rules for the file contents)
+    Qt usage: Qt Core uses a copy of the Apache Tika MimeType Definitions if shared-mime-info isn't installed on the system.
+    License: Apache License 2.0
+
+Source: https://github.com/apache/tika/blob/5101bc7fb090ed7deffe56837d7633c9485a1e5d/tika-core/src/main/resources/org/apache/tika/mime/tika-mimetypes.xml
+
+qtbase / BundledLibpng
+Copyright (c) 1995-2025 The PNG Reference Library Authors
+Copyright (c) 2000-2025 Cosmin Truta
+Copyright (c) 1998-2018 Glenn Randers-Pehrson
+Copyright (c) 1996-1997 Andreas Dilger
+Copyright (c) 1995-1996 Guy Eric Schalnat, Group 42, Inc.
+Copyright (c) 2000-2017 Simon-Pierre Cadieux
+Copyright (c) 2000-2017 Eric S. Raymond
+Copyright (c) 2000-2017 Mans Rullgard
+Copyright (c) 2000-2017 Gilles Vollant
+Copyright (c) 2000-2017 James Yu
+Copyright (c) 2000-2017 Mandar Sahastrabuddhe
+Copyright (c) 1998-2000 Tom Lane
+Copyright (c) 1998-2000 Willem van Schaik
+Copyright (c) 1996-1997 John Bowler
+Copyright (c) 1996-1997 Kevin Bracey
+Copyright (c) 1996-1997 Sam Bushell
+Copyright (c) 1996-1997 Magnus Holmgren
+Copyright (c) 1996-1997 Greg Roelofs
+Copyright (c) 1996-1997 Tom Tanner
+Copyright (c) 1995-1996 Dave Martindale
+Copyright (c) 1995-1996 Paul Schmidt
+Copyright (c) 1995-1996 Tim Wegner
+License: Libpng AND libpng-2.0
+
+CMake target name: BundledLibpng
+CMake exported target name: Qt6::BundledLibpng
+Contained in CMake package: Qt6BundledLibpng
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libpng/qt_attribution.json
+    Entry index: 0
+    Id: libpng
+    Name: LibPNG
+    Description: libpng is the official PNG reference library.
+    Qt usage: Used in the qpng image plugin. Configure with -system-libpng or -no-libpng to avoid.
+    License: libpng License and PNG Reference Library version 2
+    License file: LICENSE
+
+Source: https://download.sourceforge.net/libpng/libpng-1.6.47.tar.xz
+
+qtbase / PngPrivate
+Copyright (c) 1995-2025 The PNG Reference Library Authors
+Copyright (c) 2000-2025 Cosmin Truta
+Copyright (c) 1998-2018 Glenn Randers-Pehrson
+Copyright (c) 1996-1997 Andreas Dilger
+Copyright (c) 1995-1996 Guy Eric Schalnat, Group 42, Inc.
+Copyright (c) 2000-2017 Simon-Pierre Cadieux
+Copyright (c) 2000-2017 Eric S. Raymond
+Copyright (c) 2000-2017 Mans Rullgard
+Copyright (c) 2000-2017 Gilles Vollant
+Copyright (c) 2000-2017 James Yu
+Copyright (c) 2000-2017 Mandar Sahastrabuddhe
+Copyright (c) 1998-2000 Tom Lane
+Copyright (c) 1998-2000 Willem van Schaik
+Copyright (c) 1996-1997 John Bowler
+Copyright (c) 1996-1997 Kevin Bracey
+Copyright (c) 1996-1997 Sam Bushell
+Copyright (c) 1996-1997 Magnus Holmgren
+Copyright (c) 1996-1997 Greg Roelofs
+Copyright (c) 1996-1997 Tom Tanner
+Copyright (c) 1995-1996 Dave Martindale
+Copyright (c) 1995-1996 Paul Schmidt
+Copyright (c) 1995-1996 Tim Wegner
+License: Libpng AND libpng-2.0
+
+CMake target name: PngPrivate
+CMake exported target name: Qt6::Png
+Contained in CMake package: Qt6PngPrivate
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libpng/qt_attribution.json
+    Entry index: 0
+    Id: libpng
+    Name: LibPNG
+    Description: libpng is the official PNG reference library.
+    Qt usage: Used in the qpng image plugin. Configure with -system-libpng or -no-libpng to avoid.
+    License: libpng License and PNG Reference Library version 2
+    License file: LICENSE
+
+Source: https://download.sourceforge.net/libpng/libpng-1.6.47.tar.xz
+
+qtbase / BundledLibjpeg16bits
+Copyright (C) 2009-2024 D. R. Commander
+Copyright (C) 2015, 2020 Google, Inc.
+Copyright (C) 2019-2020 Arm Limited
+Copyright (C) 2015-2016, 2018 Matthieu Darbois
+Copyright (C) 2011-2016 Siarhei Siamashka
+Copyright (C) 2015 Intel Corporation
+Copyright (C) 2013-2014 Linaro Limited
+Copyright (C) 2013-2014 MIPS Technologies, Inc.
+Copyright (C) 2009, 2012 Pierre Ossman for Cendio AB
+Copyright (C) 2009-2011 Nokia Corporation and/or its subsidiary(-ies)
+Copyright (C) 1999-2006 MIYASAKA Masaru
+Copyright (C) 1999 Ken Murchison
+Copyright (C) 1991-2020 Thomas G. Lane, Guido Vollbeding
+
+License: IJG AND BSD-3-Clause
+
+CMake target name: BundledLibjpeg16bits
+CMake exported target name: Qt6::BundledLibjpeg16bits
+Contained in CMake package: Qt6BundledLibjpeg16bits
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libjpeg/qt_attribution.json
+    Entry index: 0
+    Id: libjpeg
+    Name: LibJPEG-turbo
+    Description: The Independent JPEG Group's JPEG software
+    Qt usage: Used in the qjpeg image plugin. Configure with -system-libjpeg or -no-libjpeg to avoid.
+    License: Independent JPEG Group License and BSD 3-Clause "New" or "Revised" License
+
+Source: https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.0/libjpeg-turbo-3.1.0.tar.gz
+
+qtbase / BundledLibjpeg12bits
+Copyright (C) 2009-2024 D. R. Commander
+Copyright (C) 2015, 2020 Google, Inc.
+Copyright (C) 2019-2020 Arm Limited
+Copyright (C) 2015-2016, 2018 Matthieu Darbois
+Copyright (C) 2011-2016 Siarhei Siamashka
+Copyright (C) 2015 Intel Corporation
+Copyright (C) 2013-2014 Linaro Limited
+Copyright (C) 2013-2014 MIPS Technologies, Inc.
+Copyright (C) 2009, 2012 Pierre Ossman for Cendio AB
+Copyright (C) 2009-2011 Nokia Corporation and/or its subsidiary(-ies)
+Copyright (C) 1999-2006 MIYASAKA Masaru
+Copyright (C) 1999 Ken Murchison
+Copyright (C) 1991-2020 Thomas G. Lane, Guido Vollbeding
+
+License: IJG AND BSD-3-Clause
+
+CMake target name: BundledLibjpeg12bits
+CMake exported target name: Qt6::BundledLibjpeg12bits
+Contained in CMake package: Qt6BundledLibjpeg12bits
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libjpeg/qt_attribution.json
+    Entry index: 0
+    Id: libjpeg
+    Name: LibJPEG-turbo
+    Description: The Independent JPEG Group's JPEG software
+    Qt usage: Used in the qjpeg image plugin. Configure with -system-libjpeg or -no-libjpeg to avoid.
+    License: Independent JPEG Group License and BSD 3-Clause "New" or "Revised" License
+
+Source: https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.0/libjpeg-turbo-3.1.0.tar.gz
+
+qtbase / BundledLibjpeg
+Copyright (C) 2009-2024 D. R. Commander
+Copyright (C) 2015, 2020 Google, Inc.
+Copyright (C) 2019-2020 Arm Limited
+Copyright (C) 2015-2016, 2018 Matthieu Darbois
+Copyright (C) 2011-2016 Siarhei Siamashka
+Copyright (C) 2015 Intel Corporation
+Copyright (C) 2013-2014 Linaro Limited
+Copyright (C) 2013-2014 MIPS Technologies, Inc.
+Copyright (C) 2009, 2012 Pierre Ossman for Cendio AB
+Copyright (C) 2009-2011 Nokia Corporation and/or its subsidiary(-ies)
+Copyright (C) 1999-2006 MIYASAKA Masaru
+Copyright (C) 1999 Ken Murchison
+Copyright (C) 1991-2020 Thomas G. Lane, Guido Vollbeding
+
+License: IJG AND BSD-3-Clause
+
+CMake target name: BundledLibjpeg
+CMake exported target name: Qt6::BundledLibjpeg
+Contained in CMake package: Qt6BundledLibjpeg
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libjpeg/qt_attribution.json
+    Entry index: 0
+    Id: libjpeg
+    Name: LibJPEG-turbo
+    Description: The Independent JPEG Group's JPEG software
+    Qt usage: Used in the qjpeg image plugin. Configure with -system-libjpeg or -no-libjpeg to avoid.
+    License: Independent JPEG Group License and BSD 3-Clause "New" or "Revised" License
+
+Source: https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.0/libjpeg-turbo-3.1.0.tar.gz
+
+qtbase / JpegPrivate
+Copyright (C) 2009-2024 D. R. Commander
+Copyright (C) 2015, 2020 Google, Inc.
+Copyright (C) 2019-2020 Arm Limited
+Copyright (C) 2015-2016, 2018 Matthieu Darbois
+Copyright (C) 2011-2016 Siarhei Siamashka
+Copyright (C) 2015 Intel Corporation
+Copyright (C) 2013-2014 Linaro Limited
+Copyright (C) 2013-2014 MIPS Technologies, Inc.
+Copyright (C) 2009, 2012 Pierre Ossman for Cendio AB
+Copyright (C) 2009-2011 Nokia Corporation and/or its subsidiary(-ies)
+Copyright (C) 1999-2006 MIYASAKA Masaru
+Copyright (C) 1999 Ken Murchison
+Copyright (C) 1991-2020 Thomas G. Lane, Guido Vollbeding
+
+License: IJG AND BSD-3-Clause
+
+CMake target name: JpegPrivate
+CMake exported target name: Qt6::Jpeg
+Contained in CMake package: Qt6JpegPrivate
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libjpeg/qt_attribution.json
+    Entry index: 0
+    Id: libjpeg
+    Name: LibJPEG-turbo
+    Description: The Independent JPEG Group's JPEG software
+    Qt usage: Used in the qjpeg image plugin. Configure with -system-libjpeg or -no-libjpeg to avoid.
+    License: Independent JPEG Group License and BSD 3-Clause "New" or "Revised" License
+
+Source: https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.0/libjpeg-turbo-3.1.0.tar.gz
+
+qtbase / BundledFreetype_Attribution_freetype-zlib
+Copyright (C) 1995-2023 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: BundledFreetype_Attribution_freetype-zlib
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 1
+    Id: freetype-zlib
+    Name: Freetype 2 - zlib
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: zlib License
+    License file: ZLIB-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / BundledFreetype_Attribution_freetype-bdf
+Copyright (c) 2000 Computing Research Labs, New Mexico State University
+Copyright (c) 2001-2014 Francesco Zappa Nardelli
+License: MIT
+
+CMake target name: BundledFreetype_Attribution_freetype-bdf
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 2
+    Id: freetype-bdf
+    Name: Freetype 2 - Bitmap Distribution Format (BDF) support
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: MIT License
+    License file: BDF-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / BundledFreetype_Attribution_freetype-pcf
+Copyright (c) 2001, 2012 David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2000-2014 Francesco Zappa Nardelli
+Copyright (c) 1990, 1994, 1998 The Open Group
+License: MIT AND MIT-open-group
+
+CMake target name: BundledFreetype_Attribution_freetype-pcf
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 3
+    Id: freetype-pcf
+    Name: Freetype 2 - Portable Compiled Format (PCF) support
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: MIT License and MIT Open Group variant
+    License file: PCF-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / BundledFreetype
+Copyright (c) 2007-2014 Adobe Systems Incorporated
+Copyright (c) 2004-2024 Albert Chin-A-Young
+Copyright (c) 2018-2024 Armin Hasitzka, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2000 Computing Research Labs, New Mexico State University
+Copyright (c) 1996-2024 David Turner, Robert Wilhelm, Dominik Röttsches, and Werner Lemberg
+Copyright (c) 2004-2024 David Turner, Robert Wilhelm, Werner Lemberg and George Williams
+Copyright (c) 2022-2024 David Turner, Robert Wilhelm, Werner Lemberg, and Moazin Khatti
+Copyright (c) 2008-2024 David Turner, Robert Wilhelm, Werner Lemberg, and suzuki toshiya
+Copyright (c) 2003-2024 David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2005-2024 David Turner
+Copyright (c) 2007-2024 Derek Clegg and Michael Toftdal
+Copyright (c) 2007 Dmitry Timoshkov for Codeweavers
+Copyright (c) 2001-2015 Francesco Zappa Nardelli
+Copyright (c) 2005, 2007, 2008, 2013 George Williams
+Copyright (c) 2013-2024 Google, Inc. Google Author(s) Behdad Esfahbod and Stuart Gill
+Copyright (c) 2013-2022 Google, Inc.
+Copyright (c) 2003 Huw D M Davies for Codeweavers
+Copyright (c) 2010-2024 Joel Klinghed
+Copyright (c) 1996-2024 Just van Rossum, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2003-2024 Masatake YAMATO and Redhat K.K.
+Copyright (c) 2004-2024 Masatake YAMATO, Redhat K.K, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2019-2024 Nikhil Ramakrishnan, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2009-2024 Oran Agra and Mickey Gabel
+Copyright (c) 2007-2024 Rahul Bhalerao <rahul.bhalerao@redhat.com>
+Copyright (c) 2002-2024 Roberto Alameda
+Copyright (c) 2015-2024 Werner Lemberg
+Copyright (c) 2004-2024 suzuki toshiya, Masatake YAMATO, Red Hat K.K., David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2019 nyorain
+Copyright (c) 2022-2024 David Turner, Robert Wilhelm, Werner Lemberg, George Williams, and Dominik Röttsches
+Copyright (C) 2009, 2023  Red Hat, Inc.
+License: FTL OR GPL-2.0-only
+
+CMake target name: BundledFreetype
+CMake exported target name: Qt6::BundledFreetype
+Contained in CMake package: Qt6BundledFreetype
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 0
+    Id: freetype
+    Name: Freetype 2
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: Freetype Project License or GNU General Public License v2.0 only
+    License file: LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / FreetypePrivate_Attribution_freetype-zlib
+Copyright (C) 1995-2023 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: FreetypePrivate_Attribution_freetype-zlib
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 1
+    Id: freetype-zlib
+    Name: Freetype 2 - zlib
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: zlib License
+    License file: ZLIB-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / FreetypePrivate_Attribution_freetype-bdf
+Copyright (c) 2000 Computing Research Labs, New Mexico State University
+Copyright (c) 2001-2014 Francesco Zappa Nardelli
+License: MIT
+
+CMake target name: FreetypePrivate_Attribution_freetype-bdf
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 2
+    Id: freetype-bdf
+    Name: Freetype 2 - Bitmap Distribution Format (BDF) support
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: MIT License
+    License file: BDF-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / FreetypePrivate_Attribution_freetype-pcf
+Copyright (c) 2001, 2012 David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2000-2014 Francesco Zappa Nardelli
+Copyright (c) 1990, 1994, 1998 The Open Group
+License: MIT AND MIT-open-group
+
+CMake target name: FreetypePrivate_Attribution_freetype-pcf
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 3
+    Id: freetype-pcf
+    Name: Freetype 2 - Portable Compiled Format (PCF) support
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: MIT License and MIT Open Group variant
+    License file: PCF-LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / FreetypePrivate
+Copyright (c) 2007-2014 Adobe Systems Incorporated
+Copyright (c) 2004-2024 Albert Chin-A-Young
+Copyright (c) 2018-2024 Armin Hasitzka, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2000 Computing Research Labs, New Mexico State University
+Copyright (c) 1996-2024 David Turner, Robert Wilhelm, Dominik Röttsches, and Werner Lemberg
+Copyright (c) 2004-2024 David Turner, Robert Wilhelm, Werner Lemberg and George Williams
+Copyright (c) 2022-2024 David Turner, Robert Wilhelm, Werner Lemberg, and Moazin Khatti
+Copyright (c) 2008-2024 David Turner, Robert Wilhelm, Werner Lemberg, and suzuki toshiya
+Copyright (c) 2003-2024 David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2005-2024 David Turner
+Copyright (c) 2007-2024 Derek Clegg and Michael Toftdal
+Copyright (c) 2007 Dmitry Timoshkov for Codeweavers
+Copyright (c) 2001-2015 Francesco Zappa Nardelli
+Copyright (c) 2005, 2007, 2008, 2013 George Williams
+Copyright (c) 2013-2024 Google, Inc. Google Author(s) Behdad Esfahbod and Stuart Gill
+Copyright (c) 2013-2022 Google, Inc.
+Copyright (c) 2003 Huw D M Davies for Codeweavers
+Copyright (c) 2010-2024 Joel Klinghed
+Copyright (c) 1996-2024 Just van Rossum, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2003-2024 Masatake YAMATO and Redhat K.K.
+Copyright (c) 2004-2024 Masatake YAMATO, Redhat K.K, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2019-2024 Nikhil Ramakrishnan, David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2009-2024 Oran Agra and Mickey Gabel
+Copyright (c) 2007-2024 Rahul Bhalerao <rahul.bhalerao@redhat.com>
+Copyright (c) 2002-2024 Roberto Alameda
+Copyright (c) 2015-2024 Werner Lemberg
+Copyright (c) 2004-2024 suzuki toshiya, Masatake YAMATO, Red Hat K.K., David Turner, Robert Wilhelm, and Werner Lemberg
+Copyright (c) 2019 nyorain
+Copyright (c) 2022-2024 David Turner, Robert Wilhelm, Werner Lemberg, George Williams, and Dominik Röttsches
+Copyright (C) 2009, 2023  Red Hat, Inc.
+License: FTL OR GPL-2.0-only
+
+CMake target name: FreetypePrivate
+CMake exported target name: Qt6::Freetype
+Contained in CMake package: Qt6FreetypePrivate
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/freetype/qt_attribution.json
+    Entry index: 0
+    Id: freetype
+    Name: Freetype 2
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Optionally used in Qt GUI and platform plugins. Configure with -no-freetype, or -system-freetype to avoid.
+    License: Freetype Project License or GNU General Public License v2.0 only
+    License file: LICENSE.txt
+
+Source: https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.gz
+
+qtbase / BundledHarfbuzz
+Copyright © 2010-2022  Google, Inc.
+Copyright © 2015-2020  Ebrahim Byagowi
+Copyright © 2019,2020  Facebook, Inc.
+Copyright © 2012,2015  Mozilla Foundation
+Copyright © 2011  Codethink Limited
+Copyright © 2008,2010  Nokia Corporation and/or its subsidiary(-ies)
+Copyright © 2009  Keith Stribley
+Copyright © 2011  Martin Hosken and SIL International
+Copyright © 2007  Chris Wilson
+Copyright © 2005,2006,2020,2021,2022,2023  Behdad Esfahbod
+Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.
+Copyright © 1998-2005  David Turner and Werner Lemberg
+Copyright © 2016  Igalia S.L.
+Copyright © 2022  Matthias Clasen
+Copyright © 2018,2021  Khaled Hosny
+Copyright © 2018,2019,2020  Adobe, Inc
+Copyright © 2013-2015  Alexei Podtelezhnikov
+License: MIT
+
+CMake target name: BundledHarfbuzz
+CMake exported target name: Qt6::BundledHarfbuzz
+Contained in CMake package: Qt6BundledHarfbuzz
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/harfbuzz-ng/qt_attribution.json
+    Entry index: 0
+    Id: harfbuzz-ng
+    Name: HarfBuzz-NG
+    Description: HarfBuzz is an OpenType text shaping engine.
+    Qt usage: Optionally used in Qt GUI. Configure with -system-harfbuzz to force the use of the system library, or -qt-harfbuzz to link statically to the library that is bundled with your Qt version.
+    License: MIT License
+    License file: COPYING
+
+Source: https://github.com/harfbuzz/harfbuzz/releases/tag/10.4.0
+
+qtbase / HarfbuzzPrivate
+Copyright © 2010-2022  Google, Inc.
+Copyright © 2015-2020  Ebrahim Byagowi
+Copyright © 2019,2020  Facebook, Inc.
+Copyright © 2012,2015  Mozilla Foundation
+Copyright © 2011  Codethink Limited
+Copyright © 2008,2010  Nokia Corporation and/or its subsidiary(-ies)
+Copyright © 2009  Keith Stribley
+Copyright © 2011  Martin Hosken and SIL International
+Copyright © 2007  Chris Wilson
+Copyright © 2005,2006,2020,2021,2022,2023  Behdad Esfahbod
+Copyright © 2004,2007,2008,2009,2010,2013,2021,2022,2023  Red Hat, Inc.
+Copyright © 1998-2005  David Turner and Werner Lemberg
+Copyright © 2016  Igalia S.L.
+Copyright © 2022  Matthias Clasen
+Copyright © 2018,2021  Khaled Hosny
+Copyright © 2018,2019,2020  Adobe, Inc
+Copyright © 2013-2015  Alexei Podtelezhnikov
+License: MIT
+
+CMake target name: HarfbuzzPrivate
+CMake exported target name: Qt6::Harfbuzz
+Contained in CMake package: Qt6HarfbuzzPrivate
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/harfbuzz-ng/qt_attribution.json
+    Entry index: 0
+    Id: harfbuzz-ng
+    Name: HarfBuzz-NG
+    Description: HarfBuzz is an OpenType text shaping engine.
+    Qt usage: Optionally used in Qt GUI. Configure with -system-harfbuzz to force the use of the system library, or -qt-harfbuzz to link statically to the library that is bundled with your Qt version.
+    License: MIT License
+    License file: COPYING
+
+Source: https://github.com/harfbuzz/harfbuzz/releases/tag/10.4.0
+
+qtbase / Network_Attribution_zlib
+(C) 1995-2024 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: Network_Attribution_zlib
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/zlib/qt_attribution.json
+    Entry index: 0
+    Id: zlib
+    Name: Data Compression Library (zlib)
+    Description: zlib is a general purpose data compression library.
+    Qt usage: Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid.
+    License: zlib License
+    License file: LICENSE
+
+Source: https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+
+qtbase / Network_Attribution_psl-data
+The list was originally provided by Jo Hermans <jo.hermans@gmail.com>.
+It is now maintained on github (https://github.com/publicsuffix/list).
+License: MPL-2.0
+
+CMake target name: Network_Attribution_psl-data
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libpsl/qt_attribution.json
+    Entry index: 0
+    Id: psl-data
+    Name: The Public Suffix List
+    Description: The Public Suffix List is an initiative of Mozilla,
+but is maintained as a community resource. It is available for use in any software,
+but was originally created to meet the needs of browser manufacturers.
+It allows browsers to, for example:
+
+- Avoid privacy-damaging "supercookies" being set for high-level domain name suffixes
+
+- Highlight the most important part of a domain name in the user interface
+
+- Accurately sort history entries by site
+    Qt usage: Used in Qt Network to avoid setting "supercookies" in the cookie jar
+supported by Qt (by the QNetworkCookieJar class).
+    License: Mozilla Public License 2.0
+    License file: PSL-LICENSE.txt
+
+Source: https://publicsuffix.org/list/public_suffix_list.dat
+
+qtbase / Network_Attribution_libpsl
+Copyright 2014-2016 The Chromium Authors. All rights reserved.
+License: BSD-3-Clause
+
+CMake target name: Network_Attribution_libpsl
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/libpsl/qt_attribution.json
+    Entry index: 1
+    Id: libpsl
+    Name: libpsl - C library to handle the Public Suffix List
+    Description: Libpsl allows checking domains against the Public Suffix List.
+    Qt usage: Used to compress the embedded copy of publicsuffix list and
+to lookup entries in it.
+    License: BSD 3-clause "New" or "Revised" License
+    License file: src/LICENSE.chromium
+
+Source: https://github.com/rockdaboot/libpsl
+
+qtbase / DBus_Attribution_libdbus-1-headers
+Copyright (C) 2002, 2003 CodeFactory AB
+Copyright (C) 2004, 2005 Red Hat, Inc.
+License: AFL-2.1 OR GPL-2.0-or-later
+
+CMake target name: DBus_Attribution_libdbus-1-headers
+    Information extracted from:
+     /src_dir/qtbase/src/dbus/qt_attribution.json
+    Entry index: 0
+    Id: libdbus-1-headers
+    Name: libdus-1 headers
+    Description: D-Bus is a message bus system, a simple way for applications to talk to one another.
+    Qt usage: Qt D-Bus uses constants and typedefs from libdbus-1 headers.
+    License: Academic Free License v2.1, or GNU General Public License v2.0 or later
+    License file: LIBDBUS-1-LICENSE.txt
+
+Source: https://www.freedesktop.org/wiki/Software/dbus/
+
+qtbase / Gui_Attribution_rhi-miniengine-d3d12-mipmap
+Copyright (c) 2015 Microsoft
+License: MIT
+
+CMake target name: Gui_Attribution_rhi-miniengine-d3d12-mipmap
+    Information extracted from:
+     /src_dir/qtbase/src/gui/rhi/qt_attribution.json
+    Entry index: 0
+    Id: rhi-miniengine-d3d12-mipmap
+    Name: Mipmap generator for D3D12
+    Description: Compute shader for mipmap generation from MiniEngine in DirectX-Graphics-Samples
+    Qt usage: Compute shader for mipmap generation with Direct 3D 12
+    License: MIT License
+    License file: MiniEngine_LICENSE.txt
+
+Source: https://github.com/microsoft/DirectX-Graphics-Samples
+
+qtbase / Gui_Attribution_opengl-headers
+Copyright (c) 2013-2014 The Khronos Group Inc.
+License: MIT
+
+CMake target name: Gui_Attribution_opengl-headers
+    Information extracted from:
+     /src_dir/qtbase/src/gui/opengl/qt_attribution.json
+    Entry index: 0
+    Id: opengl-headers
+    Name: OpenGL Headers
+    Description: OpenGL header generated from the Khronos OpenGL / OpenGL ES XML API Registry.
+    Qt usage: Used on Windows and Linux in the OpenGL related headers of Qt GUI.
+    License: MIT License
+    License file: KHRONOS_LICENSE.txt
+
+Source: https://www.khronos.org/
+
+qtbase / Gui_Attribution_opengl-es2-headers
+Copyright (c) 2013-2014 The Khronos Group Inc.
+License: MIT
+
+CMake target name: Gui_Attribution_opengl-es2-headers
+    Information extracted from:
+     /src_dir/qtbase/src/gui/opengl/qt_attribution.json
+    Entry index: 1
+    Id: opengl-es2-headers
+    Name: OpenGL ES 2 Headers
+    Description: OpenGL ES 2 header generated from the Khronos OpenGL / OpenGL ES XML API Registry.
+    Qt usage: Used on Windows and Linux in the OpenGL related headers of Qt GUI.
+    License: MIT License
+    License file: KHRONOS_LICENSE.txt
+
+Source: https://www.khronos.org/
+
+qtbase / Gui_Attribution_grayraster
+Copyright 2000-2016 by David Turner, Robert Wilhelm, and Werner Lemberg.
+License: FTL OR GPL-2.0-only
+
+CMake target name: Gui_Attribution_grayraster
+    Information extracted from:
+     /src_dir/qtbase/src/gui/painting/qt_attribution.json
+    Entry index: 0
+    Id: grayraster
+    Name: Anti-aliasing rasterizer from FreeType 2
+    Description: FreeType is a freely available software library to render fonts.
+    Qt usage: Used in Qt GUI.
+    License: Freetype Project License or GNU General Public License v2.0 only
+    License file: ../../3rdparty/freetype/LICENSE.txt
+
+Source: http://www.freetype.org
+
+qtbase / Gui_Attribution_smooth-scaling-algorithm
+Copyright (C) 2004, 2005 Daniel M. Duley.
+(C) Carsten Haitzler and various contributors.
+(C) Willem Monsuwe <willem@stack.nl>
+License: BSD-2-Clause AND Imlib2
+
+CMake target name: Gui_Attribution_smooth-scaling-algorithm
+    Information extracted from:
+     /src_dir/qtbase/src/gui/painting/qt_attribution.json
+    Entry index: 1
+    Id: smooth-scaling-algorithm
+    Name: Smooth Scaling Algorithm
+    Description: Normal smoothscale method, based on Imlib2's smoothscale.
+    Qt usage: Used in Qt Gui (QImage::transformed() functions).
+    License: BSD 2-clause "Simplified" License and Imlib2 License
+    License file: QIMAGETRANSFORM_LICENSE.txt
+
+Source: NOASSERTION
+
+qtbase / Gui_Attribution_xserverhelper
+Copyright (c) 1987, 1988 X Consortium
+Copyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts.
+License: X11 AND HPND
+
+CMake target name: Gui_Attribution_xserverhelper
+    Information extracted from:
+     /src_dir/qtbase/src/gui/painting/qt_attribution.json
+    Entry index: 2
+    Id: xserverhelper
+    Name: X Server helper
+    Description: Code from X11's region.h, Region.c, poly.h, and PolyReg.c
+    Qt usage: Used in Qt GUI (QRegion).
+    License: X11 License and Historical Permission Notice and Disclaimer
+    License file: XCONSORTIUM_LICENSE.txt
+
+Source: https://www.x.org/
+
+qtbase / Gui_Attribution_aglfn
+Copyright 2002, 2003, 2005, 2006, 2008, 2010, 2015 Adobe Systems
+License: BSD-3-Clause
+
+CMake target name: Gui_Attribution_aglfn
+    Information extracted from:
+     /src_dir/qtbase/src/gui/text/qt_attribution.json
+    Entry index: 0
+    Id: aglfn
+    Name: Adobe Glyph List For New Fonts
+    Description: Provides standardized names for glyphs.
+    Qt usage: Used by PDF generator to make it easier for reader applications to resolve  the original contents of rendered text.
+    License: BSD 3-Clause "New" or "Revised" License
+    License file: AGLFN_LICENSE.txt
+
+Source: https://github.com/adobe-type-tools/agl-aglfn
+
+qtbase / Gui_Attribution_vulkanmemoryallocator
+Copyright (c) 2017-2024 Advanced Micro Devices, Inc. All rights reserved.
+License: MIT
+
+CMake target name: Gui_Attribution_vulkanmemoryallocator
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/VulkanMemoryAllocator/qt_attribution.json
+    Entry index: 0
+    Id: vulkanmemoryallocator
+    Name: Vulkan Memory Allocator
+    Description: Vulkan Memory Allocator
+    Qt usage: Memory management for the Vulkan backend of QRhi.
+    License: MIT License
+    License file: LICENSE.txt
+
+Source: https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+
+qtbase / Gui_Attribution_webgradients
+Copyright (c) 2017 itmeo
+License: MIT
+
+CMake target name: Gui_Attribution_webgradients
+    Information extracted from:
+     /src_dir/qtbase/util/gradientgen/qt_attribution.json
+    Entry index: 0
+    Id: webgradients
+    Name: WebGradients
+    Description: WebGradients is a free collection of 180 linear gradients.
+    Qt usage: Used in Qt GUI to provide presets for QGradient.
+    License: MIT License
+    License file: WEBGRADIENTS_LICENSE.txt
+
+Source: https://webgradients.com/
+
+qtbase / Gui_Attribution_icc-srgb-color-profile
+Copyright International Color Consortium, 2015
+License: LicenseRef-ICC-License
+
+CMake target name: Gui_Attribution_icc-srgb-color-profile
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/icc/qt_attribution.json
+    Entry index: 0
+    Id: icc-srgb-color-profile
+    Name: sRGB color profile icc file
+    Description: An ICC color profile for PDF/A-1b compatible PDF files.
+    Qt usage: Used in Qt Gui (Embedded into PDF/A-1b files generated by QPrinter/QPdfWriter).
+    License: International Color Consortium License
+    License file: LICENSE.txt
+
+Source: http://www.color.org/
+
+qtbase / Gui_Attribution_d3d12memoryallocator
+Copyright (c) 2019-2022 Advanced Micro Devices, Inc. All rights reserved.
+License: MIT
+
+CMake target name: Gui_Attribution_d3d12memoryallocator
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/D3D12MemoryAllocator/qt_attribution.json
+    Entry index: 0
+    Id: d3d12memoryallocator
+    Name: D3D12 Memory Allocator
+    Description: D3D12 Memory Allocator
+    Qt usage: Memory management for the D3D12 backend of QRhi.
+    License: MIT License
+    License file: LICENSE.txt
+
+Source: https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator
+
+qtbase / Gui_Attribution_md4c
+Copyright © 2016-2024 Martin Mitáš
+License: MIT
+
+CMake target name: Gui_Attribution_md4c
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/md4c/qt_attribution.json
+    Entry index: 0
+    Id: md4c
+    Name: MD4C
+    Description: A CommonMark-compliant Markdown parser.
+    Qt usage: Optionally used in QTextDocument if configured with textmarkdownreader.
+    License: MIT License
+    License file: LICENSE.md
+
+Source: https://github.com/mity/md4c/releases/tag/release-0.5.2
+
+qtbase / Gui_Attribution_zlib
+(C) 1995-2024 Jean-loup Gailly and Mark Adler
+License: Zlib
+
+CMake target name: Gui_Attribution_zlib
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/zlib/qt_attribution.json
+    Entry index: 0
+    Id: zlib
+    Name: Data Compression Library (zlib)
+    Description: zlib is a general purpose data compression library.
+    Qt usage: Optionally used in Qt Core and development tools. Configure with -system-zlib to avoid.
+    License: zlib License
+    License file: LICENSE
+
+Source: https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+
+qtbase / Gui_Attribution_vulkan-xml-spec
+Copyright (c) 2015-2022 The Khronos Group Inc.
+License: Apache-2.0 OR MIT
+
+CMake target name: Gui_Attribution_vulkan-xml-spec
+    Information extracted from:
+     /src_dir/qtbase/src/gui/vulkan/qt_attribution.json
+    Entry index: 0
+    Id: vulkan-xml-spec
+    Name: Vulkan API Registry
+    Description: Vulkan XML API Registry.
+    Qt usage: Used to dynamically generate the sources for the QVulkan(Device)Functions classes.
+    License: Apache License 2.0 or MIT License
+    License file: LICENSE.txt
+
+Source: https://www.khronos.org/
+
+qtbase / TestInternalsPrivate_Attribution_cmake-runcmake-test-modules
+Copyright © 2000-2024 Kitware, Inc. and Contributors
+License: BSD-3-Clause
+
+CMake target name: TestInternalsPrivate_Attribution_cmake-runcmake-test-modules
+    Information extracted from:
+     /src_dir/qtbase/src/testinternal/3rdparty/cmake/qt_attribution.json
+    Entry index: 0
+    Id: cmake-runcmake-test-modules
+    Name: cmake-runcmake-test-modules
+    Description: CMake helpers for running CMake tests.
+    Qt usage: Used as part of the build system.
+    License: BSD 3-Clause "New" or "Revised" License
+    License file: Copyright.txt
+
+Source: https://cmake.org/
+
+qtbase / Test_Attribution_catch2
+Copyright (c) 2022 Two Blue Cubes Ltd. All rights reserved.
+License: BSL-1.0
+
+CMake target name: Test_Attribution_catch2
+    Information extracted from:
+     /src_dir/qtbase/src/testlib/3rdparty/catch2/qt_attribution.json
+    Entry index: 0
+    Id: catch2
+    Name: Catch2
+    Description: Catch2 is a multi-paradigm test framework for C++.
+    Qt usage: Used for testing of the Qt Test module.
+    License: Boost Software License 1.0
+    License file: LICENSE.txt
+
+Source: https://github.com/catchorg/Catch2
+
+qtbase / Test_Attribution_cycle
+Copyright (c) 2003, 2007-14 Matteo Frigo
+Copyright (c) 2003, 2007-14 Massachusetts Institute of Technology
+License: MIT
+
+CMake target name: Test_Attribution_cycle
+    Information extracted from:
+     /src_dir/qtbase/src/testlib/3rdparty/cycle/qt_attribution.json
+    Entry index: 0
+    Id: cycle
+    Name: Cycle
+    Description: Enables access to the CPU's cycle counters.
+    Qt usage: Used in the Qt Test module.
+    License: MIT License
+    License file: LICENSE.txt
+
+Source: http://fftw.org/
+
+qtbase / Test_Attribution_linuxperf
+Copyright (C) 2008-2009, Thomas Gleixner <tglx@linutronix.de>
+Copyright (C) 2008-2011, Red Hat, Inc., Ingo Molnar
+Copyright (C) 2008-2011, Red Hat, Inc., Peter Zijlstra
+License: GPL-2.0-only WITH Linux-syscall-note
+
+CMake target name: Test_Attribution_linuxperf
+    Information extracted from:
+     /src_dir/qtbase/src/testlib/3rdparty/linux/qt_attribution.json
+    Entry index: 0
+    Id: linuxperf
+    Name: Linux Performance Events
+    Description: Allows access to the Linux kernel's performance events.
+    Qt usage: Used on Linux and Android in the Qt Test module.
+    License: GNU General Public License v2.0 only with Linux Syscall Note
+    License file: LICENSE.txt
+
+Source: https://www.kernel.org
+
+qtbase / Test_Attribution_valgrind
+Copyright (C) 2000-2017 Julian Seward
+Copyright (C) 2003-2017 Josef Weidendorfer.
+License: BSD-4-Clause
+
+CMake target name: Test_Attribution_valgrind
+    Information extracted from:
+     /src_dir/qtbase/src/testlib/3rdparty/valgrind/qt_attribution.json
+    Entry index: 0
+    Id: valgrind
+    Name: Valgrind
+    Description: An instrumentation framework for building dynamic analysis tools.
+    Qt usage: Used on Linux ond MacOS in the Qt Test module.
+    License: BSD 4-clause "Original" or "Old" License
+    License file: LICENSE.txt
+
+Source: http://valgrind.org/
+
+qtbase / QSQLiteDriverPlugin_Attribution_sqlite
+The authors disclaim copyright to the source code. However, a license can be obtained if needed.
+License: blessing
+
+CMake target name: QSQLiteDriverPlugin_Attribution_sqlite
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/sqlite/qt_attribution.json
+    Entry index: 0
+    Id: sqlite
+    Name: SQLite
+    Description: SQLite is a small C library that implements a self-contained, embeddable, zero-configuration SQL database engine.
+    Qt usage: Used in Qt SQL Lite plugin. Configure Qt with -system-sqlite or -no-sqlite to avoid.
+    License: SQLite Blessing
+
+Source: https://www.sqlite.org/2025/sqlite-amalgamation-3490100.zip
+
+qtbase / QWindowsIntegrationPlugin_Attribution_wintab
+Copyright 1991-1998 by LCS/Telegraphics.
+License: LicenseRef-Lcs-Telegraphics
+
+CMake target name: QWindowsIntegrationPlugin_Attribution_wintab
+    Information extracted from:
+     /src_dir/qtbase/src/3rdparty/wintab/qt_attribution.json
+    Entry index: 0
+    Id: wintab
+    Name: Wintab API
+    Description: Wintab is a de facto API for pointing devices on Windows.
+    Qt usage: Used in the Qt platform plugin for Windows. Configure with -no-feature-tabletevent to avoid.
+    License: LCS-Telegraphics License
+
+Source: NOASSERTION
+
+LicenseRef-BSD-3-Clause-with-PCRE2-Binary-Like-Packages-Exception
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+    3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+EXEMPTION FOR BINARY LIBRARY-LIKE PACKAGES
+------------------------------------------
+
+The second condition in the BSD licence (covering binary redistributions) does not apply all the way down a chain of software. If binary package A includes PCRE2, it must respect the condition, but if package B is software that includes package A, the condition is not imposed on package B unless it uses PCRE2 independently.
+
+
+LicenseRef-ICC-License
+For the file sRGB2014.icc:
+
+Copyright International Color Consortium, 2015
+
+This profile is made available by the International Color Consortium, and may be copied,
+distributed, embedded, made, used, and sold without restriction. Altered versions of this
+profile shall have the original identification and copyright information removed and
+shall not be misrepresented as the original profile.
+
+(original source location: http://www.color.org/srgbprofiles.xalter)
+
+
+LicenseRef-Lcs-Telegraphics
+The text and information contained in this file may be freely used,
+copied, or distributed without compensation or licensing restrictions.
+
+
+LicenseRef-SHA1-Public-Domain
+100% free public domain implementation of the SHA-1 algorithm
+by Dominik Reichl <dominik.reichl@t-online.de>
+Web: http://www.dominik-reichl.de/
+
+
+qtdeclarative / Qml_Attribution_masm
+Copyright (C) 2003-2018 Apple Inc. All rights reserved.
+Copyright (C) 2007 Justin Haygood (jhaygood@reaktix.com)
+Copyright (C) 2007-2009 Torch Mobile, Inc. All rights reserved. (http://www.torchmobile.com/)
+Copyright (C) 2009, 2010 University of Szeged
+Copyright (C) 2009-2011 STMicroelectronics. All rights reserved.
+Copyright (C) 2010 MIPS Technologies, Inc. All rights reserved.
+Copyright (C) 2010 Peter Varga (pvarga@inf.u-szeged.hu), University of Szeged
+Copyright (C) 2010 MIPS Technologies, Inc. All rights reserved.
+Copyright (C) 2010, 2011 Research In Motion Limited. All rights reserved.
+Copyright (C) 2011 Google Inc. All rights reserved.
+Copyright (C) 2013 Samsung Electronics. All rights reserved.
+Copyright (C) 2015 Cisco Systems, Inc. All rights reserved.
+Copyright (c) 2002-2009 Vivek Thampi
+License: BSD-2-Clause
+
+CMake target name: Qml_Attribution_masm
+    Information extracted from:
+     /src_dir/qtdeclarative/src/3rdparty/masm/qt_attribution.json
+    Entry index: 0
+    Id: masm
+    Name: JavaScriptCore Macro Assembler
+    Qt usage: Used in Qt QML.
+    License: BSD 2-clause "Simplified" License
+    License file: LICENSE
+
+Source: https://trac.webkit.org/wiki/JavaScriptCore
+
+qtdeclarative / QuickControls2Material_Attribution_shadow_angular_material
+Copyright (c) 2014-2016 Google, Inc
+License: MIT
+
+CMake target name: QuickControls2Material_Attribution_shadow_angular_material
+    Information extracted from:
+     /src_dir/qtdeclarative/src/quickcontrols/material/qt_attribution.json
+    Entry index: 0
+    Id: shadow_angular_material
+    Name: Shadow values from Angular Material
+    Description: Shadow values for the elevation effect.
+    Qt usage: Used in the Material Style of Qt Quick Controls.
+    License: MIT License
+    License file: LICENSE.ANGULARJS.txt
+
+Source: https://angularjs.org/
+
+qtdeclarative / qtquickcontrols2materialstyleplugin_Attribution_shadow_angular_material
+Copyright (c) 2014-2016 Google, Inc
+License: MIT
+
+CMake target name: qtquickcontrols2materialstyleplugin_Attribution_shadow_angular_material
+    Information extracted from:
+     /src_dir/qtdeclarative/src/quickcontrols/material/qt_attribution.json
+    Entry index: 0
+    Id: shadow_angular_material
+    Name: Shadow values from Angular Material
+    Description: Shadow values for the elevation effect.
+    Qt usage: Used in the Material Style of Qt Quick Controls.
+    License: MIT License
+    License file: LICENSE.ANGULARJS.txt
+
+Source: https://angularjs.org/
+
+qtshadertools / BundledGlslang_Spirv
+Copyright (c) 2017, 2019 ARM Limited
+Copyright (c) 2002-2005 3 Dlabs Inc. Ltd.
+Copyright (c) 1984, 1989-1990, 2000-2015 Free Software Foundation, Inc.
+Copyright (c) 2014-2018 Google, Inc.
+Copyright (c) 2002 NVIDIA Corporation
+Copyright (c) 2002-2010 The ANGLE Project
+Copyright (c) 2014-2019 The Khronos Group Inc.
+License: BSD-3-Clause AND LicenseRef-MIT-Khronos-old AND Apache-2.0 AND GPL-3.0-or-later WITH Bison-exception-2.2 AND AML-glslang
+
+CMake target name: BundledGlslang_Spirv
+CMake exported target name: Qt6::BundledGlslang_Spirv
+Contained in CMake package: Qt6BundledGlslang_Spirv
+    Information extracted from:
+     /src_dir/qtshadertools/src/3rdparty/glslang/qt_attribution.json
+    Entry index: 0
+    Id: glslang
+    Name: glslang
+    Description: An OpenGL and OpenGL ES shader front end and validator.
+    Qt usage: Compile GLSL to SPIR-V.
+    License: BSD 3-Clause "New" or "Revised" License, and MIT Khronos - old variant, and Apache License 2.0, and GNU General Public License v3.0 or later with Bison exception 2.2, and AML glslang variant License
+    License file: LICENSE.txt
+
+Source: https://github.com/KhronosGroup/glslang
+
+qtshadertools / BundledGlslang_Osdependent
+Copyright (c) 2017, 2019 ARM Limited
+Copyright (c) 2002-2005 3 Dlabs Inc. Ltd.
+Copyright (c) 1984, 1989-1990, 2000-2015 Free Software Foundation, Inc.
+Copyright (c) 2014-2018 Google, Inc.
+Copyright (c) 2002 NVIDIA Corporation
+Copyright (c) 2002-2010 The ANGLE Project
+Copyright (c) 2014-2019 The Khronos Group Inc.
+License: BSD-3-Clause AND LicenseRef-MIT-Khronos-old AND Apache-2.0 AND GPL-3.0-or-later WITH Bison-exception-2.2 AND AML-glslang
+
+CMake target name: BundledGlslang_Osdependent
+CMake exported target name: Qt6::BundledGlslang_Osdependent
+Contained in CMake package: Qt6BundledGlslang_Osdependent
+    Information extracted from:
+     /src_dir/qtshadertools/src/3rdparty/glslang/qt_attribution.json
+    Entry index: 0
+    Id: glslang
+    Name: glslang
+    Description: An OpenGL and OpenGL ES shader front end and validator.
+    Qt usage: Compile GLSL to SPIR-V.
+    License: BSD 3-Clause "New" or "Revised" License, and MIT Khronos - old variant, and Apache License 2.0, and GNU General Public License v3.0 or later with Bison exception 2.2, and AML glslang variant License
+    License file: LICENSE.txt
+
+Source: https://github.com/KhronosGroup/glslang
+
+qtshadertools / BundledGlslang_Glslang
+Copyright (c) 2017, 2019 ARM Limited
+Copyright (c) 2002-2005 3 Dlabs Inc. Ltd.
+Copyright (c) 1984, 1989-1990, 2000-2015 Free Software Foundation, Inc.
+Copyright (c) 2014-2018 Google, Inc.
+Copyright (c) 2002 NVIDIA Corporation
+Copyright (c) 2002-2010 The ANGLE Project
+Copyright (c) 2014-2019 The Khronos Group Inc.
+License: BSD-3-Clause AND LicenseRef-MIT-Khronos-old AND Apache-2.0 AND GPL-3.0-or-later WITH Bison-exception-2.2 AND AML-glslang
+
+CMake target name: BundledGlslang_Glslang
+CMake exported target name: Qt6::BundledGlslang_Glslang
+Contained in CMake package: Qt6BundledGlslang_Glslang
+    Information extracted from:
+     /src_dir/qtshadertools/src/3rdparty/glslang/qt_attribution.json
+    Entry index: 0
+    Id: glslang
+    Name: glslang
+    Description: An OpenGL and OpenGL ES shader front end and validator.
+    Qt usage: Compile GLSL to SPIR-V.
+    License: BSD 3-Clause "New" or "Revised" License, and MIT Khronos - old variant, and Apache License 2.0, and GNU General Public License v3.0 or later with Bison exception 2.2, and AML glslang variant License
+    License file: LICENSE.txt
+
+Source: https://github.com/KhronosGroup/glslang
+
+qtshadertools / BundledSpirv_Cross
+Copyright 2015-2020 Arm Limited
+Copyright (c) 2014-2019 The Khronos Group Inc.
+Copyright 2019-2020 Hans-Kristian Arntzen
+Copyright 2016-2020 Robert Konrad
+Copyright 2016-2020 The Brenwill Workshop Ltd.
+Copyright 2018-2020 Bradley Austin Davis
+
+License: Apache-2.0 AND LicenseRef-MIT-Khronos-old
+
+CMake target name: BundledSpirv_Cross
+CMake exported target name: Qt6::BundledSpirv_Cross
+Contained in CMake package: Qt6BundledSpirv_Cross
+    Information extracted from:
+     /src_dir/qtshadertools/src/3rdparty/SPIRV-Cross/qt_attribution.json
+    Entry index: 0
+    Id: spirvcross
+    Name: SPIRV-Cross
+    Description: A practical tool and library for performing reflection on SPIR-V and disassembling SPIR-V back to high level languages.
+    Qt usage: Shader code generation.
+    License: Apache License 2.0 and MIT Khronos - old variant
+
+Source: https://github.com/KhronosGroup/SPIRV-Cross
+
+LicenseRef-MIT-Khronos-old
+Copyright (c) 2014-2020 The Khronos Group Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and/or associated documentation files (the "Materials"),
+to deal in the Materials without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Materials, and to permit persons to whom the
+Materials are furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Materials.
+
+MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS KHRONOS
+STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS SPECIFICATIONS AND
+HEADER INFORMATION ARE LOCATED AT https://www.khronos.org/registry/
+
+THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM,OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS
+IN THE MATERIALS.

@@ -1,0 +1,133 @@
+"""Independent standard-library decoder: compare every exported block and heightmap.
+Run core tests with an output path first; this never launches or accepts the game EULA.
+"""
+import gzip
+import json
+import pathlib
+import struct
+import sys
+import zlib
+
+
+class Nbt:
+    def __init__(self, data):
+        self.data, self.pos = data, 0
+
+    def take(self, n):
+        assert 0 <= n <= len(self.data) - self.pos, "NBT bounds"
+        value = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return value
+
+    def num(self, fmt):
+        return struct.unpack(">" + fmt, self.take(struct.calcsize(fmt)))[0]
+
+    def string(self):
+        return self.take(self.num("H")).decode("utf-8")
+
+    def payload(self, tag):
+        if tag in (1, 2, 3, 4, 5, 6):
+            return self.num({1: "b", 2: "h", 3: "i", 4: "q", 5: "f", 6: "d"}[tag])
+        if tag == 7:
+            return self.take(self.num("i"))
+        if tag == 8:
+            return self.string()
+        if tag == 9:
+            element, count = self.num("B"), self.num("i")
+            assert 0 <= count <= 1000000
+            return [self.payload(element) for _ in range(count)]
+        if tag == 10:
+            result = {}
+            while (child := self.num("B")) != 0:
+                name = self.string()
+                assert name not in result, f"duplicate NBT key {name}"
+                result[name] = self.payload(child)
+            return result
+        if tag in (11, 12):
+            count = self.num("i")
+            assert 0 <= count <= 1000000
+            return [self.num("i" if tag == 11 else "Q") for _ in range(count)]
+        raise AssertionError(f"unknown NBT type {tag}")
+
+    def root(self):
+        assert self.num("B") == 10
+        self.string()
+        value = self.payload(10)
+        assert self.pos == len(self.data), "NBT trailing bytes"
+        return value
+
+
+def unpack(data, bits, count):
+    per = 64 // bits
+    assert len(data) == (count + per - 1) // per
+    return [(data[i // per] >> ((i % per) * bits)) & ((1 << bits) - 1) for i in range(count)]
+
+
+def verify(base):
+    meta = json.loads((base / "expected.json").read_text())
+    expected = (base / "expected_blocks.bin").read_bytes()
+    size, origin, low, high = (meta[k] for k in ("size", "origin", "minY", "maxY"))
+    ids = meta["ids"]
+
+    def block(x, y, z):
+        return expected[((y - low) * size + z - origin) * size + x - origin]
+
+    level = Nbt(gzip.decompress((base / "minecraft/level.dat").read_bytes())).root()["Data"]
+    assert level["DataVersion"] == 3465 and level["Version"]["Name"] == "1.20.1"
+    assert level["GameType"] == 1
+    assert set(level["WorldGenSettings"]["dimensions"]) == {"minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"}
+    assert block(level["SpawnX"], level["SpawnY"], level["SpawnZ"]) == 0
+    seen = set()
+    compared = 0
+    for path in (base / "minecraft/region").glob("*.mca"):
+        _, rx, rz, _ = path.name.split(".")
+        region = path.read_bytes()
+        assert len(region) % 4096 == 0 and len(region) >= 8192
+        occupied = {0, 1}
+        for index in range(1024):
+            location = int.from_bytes(region[index * 4:index * 4 + 4], "big")
+            if not location:
+                continue
+            offset, sectors = location >> 8, location & 255
+            assert offset >= 2 and sectors > 0 and (offset + sectors) * 4096 <= len(region)
+            space = set(range(offset, offset + sectors))
+            assert not occupied & space, "overlapping region allocation"
+            occupied |= space
+            start = offset * 4096
+            length = int.from_bytes(region[start:start + 4], "big")
+            assert 1 < length <= sectors * 4096 - 4 and region[start + 4] == 2
+            chunk = Nbt(zlib.decompress(region[start + 5:start + 4 + length])).root()
+            cx, cz = int(rx) * 32 + index % 32, int(rz) * 32 + index // 32
+            assert (cx, cz) not in seen
+            seen.add((cx, cz))
+            assert (chunk["xPos"], chunk["zPos"]) == (cx, cz)
+            assert chunk["DataVersion"] == 3465 and chunk["Status"] == "minecraft:full"
+            assert chunk["isLightOn"] == 0 and len(chunk["sections"]) == 24
+            for section in chunk["sections"]:
+                sy = section["Y"]
+                state = section["block_states"]
+                palette = state["palette"]
+                bits = max(4, (len(palette) - 1).bit_length())
+                values = unpack(state["data"], bits, 4096) if len(palette) > 1 else [0] * 4096
+                assert section["biomes"]["palette"] == ["minecraft:plains"]
+                for j, value in enumerate(values):
+                    assert value < len(palette)
+                    x, y, z = cx * 16 + j % 16, sy * 16 + j // 256, cz * 16 + (j // 16) % 16
+                    actual, wanted = palette[value], ids[block(x, y, z)]
+                    assert actual["Name"] == wanted, (x, y, z, actual, wanted)
+                    if wanted == "minecraft:oak_slab":
+                        assert actual["Properties"] == {"type": "bottom", "waterlogged": "false"}
+                    compared += 1
+            for name in ("WORLD_SURFACE", "MOTION_BLOCKING", "MOTION_BLOCKING_NO_LEAVES", "OCEAN_FLOOR"):
+                values = unpack(chunk["Heightmaps"][name], 9, 256)
+                for j, value in enumerate(values):
+                    x, z = cx * 16 + j % 16, cz * 16 + j // 16
+                    wanted = next(y - low + 1 for y in range(high - 1, low - 1, -1) if block(x, y, z) != 0 and (name != "OCEAN_FLOOR" or block(x, y, z) != 5))
+                    assert value == wanted, (name, x, z, value, wanted)
+    assert seen == {(-1, -1), (-1, 0), (0, -1), (0, 0)}
+    assert compared == size * size * (high - low)
+    print(f"PASS independent NBT/Anvil verification: {len(seen)} chunks, {compared:,} blocks, 4,096 heightmap values")
+
+
+if __name__ == "__main__":
+    verify(pathlib.Path(sys.argv[1]))
