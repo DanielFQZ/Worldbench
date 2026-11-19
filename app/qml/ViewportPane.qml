@@ -25,7 +25,7 @@ Rectangle {
         Column {
             anchors.left: parent.left; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 5
             Text { text: viewport.hitText; color: "#8cdae5"; font.pixelSize: 12; font.family: "Microsoft YaHei UI" }
-            Text { text: viewport.cameraText; color: "#8e9fb2"; font.pixelSize: 11; font.family: "Microsoft YaHei UI" }
+            Text { text: viewport.cameraText+"   ·   "+editor.meshUpdateSummary; color: "#8e9fb2"; font.pixelSize: 11; font.family: "Microsoft YaHei UI" }
         }
     }
     Rectangle {

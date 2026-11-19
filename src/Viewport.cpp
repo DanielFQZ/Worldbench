@@ -44,7 +44,7 @@ class Renderer final : public QQuickRhiItemRenderer {
     QMatrix4x4 m_matrix;
     QVector3D m_camera;
     wb::Hit m_hit;
-    int m_radius = 4, m_tool = 0;
+    int m_radius = 4, m_tool = 0, m_brushShape = 0;
     std::shared_ptr<std::atomic_int> m_frames;
     void initialize(QRhiCommandBuffer *) override {
         if (m_rhi != rhi()) {
@@ -121,6 +121,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_scene = v->editor()->scene();
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
+            m_brushShape = v->editor()->brushShape();
         }
     }
     void render(QRhiCommandBuffer *cb) override {
@@ -154,7 +155,8 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[22] = m_hit.z + .5f;
         u[23] = float(m_radius);
         u[24] = m_hit.valid && m_tool >= 0 ? 1.f : 0.f;
-        u[25] = float(m_tool);
+        u[25] = m_tool == 5 ? 1.f : float(m_tool);
+        u[26] = float(m_brushShape);
         updates->updateDynamicBuffer(m_uniform.get(), 0, 112, u.data());
         if (m_scene) {
             m_chunks.resize(m_scene->chunks.size());
@@ -300,7 +302,8 @@ void Viewport::changedCamera() {
 void Viewport::resetCamera() {
     stopInput();
     const auto &w = m_editor->world();
-    m_pivot = {float(w.originX + w.size / 2), 20, float(w.originZ + w.size / 2)};
+    m_pivot = {float(w.originX + w.size / 2), float(w.height(w.originX + w.size / 2, w.originZ + w.size / 2)),
+               float(w.originZ + w.size / 2)};
     m_camera = m_pivot + QVector3D(w.size * .625f, 45, w.size * .78125f);
     const auto f = (m_pivot - m_camera).normalized();
     m_yaw = qRadiansToDegrees(std::atan2(f.x(), -f.z()));

@@ -15,6 +15,8 @@ struct MeshScene {
     std::vector<MeshPtr> chunks;
     uint64_t revision = 0;
     size_t vertices = 0;
+    int updatedChunks = 0;
+    qint64 buildMilliseconds = 0;
     std::shared_ptr<const AssetLibrary> assets;
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision);

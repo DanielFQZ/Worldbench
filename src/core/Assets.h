@@ -5,6 +5,7 @@
 #include <QVector2D>
 #include <QVector3D>
 #include <QVector4D>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -29,6 +30,9 @@ struct BlockModel {
 };
 struct CatalogBlock {
     QString name, title;
+    QStringList searchTerms;
+    QString thumbnailData;
+    std::shared_ptr<const BlockModel> preview;
     QMap<QString, QStringList> options;
     BlockState defaults;
 };
@@ -41,7 +45,9 @@ class AssetLibrary {
     QMap<QString, QImage> thumbnails;
     QStringList warnings;
     int skippedEntries = 0, unsupportedEntries = 0;
-    static std::shared_ptr<AssetLibrary> load(const QStringList &paths, QString &error);
+    using Progress = std::function<void(int, const QString &)>;
+    static std::shared_ptr<AssetLibrary> load(const QStringList &paths, QString &error,
+                                              Progress progress = {});
     std::shared_ptr<const BlockModel> model(const BlockState &state) const;
     bool validate(const BlockState &state, QString &error) const;
 

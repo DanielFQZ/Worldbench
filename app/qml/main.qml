@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.2.1"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.3.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -25,34 +25,47 @@ ApplicationWindow {
     }
     function finishAction() {
         const action = pendingAction; pendingAction = ""
-        if (action === "new") editor.newWorld()
-        else if (action === "open") openDialog.open()
+        if (action === "new") newWorldDialog.open()
+        else if (action === "open") { openDialog.currentFolder=editor.dialogFolder("openProject"); openDialog.open() }
         else if (action === "close") { allowClose = true; win.close() }
     }
+    function chooseResources(overlay) {
+        resourceDialog.overlay=overlay
+        resourceDialog.currentFolder=editor.dialogFolder(overlay?"overlayResource":"baseResource")
+        resourceDialog.open()
+    }
+    function chooseSave() { saveDialog.currentFolder=editor.dialogFolder("saveProject"); saveDialog.open() }
     function saveCurrent() {
         if (editor.assetBusy) return
-        if (editor.projectPath.length === 0) saveDialog.open()
+        if (editor.projectPath.length === 0) chooseSave()
         else if (editor.save()) finishAction()
     }
     onClosing: function(close) { if (!allowClose) { close.accepted = false; requestAction("close") } }
     menuBar: MenuBar {
-        Menu {
+        background:Rectangle{color:"#293746"}
+        delegate:MenuBarItem {
+            id:barItem
+            contentItem:Text{text:barItem.text;font:barItem.font;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter;color:barItem.highlighted?"#eaffff":"#dce4ee"}
+            background:Rectangle{color:barItem.highlighted?"#15586e":"transparent"}
+        }
+        WorkbenchMenu {
+            objectName: "fileMenu"
             title: "文件"
             Action { text: "新建工程     Ctrl+N"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.requestAction("new") }
             Action { text: "打开工程…    Ctrl+O"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.requestAction("open") }
             Action { text: "保存         Ctrl+S"; enabled: !editor.assetBusy; onTriggered: win.saveCurrent() }
-            Action { text: "另存为…"; enabled: !editor.assetBusy; onTriggered: saveDialog.open() }
+            Action { text: "另存为…"; enabled: !editor.assetBusy; onTriggered: win.chooseSave() }
             MenuSeparator {}
             Action { text: "导出 Minecraft 1.20.1…"; enabled: !editor.exportBusy && !editor.assetBusy; onTriggered: exportDialog.open() }
             MenuSeparator {}
             Action { text: "退出"; onTriggered: win.requestAction("close") }
         }
-        Menu {
+        WorkbenchMenu {
             title: "编辑"
             Action { text: "撤销    Ctrl+Z"; enabled: editor.canUndo && !editor.assetBusy; onTriggered: editor.undo() }
             Action { text: "重做    Ctrl+Y"; enabled: editor.canRedo && !editor.assetBusy; onTriggered: editor.redo() }
         }
-        Menu {
+        WorkbenchMenu {
             title: "工具"
             Action { text: "选择 / 导航"; onTriggered: editor.tool = -1 }
             MenuSeparator {}
@@ -61,27 +74,28 @@ ApplicationWindow {
             Action { text: "体积挖除"; onTriggered: editor.tool = 2 }
             Action { text: "体积填充"; onTriggered: editor.tool = 3 }
             Action { text: "材质涂绘"; onTriggered: editor.tool = 4 }
+            Action { text: "平滑地形"; onTriggered: editor.tool = 5 }
         }
-        Menu {
+        WorkbenchMenu {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
             Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
         }
-        Menu {
+        WorkbenchMenu {
             title: "资源"
-            Action { text: "载入客户端 JAR / 基础 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = false; resourceDialog.open() } }
-            Action { text: "叠加资源包 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = true; resourceDialog.open() } }
+            Action { text: "载入客户端 JAR / 基础 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.chooseResources(false) }
+            Action { text: "叠加资源包 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.chooseResources(true) }
             Action { text: "管理资源来源"; onTriggered: { settingsContent.page = "resources"; settingsDialog.open() } }
         }
-        Menu {
+        WorkbenchMenu {
             title: "自动化"
             Action { text: "MCP / LLM 接入…"; onTriggered: mcpDialog.open() }
         }
-        Menu {
+        WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.2.1 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.3.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     RowLayout {
@@ -113,7 +127,18 @@ ApplicationWindow {
         id: resourceDialog; property bool overlay: false
         title: overlay ? "叠加资源包" : "载入基础 Minecraft 资源"
         fileMode: FileDialog.OpenFile; nameFilters: ["Minecraft 资源 (*.jar *.zip)"]
-        onAccepted: { editor.importResource(selectedFile, overlay); settingsContent.page = "resources"; settingsDialog.open() }
+        onAccepted: { editor.rememberDialogFolder(overlay?"overlayResource":"baseResource",selectedFile); editor.importResource(selectedFile, overlay) }
+        onRejected: editor.rememberDialogFolder(overlay?"overlayResource":"baseResource",currentFolder,true)
+    }
+    NewWorldDialog { id:newWorldDialog;anchors.centerIn:parent }
+    Dialog {
+        id:resourceSetup;title:"设置默认 Minecraft 资源";modal:true;width:520;anchors.centerIn:parent
+        standardButtons:Dialog.Close
+        contentItem:ColumnLayout {
+            Label{text:"选择一次客户端 JAR，此后启动或新建地图会自动加载。你可以随时从资源菜单更换。";Layout.fillWidth:true;wrapMode:Text.WordWrap}
+            Button{text:"选择客户端 JAR / 基础 ZIP…";onClicked:{resourceSetup.close();win.chooseResources(false)}}
+            Label{text:"也可以稍后设置，先用内置材质试用。";color:"#91a8ba"}
+        }
     }
     Dialog {
         id: settingsDialog; objectName: "editorSettingsDialog"
@@ -155,10 +180,10 @@ ApplicationWindow {
     FileDialog {
         id: saveDialog; title: "保存 Worldbench 工程"; fileMode: FileDialog.SaveFile
         nameFilters: ["Worldbench 工程 (*.wbench)"]; defaultSuffix: "wbench"
-        onAccepted: { if (editor.save(selectedFile)) win.finishAction() }
-        onRejected: win.pendingAction = ""
+        onAccepted: { editor.rememberDialogFolder("saveProject",selectedFile); if (editor.save(selectedFile)) win.finishAction() }
+        onRejected: { editor.rememberDialogFolder("saveProject",currentFolder,true); win.pendingAction = "" }
     }
-    FileDialog { id: openDialog; title: "打开 Worldbench 工程"; fileMode: FileDialog.OpenFile; nameFilters: ["Worldbench 工程 (*.wbench)"]; onAccepted: editor.open(selectedFile) }
+    FileDialog { id: openDialog; title: "打开 Worldbench 工程"; fileMode: FileDialog.OpenFile; nameFilters: ["Worldbench 工程 (*.wbench)"]; onAccepted: { editor.rememberDialogFolder("openProject",selectedFile); editor.open(selectedFile) } onRejected: editor.rememberDialogFolder("openProject",currentFolder,true) }
     MessageDialog {
         id: unsaved; title: "保存当前改动？"; text: "当前工程有未保存的改动。"
         buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
@@ -169,7 +194,7 @@ ApplicationWindow {
         }
     }
     MessageDialog { id: errorBox; title: "Worldbench"; buttons: MessageDialog.Ok }
-    FolderDialog { id: exportFolder; title: "选择存放新 Minecraft 存档的父目录"; onAccepted: exportParent.text = selectedFolder.toString() }
+    FolderDialog { id: exportFolder; title: "选择存放新 Minecraft 存档的父目录"; onAccepted: { editor.rememberDialogFolder("exportParent",selectedFolder,true); exportParent.text = selectedFolder.toString() } onRejected: editor.rememberDialogFolder("exportParent",currentFolder,true) }
     Dialog {
         id: exportDialog; title: "导出 Minecraft Java 1.20.1"; modal: true
         anchors.centerIn: parent; width: 520
@@ -180,7 +205,7 @@ ApplicationWindow {
             Label { text: "父目录（可选择 .minecraft/saves）"; color: "#96a8bc" }
             RowLayout {
                 TextField { id: exportParent; Layout.fillWidth: true; readOnly: true; placeholderText: "选择已有目录…" }
-                Button { text: "浏览"; onClicked: exportFolder.open() }
+                Button { text: "浏览"; onClicked: { exportFolder.currentFolder=editor.dialogFolder("exportParent"); exportFolder.open() } }
             }
             Label { text: "新存档名称"; color: "#96a8bc" }
             TextField { id: exportName; text: "Worldbench-001"; Layout.fillWidth: true; selectByMouse: true; maximumLength: 64 }
@@ -190,6 +215,8 @@ ApplicationWindow {
     }
     Connections {
         target: editor
+        function onResourceSetupRequested() { resourceSetup.open() }
+        function onResourceLoadStarted() { settingsContent.page="resources"; settingsDialog.open() }
         function onFailure(message) { errorBox.text = message; errorBox.open() }
         function onExported(path) { errorBox.text = "导出完成：\n" + path + "\n\n请在 Minecraft Java 1.20.1 中测试。"; errorBox.open() }
     }

@@ -4,6 +4,7 @@
 #include <QVector3D>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -47,6 +48,19 @@ struct Command {
     std::vector<HeightChange> heights;
     QString label;
 };
+struct WorldOptions {
+    int size = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
+    bool flat = false;
+};
+struct BrushOptions {
+    int shape = 0, falloff = 0, flattenMode = 0;
+    bool fillHoles = false;
+    int fillDepth = 8;
+    bool filterEnabled = false;
+    int minHeight = -63, maxHeight = 318, minSlope = 0, maxSlope = 90;
+    int materialFilter = 0;
+    QString filterBlock = "minecraft:stone";
+};
 
 class World {
   public:
@@ -63,6 +77,8 @@ class World {
     Block intern(const BlockState &state);
     void setAssets(std::shared_ptr<const AssetLibrary> library);
     static World create(int size = 128, int seed = 2026);
+    static World create(const WorldOptions &options);
+    bool isAir(Block block) const;
     bool contains(int x, int y, int z) const;
     int column(int x, int z) const;
     int height(int x, int z) const;
@@ -78,16 +94,20 @@ class World {
 class Stroke {
   public:
     explicit Stroke(World &world) : world(world) {}
-    bool stamp(const Hit &hit, int tool, int radius, int strength, Block material, bool reverse);
+    bool stamp(const Hit &hit, int tool, int radius, int strength, Block material, bool reverse,
+               const BrushOptions &options = {});
     Command finish(const QString &label);
 
   private:
     void changeCell(int x, int y, int z, Block block);
     void changeHeight(int index, int height);
+    void reshapeSurface(int x, int z, int height, const BrushOptions &options);
     World &world;
     std::map<uint32_t, int> beforeCells;
     std::map<int, int> beforeHeights;
     int flattenHeight = -9999;
+    uint64_t changes = 0;
 };
+std::set<int> affectedChunks(const World &world, const Command &command);
 int floorDiv(int value, int divisor);
 } // namespace wb

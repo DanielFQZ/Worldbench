@@ -22,6 +22,21 @@ ScrollView {
     ColumnLayout {
      visible:panel.page==="resources";Layout.fillWidth:true;Layout.margins:12;spacing:12
      Label{text:"Minecraft 资源";font.pixelSize:17}
+     Label{text:editor.assetStage;visible:editor.assetStage.length>0;Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#76d3e2"}
+     ProgressBar{
+      id:resourceProgress;objectName:"resourceProgress";Layout.fillWidth:true;visible:editor.assetStage.length>0;from:0;to:100;value:editor.assetProgress
+      background:Rectangle{implicitHeight:8;color:"#131d28";radius:4}
+      contentItem:Item{implicitHeight:8;Rectangle{width:parent.width*resourceProgress.visualPosition;height:parent.height;color:"#43bace";radius:4}}
+     }
+     Label{visible:editor.assetBusy;text:"解析进度 "+editor.assetProgress+"% · 可以移动或关闭此窗口，后台任务会继续";color:"#a5bacb";wrapMode:Text.WordWrap;Layout.fillWidth:true}
+     ScrollView {
+      visible:editor.assetLog.length>0;Layout.fillWidth:true;Layout.preferredHeight:180;clip:true
+      TextArea{objectName:"resourceLiveLog";text:editor.assetLog;readOnly:true;selectByMouse:true;wrapMode:TextEdit.WrapAnywhere;font.pixelSize:11;color:"#a8c6d8";background:Rectangle{color:"#151f2a"} onTextChanged:cursorPosition=length}
+     }
+     Label{text:editor.defaultResourceSources.length?"默认资源："+editor.defaultResourceSources.join("\n"):"尚未设置默认资源";Layout.fillWidth:true;wrapMode:Text.WrapAnywhere;color:"#91a8ba";font.pixelSize:11}
+     Button{text:"清除默认资源设置";enabled:!editor.assetBusy&&editor.defaultResourceSources.length>0;onClicked:editor.clearDefaultResources()}
+     Label{text:"手动成功导入或移除来源后会记为默认资源。打开工程优先使用工程自带来源；清除默认设置不移除当前工程资源。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#91a8ba";font.pixelSize:11}
+
      Label{text:editor.resourceSummary;wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#a6b4c5"}
      Repeater {
       model:editor.resourceSources

@@ -16,7 +16,8 @@ void main(){
     float edge=1.0-smoothstep(0.0,0.65,min(cell.x,cell.y));
     col*=1.0-edge*0.17;
     if(u.params.x>0.5){
-        float d=u.params.y<1.5?length(worldPos.xz-u.brush.xz):length(worldPos-u.brush.xyz);
+        vec3 delta=abs(worldPos-u.brush.xyz);
+        float d=u.params.y<1.5?(u.params.z>0.5?max(delta.x,delta.z):length(delta.xz)):(u.params.z>0.5?max(delta.x,max(delta.y,delta.z)):length(delta));
         float band=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w));
         col=mix(col,vec3(0.30,0.88,0.98),band*0.95);
         if(d<u.brush.w)col=mix(col,vec3(0.25,0.75,0.85),0.10);

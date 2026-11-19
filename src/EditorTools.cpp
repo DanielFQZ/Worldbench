@@ -1,12 +1,18 @@
 #include "Editor.h"
 #include "McpServer.h"
 #include "Viewport.h"
+#include "core/Search.h"
 #include <QBuffer>
 #include <QClipboard>
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QtConcurrent>
 #include <cmath>
 #include <stdexcept>
@@ -62,42 +68,141 @@ QVariantList Editor::materialProperties() const {
     return list;
 }
 QVariantList Editor::blockCatalog(const QString &filter) const {
-    QVariantList list;
-    auto add = [&](const QString &name, const QString &title, std::shared_ptr<const wb::BlockModel> model,
-                   int id) {
-        if (!filter.isEmpty() && !name.contains(filter, Qt::CaseInsensitive) &&
-            !title.contains(filter, Qt::CaseInsensitive))
+    std::vector<std::pair<int, QVariantMap>> ranked;
+    auto add = [&](const QString &name, const QString &title, const QStringList &keys,
+                   std::shared_ptr<const wb::BlockModel> model, const QString &thumbnail, int id) {
+        int score = wb::searchScore(keys, filter);
+        if (score < 0)
             return;
-        QString thumbnail;
-        if (m_world.assets) {
-            auto image = m_world.assets->thumbnails.value(model->thumbnail);
-            if (!image.isNull()) {
-                QByteArray png;
-                QBuffer b(&png);
-                b.open(QIODevice::WriteOnly);
-                image.save(&b, "PNG");
-                thumbnail = "data:image/png;base64," + QString::fromLatin1(png.toBase64());
-            }
-        }
         const auto &color = wb::info(id < wb::BlockCount ? id : wb::Stone);
-        list << QVariantMap{{"name", name},
-                            {"title", title},
-                            {"thumbnail", thumbnail},
-                            {"color", QColor::fromRgbF(color.r, color.g, color.b)},
-                            {"fallback", model->fallback},
-                            {"diagnostic", model->diagnostic}};
+        ranked.push_back({score, QVariantMap{{"name", name},
+                                             {"title", title},
+                                             {"thumbnail", thumbnail},
+                                             {"color", QColor::fromRgbF(color.r, color.g, color.b)},
+                                             {"fallback", model->fallback},
+                                             {"diagnostic", model->diagnostic}}});
     };
     if (m_world.assets && !m_world.assets->catalog.isEmpty()) {
-        for (auto i = m_world.assets->catalog.begin(); i != m_world.assets->catalog.end(); ++i) {
-            if (!filter.isEmpty() && !i.key().contains(filter, Qt::CaseInsensitive) &&
-                !i->title.contains(filter, Qt::CaseInsensitive))
-                continue;
-            add(i.key(), i->title, m_world.assets->model(i->defaults), wb::BlockCount);
-        }
+        for (auto i = m_world.assets->catalog.cbegin(); i != m_world.assets->catalog.cend(); ++i)
+            add(i.key(), i->title, i->searchTerms, i->preview, i->thumbnailData, wb::BlockCount);
     } else
-        for (int i = 0; i < wb::BlockCount; ++i)
-            add(m_world.palette[i].name, QString::fromUtf8(wb::info(i).name), m_world.models[i], i);
+        for (int i = 0; i < wb::BlockCount; ++i) {
+            auto name = m_world.palette[i].name, title = QString::fromUtf8(wb::info(i).name);
+            QString thumbnail;
+            if (m_world.assets) {
+                const auto img = m_world.assets->thumbnails.value(m_world.models[i]->thumbnail);
+                if (!img.isNull()) {
+                    QByteArray png;
+                    QBuffer b(&png);
+                    b.open(QIODevice::WriteOnly);
+                    img.save(&b, "PNG");
+                    thumbnail = "data:image/png;base64," + QString::fromLatin1(png.toBase64());
+                }
+            }
+            add(name, title, wb::searchKeys(name, title), m_world.models[i], thumbnail, i);
+        }
+    std::stable_sort(ranked.begin(), ranked.end(),
+                     [](const auto &a, const auto &b) { return a.first < b.first; });
+    QVariantList list;
+    for (const auto &entry : ranked)
+        list << entry.second;
     return list;
+}
+QVariantMap Editor::brushOptions() const {
+    const auto &o = m_brushOptions;
+    return {{"shape", o.shape},
+            {"falloff", o.falloff},
+            {"flattenMode", o.flattenMode},
+            {"fillHoles", o.fillHoles},
+            {"fillDepth", o.fillDepth},
+            {"filterEnabled", o.filterEnabled},
+            {"minHeight", o.minHeight},
+            {"maxHeight", o.maxHeight},
+            {"minSlope", o.minSlope},
+            {"maxSlope", o.maxSlope},
+            {"materialFilter", o.materialFilter},
+            {"filterBlock", o.filterBlock}};
+}
+void Editor::setBrushOption(const QString &key, const QVariant &value) {
+    endStroke();
+    auto &o = m_brushOptions;
+    if (key == "shape")
+        o.shape = std::clamp(value.toInt(), 0, 1);
+    else if (key == "falloff")
+        o.falloff = std::clamp(value.toInt(), 0, 2);
+    else if (key == "flattenMode")
+        o.flattenMode = std::clamp(value.toInt(), 0, 2);
+    else if (key == "fillHoles")
+        o.fillHoles = value.toBool();
+    else if (key == "fillDepth")
+        o.fillDepth = std::clamp(value.toInt(), 1, 383);
+    else if (key == "filterEnabled")
+        o.filterEnabled = value.toBool();
+    else if (key == "minHeight") {
+        o.minHeight = std::clamp(value.toInt(), -63, 318);
+        o.maxHeight = std::max(o.maxHeight, o.minHeight);
+    } else if (key == "maxHeight") {
+        o.maxHeight = std::clamp(value.toInt(), -63, 318);
+        o.minHeight = std::min(o.minHeight, o.maxHeight);
+    } else if (key == "minSlope") {
+        o.minSlope = std::clamp(value.toInt(), 0, 90);
+        o.maxSlope = std::max(o.maxSlope, o.minSlope);
+    } else if (key == "maxSlope") {
+        o.maxSlope = std::clamp(value.toInt(), 0, 90);
+        o.minSlope = std::min(o.minSlope, o.maxSlope);
+    } else if (key == "materialFilter")
+        o.materialFilter = std::clamp(value.toInt(), 0, 2);
+    else if (key == "filterBlock")
+        o.filterBlock = value.toString();
+    emit changed();
+}
+QStringList Editor::defaultResourceSources() const {
+    return QSettings().value("resources/defaultSources").toStringList();
+}
+void Editor::initializeResources() {
+    const auto paths = defaultResourceSources();
+    if (paths.isEmpty())
+        emit resourceSetupRequested();
+    else
+        loadResources(paths, true);
+}
+void Editor::clearDefaultResources() {
+    QSettings().remove("resources/defaultSources");
+    m_defaultAssets.reset();
+    m_defaultFingerprint.clear();
+    emit changed();
+}
+QUrl Editor::dialogFolder(const QString &key) const {
+    QString path = QSettings().value("dialogs/" + key).toString();
+    if (!QDir(path).exists() || path.isEmpty())
+        path = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    return QUrl::fromLocalFile(path);
+}
+void Editor::rememberDialogFolder(const QString &key, const QUrl &url, bool directory) {
+    if (!url.isLocalFile())
+        return;
+    const auto path = directory ? url.toLocalFile() : QFileInfo(url.toLocalFile()).absolutePath();
+    if (QDir(path).exists())
+        QSettings().setValue("dialogs/" + key, path);
+}
+QString Editor::resourceFingerprint(const QStringList &paths) {
+    QStringList parts;
+    for (const auto &path : paths) {
+        QFileInfo file(path);
+        if (!file.exists() || !file.isFile())
+            return {};
+        parts << file.absoluteFilePath() << QString::number(file.size())
+              << QString::number(file.lastModified().toMSecsSinceEpoch());
+    }
+    return parts.join('|');
+}
+void Editor::reportAssetProgress(int progress, const QString &message) {
+    m_assetProgress = std::max(m_assetProgress, progress);
+    m_assetStage = message;
+    m_assetLog << QTime::currentTime().toString("HH:mm:ss") + "  " + message;
+    while (m_assetLog.size() > 160)
+        m_assetLog.removeFirst();
+    emit assetProgressChanged();
 }
 void Editor::selectBlock(const QString &name) {
     if (assetBusy())
@@ -133,14 +238,17 @@ void Editor::setBlockProperty(const QString &key, const QString &value) {
         emit failure(e.what());
     }
 }
-void Editor::loadResources(const QStringList &paths, bool restoring) {
+void Editor::loadResources(const QStringList &paths, bool restoring, bool rememberDefault) {
     if (assetBusy() || exportBusy())
         return;
     endStroke();
     m_restoringAssets = restoring;
+    m_rememberDefault = rememberDefault;
     if (paths.isEmpty()) {
         m_world.setAssets({});
         m_status = "已清除资源来源 · 使用内置调试材质";
+        if (rememberDefault)
+            clearDefaultResources();
         ++m_epoch;
         ++m_revision;
         ++m_resourceRevision;
@@ -149,14 +257,39 @@ void Editor::loadResources(const QStringList &paths, bool restoring) {
         emit changed();
         return;
     }
-    m_status = "正在解析资源（不执行 JAR）…";
+    m_loadingFingerprint = resourceFingerprint(paths);
+    auto cache = (!m_loadingFingerprint.isEmpty() && m_defaultFingerprint == m_loadingFingerprint)
+                     ? m_defaultAssets
+                     : nullptr;
+    m_assetProgress = 0;
+    m_assetLog.clear();
     m_assetsLoading = true;
-    m_assetWatcher.setFuture(QtConcurrent::run([paths] {
+    m_status = "正在加载资源…";
+    reportAssetProgress(0, cache ? "复用本次运行中已解析的默认资源" : "读取资源来源，后台解析中");
+    emit changed();
+    emit resourceLoadStarted();
+    const auto palette = m_world.palette;
+    m_assetWatcher.setFuture(QtConcurrent::run([this, paths, palette, cache] {
+        auto report = [this](int progress, const QString &message) {
+            QMetaObject::invokeMethod(
+                this, [this, progress, message] { reportAssetProgress(progress, message); },
+                Qt::QueuedConnection);
+        };
         AssetResult r;
-        r.library = wb::AssetLibrary::load(paths, r.error);
+        r.library = cache ? cache : wb::AssetLibrary::load(paths, r.error, [&](int p, const QString &m) {
+            report(p * 90 / 100, m);
+        });
+        if (r.library) {
+            report(92, "准备当前工程使用的方块模型");
+            for (size_t i = 0; i < palette.size(); ++i) {
+                r.models.push_back(r.library->model(palette[i]));
+                if (i % 128 == 0)
+                    report(92 + int(7 * i / palette.size()),
+                           QString("工程模型 %1 / %2").arg(i + 1).arg(palette.size()));
+            }
+        }
         return r;
     }));
-    emit changed();
 }
 void Editor::importResource(const QUrl &url, bool overlay) {
     if (!url.isLocalFile()) {
@@ -169,7 +302,7 @@ void Editor::importResource(const QUrl &url, bool overlay) {
         return;
     }
     paths << url.toLocalFile();
-    loadResources(paths);
+    loadResources(paths, false, true);
 }
 void Editor::removeResource(int index) {
     auto paths = m_world.resourcePaths;
@@ -179,7 +312,7 @@ void Editor::removeResource(int index) {
         paths.clear();
     else
         paths.removeAt(index);
-    loadResources(paths);
+    loadResources(paths, false, true);
 }
 bool Editor::mcpEnabled() const {
     return m_mcp && m_mcp->enabled();
@@ -240,7 +373,7 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         int total = 0;
         auto append = [&](const wb::BlockState &s, const QString &title,
                           const QMap<QString, QStringList> &options) {
-            if (!query.isEmpty() && !s.name.contains(query, Qt::CaseInsensitive) && !title.contains(query))
+            if (wb::searchScore(wb::searchKeys(s.name, title), query) < 0)
                 return;
             ++total;
             if (blocks.size() >= limit)
@@ -322,7 +455,7 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     }
     if (name == "sculpt") {
         auto p = coord(args["position"], true);
-        int tool = integer(args["tool"], 0, 4), radius = integer(args["radius"], 1, 16),
+        int tool = integer(args["tool"], 0, 5), radius = integer(args["radius"], 1, 16),
             strength = integer(args["strength"], 1, 4);
         int material = args.contains("material_id")
                            ? integer(args["material_id"], 0, int(m_world.palette.size()) - 1)
@@ -335,12 +468,26 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
                     QVector3D(float(p[0]), float(p[1]), float(p[2])),
                     {0, 1, 0},
                     m_world.block(p[0], p[1], p[2])};
-        stroke.stamp(hit, tool, radius, strength, wb::Block(material), args["reverse"].toBool());
+        wb::BrushOptions options;
+        if (args.contains("fill_holes")) {
+            if (!args["fill_holes"].isBool())
+                throw std::runtime_error("fill_holes 必须是布尔值");
+            options.fillHoles = args["fill_holes"].toBool();
+        }
+        if (args.contains("fill_depth"))
+            options.fillDepth = integer(args["fill_depth"], 1, 383);
+        if (args.contains("shape"))
+            options.shape = integer(args["shape"], 0, 1);
+        if (args.contains("falloff"))
+            options.falloff = integer(args["falloff"], 0, 2);
+        if (args.contains("flatten_mode"))
+            options.flattenMode = integer(args["flatten_mode"], 0, 2);
+        stroke.stamp(hit, tool, radius, strength, wb::Block(material), args["reverse"].toBool(), options);
         auto command = stroke.finish("MCP 雕刻");
         if (!command.cells.empty() || !command.heights.empty()) {
             ++m_revision;
+            dirtyCommand(command);
             pushCommand(std::move(command));
-            dirtyAll();
         }
         return worldInfo();
     }
@@ -447,8 +594,8 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     if (count) {
         m_world = std::move(next);
         ++m_revision;
+        dirtyCommand(command);
         pushCommand(std::move(command));
-        dirtyAll();
     }
     auto result = worldInfo();
     result["changed_cells"] = count;

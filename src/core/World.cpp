@@ -1,5 +1,6 @@
 #include "World.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -82,6 +83,58 @@ World World::create(int n, int randomSeed) {
         w.setBlock(x, y, 4, x < -8 ? Planks : x < -4 ? Slab : Glass);
     }
     return w;
+}
+World World::create(const WorldOptions &o) {
+    if (o.size < 32 || o.size > 256 || o.size % 32 || o.seed < -1000000 || o.seed > 1000000 ||
+        o.seaLevel < MinY || o.seaLevel >= MaxY || o.baseHeight < MinY + 1 || o.baseHeight > MaxY - 2 ||
+        o.variation < 0 || o.variation > 128)
+        throw std::invalid_argument("建图参数超出当前支持范围");
+    World w;
+    w.size = o.size;
+    w.originX = w.originZ = -o.size / 2;
+    w.seed = o.seed;
+    w.seaLevel = o.seaLevel;
+    w.heights.resize(o.size * o.size);
+    const double phase = (o.seed % 997) * .009;
+    for (int z = 0; z < o.size; ++z)
+        for (int x = 0; x < o.size; ++x) {
+            const double wx = x + w.originX, wz = z + w.originZ;
+            const double noise = .55 * std::sin(wx * .045 + phase) * std::cos(wz * .05 - phase) +
+                                 .3 * std::cos(wx * .09 + wz * .04 + phase) +
+                                 .15 * std::sin(wz * .13 - phase);
+            w.heights[z * o.size + x] = int16_t(std::clamp(
+                int(std::lround(o.baseHeight + (o.flat ? 0 : o.variation * noise))), MinY + 1, MaxY - 2));
+        }
+    return w;
+}
+bool World::isAir(Block b) const {
+    if (b == Air)
+        return true;
+    if (b >= palette.size())
+        return false;
+    const auto &n = palette[b].name;
+    return n == "minecraft:air" || n == "minecraft:cave_air" || n == "minecraft:void_air";
+}
+std::set<int> affectedChunks(const World &w, const Command &command) {
+    std::set<int> chunks;
+    const int n = w.size / 16;
+    auto add = [&](int x, int z) {
+        // Include adjacent columns for face visibility at chunk boundaries.
+        for (int dz = -1; dz <= 1; ++dz)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int cx = floorDiv(x + dx - w.originX, 16), cz = floorDiv(z + dz - w.originZ, 16);
+                if (cx >= 0 && cz >= 0 && cx < n && cz < n)
+                    chunks.insert(cz * n + cx);
+            }
+    };
+    for (const auto &h : command.heights)
+        add(h.index % w.size + w.originX, h.index / w.size + w.originZ);
+    for (const auto &c : command.cells) {
+        int x, y, z;
+        w.decode(c.key, x, y, z);
+        add(x, z);
+    }
+    return chunks;
 }
 bool World::contains(int x, int y, int z) const {
     return x >= originX && z >= originZ && x < originX + size && z < originZ + size && y >= MinY && y < MaxY;
@@ -237,6 +290,7 @@ void Stroke::changeCell(int x, int y, int z, Block b) {
         beforeCells[k] = it == world.overrides.end() ? -1 : int(it->second);
     }
     world.setBlock(x, y, z, b);
+    ++changes;
 }
 void Stroke::changeHeight(int i, int h) {
     h = std::clamp(h, World::MinY + 1, World::MaxY - 2);
@@ -244,29 +298,108 @@ void Stroke::changeHeight(int i, int h) {
         return;
     beforeHeights.try_emplace(i, world.heights[i]);
     world.heights[i] = int16_t(h);
+    ++changes;
 }
-bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat, bool reverse) {
-    if (!hit.valid)
+void Stroke::reshapeSurface(int x, int z, int target, const BrushOptions &o) {
+    target = std::clamp(target, World::MinY + 1, World::MaxY - 2);
+    const int oldHeight = world.height(x, z);
+    // Snapshot the authoritative column before changing the height-derived base.
+    // Air overrides are meaningful: retain them below the new cap, never erase a cave.
+    std::array<Block, World::MaxY - World::MinY> original;
+    int upper = std::max(oldHeight, target);
+    for (int y = World::MinY; y < World::MaxY; ++y) {
+        const auto b = world.block(x, y, z);
+        original[y - World::MinY] = b;
+        if (!world.isAir(b) && b != Water)
+            upper = std::max(upper, y);
+    }
+    Block cap = original[oldHeight - World::MinY];
+    if (world.isAir(cap) || cap == Water || !world.models[cap]->full)
+        cap = target <= world.seaLevel + 1 ? Sand : Grass;
+    changeHeight(world.column(x, z), target);
+    for (int y = World::MinY + 1; y <= upper; ++y) {
+        if (y == target)
+            changeCell(x, y, z, cap);
+        else if (y < target) {
+            const auto b = original[y - World::MinY];
+            changeCell(x, y, z,
+                       o.fillHoles && target - y <= std::clamp(o.fillDepth, 1, 383) && world.isAir(b) ? Stone
+                                                                                                      : b);
+        } else
+            changeCell(x, y, z, world.isAir(original[y - World::MinY]) ? original[y - World::MinY] : Air);
+    }
+}
+bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat, bool reverse,
+                   const BrushOptions &o) {
+    if (!hit.valid || tool < 0 || tool > 5)
         return false;
+    const auto serial = changes;
     if (flattenHeight == -9999)
         flattenHeight = hit.y;
     radius = std::clamp(radius, 1, 16);
     strength = std::clamp(strength, 1, 4);
-    if (tool <= 1) {
+    const auto heights = world.heights; // Stable slopes and smooth kernel, independent of iteration order.
+    auto height = [&](int x, int z) {
+        x = std::clamp(x, world.originX, world.originX + world.size - 1);
+        z = std::clamp(z, world.originZ, world.originZ + world.size - 1);
+        return int(heights[world.column(x, z)]);
+    };
+    auto allows = [&](int x, int y, int z) {
+        if (!world.contains(x, y, z))
+            return false;
+        if (!o.filterEnabled)
+            return true;
+        if (y < o.minHeight || y > o.maxHeight)
+            return false;
+        const float dx = (height(x + 1, z) - height(x - 1, z)) * .5f,
+                    dz = (height(x, z + 1) - height(x, z - 1)) * .5f;
+        const float slope = std::atan(std::hypot(dx, dz)) * 180.f / 3.14159265f;
+        if (slope < o.minSlope || slope > o.maxSlope)
+            return false;
+        const bool match = world.palette[world.block(x, y, z)].name == o.filterBlock;
+        return o.materialFilter == 0 || (o.materialFilter == 1 ? match : !match);
+    };
+    if (tool <= 1 || tool == 5) {
         for (int z = hit.z - radius; z <= hit.z + radius; ++z)
             for (int x = hit.x - radius; x <= hit.x + radius; ++x) {
                 if (!world.contains(x, 0, z))
                     continue;
-                float distance = std::hypot(float(x - hit.x), float(z - hit.z));
+                const float distance = o.shape == 1
+                                           ? float(std::max(std::abs(x - hit.x), std::abs(z - hit.z)))
+                                           : std::hypot(float(x - hit.x), float(z - hit.z));
                 if (distance > radius)
                     continue;
-                int i = world.column(x, z), h = world.heights[i],
-                    amount = std::max(1, int(std::ceil(strength * (1 - distance / (radius + 1)))));
-                changeHeight(i, tool == 0 ? h + (reverse ? -amount : amount)
-                                          : h + std::clamp(flattenHeight - h, -amount, amount));
+                const int i = world.column(x, z), h = heights[i];
+                if (!allows(x, h, z))
+                    continue;
+                float weight = 1 - distance / (radius + 1);
+                if (o.falloff == 1)
+                    weight = 1;
+                if (o.falloff == 2)
+                    weight = weight * weight * (3 - 2 * weight);
+                const int amount = std::max(1, int(std::ceil(strength * weight)));
+                if (tool == 0)
+                    changeHeight(i, h + (reverse ? -amount : amount));
+                else {
+                    int target = flattenHeight;
+                    if (tool == 5) {
+                        int sum = 0;
+                        for (int dz = -1; dz <= 1; ++dz)
+                            for (int dx = -1; dx <= 1; ++dx)
+                                sum += height(x + dx, z + dz);
+                        target = int(std::lround(sum / 9.));
+                    }
+                    if (tool == 1 &&
+                        ((o.flattenMode == 1 && target < h) || (o.flattenMode == 2 && target > h)))
+                        continue;
+                    auto options = o;
+                    if (tool == 5)
+                        options.fillHoles = false;
+                    reshapeSurface(x, z, h + std::clamp(target - h, -amount, amount), options);
+                }
             }
     } else {
-        bool add = (tool == 3) ^ reverse;
+        const bool add = (tool == 3) ^ reverse;
         QVector3D center(hit.x + .5f, hit.y + .5f, hit.z + .5f);
         if (tool != 4 && add)
             center += hit.normal;
@@ -275,16 +408,19 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
         for (int z = cz - radius; z <= cz + radius; ++z)
             for (int y = cy - radius; y <= cy + radius; ++y)
                 for (int x = cx - radius; x <= cx + radius; ++x) {
-                    if ((QVector3D(x + .5f, y + .5f, z + .5f) - center).length() > radius + .05f)
+                    if (o.shape != 1 &&
+                        (QVector3D(x + .5f, y + .5f, z + .5f) - center).length() > radius + .05f)
+                        continue;
+                    if (!allows(x, y, z))
                         continue;
                     if (tool == 4) {
-                        if (world.block(x, y, z) != Air)
+                        if (!world.isAir(world.block(x, y, z)))
                             changeCell(x, y, z, mat);
                     } else
                         changeCell(x, y, z, add ? mat : Air);
                 }
     }
-    return !beforeHeights.empty() || !beforeCells.empty();
+    return changes != serial;
 }
 Command Stroke::finish(const QString &label) {
     Command c;

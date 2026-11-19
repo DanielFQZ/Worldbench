@@ -1,5 +1,11 @@
-Worldbench 0.2.1 - third-party component notices
+Worldbench 0.3.0 - third-party component notices
 Private development testing build. Final public project licensing is recorded in DEVELOPMENT.md.
+
+pypinyin 0.55.0: Copyright (c) 2016 mozillazg, hotoo.
+MIT license, reproduced in pypinyin-MIT.txt.
+https://github.com/mozillazg/python-pinyin/tree/v0.55.0
+Bundled search data was generated with pypinyin: 2002 phrase keys and 26703
+character readings. Python/pypinyin is a generation tool, not a runtime dependency.
 
 Minecraft Chinese block names (Java 1.20.1): Mojang/Microsoft and translation contributors.
 Source: https://resources.download.minecraft.net/78/78cee27ad20ff7ba349607098c638a6263cf9dfc

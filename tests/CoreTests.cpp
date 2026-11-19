@@ -1,6 +1,7 @@
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/Search.h"
 #include "core/World.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -11,6 +12,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -33,6 +35,145 @@ int main(int argc, char **argv) {
         using namespace wb;
         check(floorDiv(-1, 16) == -1 && floorDiv(-16, 16) == -1 && floorDiv(-17, 16) == -2,
               "negative chunk coordinates");
+        auto flat = World::create(WorldOptions{32, 17, -60, 10, 12, true});
+        check(flat.overrides.empty() &&
+                  std::all_of(flat.heights.begin(), flat.heights.end(), [](int h) { return h == 10; }),
+              "configured flat world without sample structures");
+        auto hills = World::create(WorldOptions{64, 19, 8, 30, 14, false});
+        check(hills.heights == World::create(WorldOptions{64, 19, 8, 30, 14, false}).heights,
+              "seed is deterministic");
+        check(hills.heights != World::create(WorldOptions{64, 20, 8, 30, 14, false}).heights,
+              "seed changes hills");
+        bool rejected = false;
+        try {
+            World::create(WorldOptions{33});
+        } catch (const std::invalid_argument &) {
+            rejected = true;
+        }
+        check(rejected, "invalid world configuration rejected");
+        auto cave = flat;
+        for (int y = 4; y <= 10; ++y)
+            cave.setBlock(1, y, 0, Air);
+        cave.setBlock(1, 8, 0, Glass);
+        auto caveBefore = cave;
+        Hit plane{true, 0, 10, 0, {.5f, 11, .5f}, {0, 1, 0}, Grass};
+        Stroke seal(cave);
+        seal.stamp(plane, 1, 2, 4, Stone, false);
+        auto sealCmd = seal.finish("seal");
+        auto sealed = cave;
+        check(cave.block(1, 10, 0) == Grass && cave.block(1, 9, 0) == Air && cave.block(1, 7, 0) == Air &&
+                  cave.block(1, 8, 0) == Glass,
+              "flatten caps holes while preserving cave and solids");
+        cave.apply(sealCmd, false);
+        check(equal(cave, caveBefore), "cap and height undo exactly");
+        cave.apply(sealCmd, true);
+        check(equal(cave, sealed), "cap redo exactly");
+        cave = caveBefore;
+        BrushOptions fillOptions;
+        fillOptions.fillHoles = true;
+        fillOptions.fillDepth = 3;
+        Stroke fillCave(cave);
+        fillCave.stamp(plane, 1, 2, 4, Stone, false, fillOptions);
+        check(cave.block(1, 9, 0) == Stone && cave.block(1, 7, 0) == Stone && cave.block(1, 6, 0) == Air &&
+                  cave.block(1, 8, 0) == Glass,
+              "fill depth is inclusive below cap and does not replace solid material");
+        auto holeCommand = fillCave.finish("fill cave");
+        auto filled = cave;
+        cave.apply(holeCommand, false);
+        check(equal(cave, caveBefore), "fill cave undo");
+        cave.apply(holeCommand, true);
+        check(equal(cave, filled), "fill cave redo");
+        QString caveError;
+        World caveLoaded;
+        check(saveProject(tmp.filePath("cave.wbench"), cave, caveError) &&
+                  loadProject(tmp.filePath("cave.wbench"), caveLoaded, caveError) && equal(cave, caveLoaded),
+              "cave flatten survives project roundtrip");
+        auto raisedCap = World::create(WorldOptions{32, 0, -60, 6, 0, true});
+        BrushOptions constant;
+        constant.falloff = 1;
+        Stroke raiseCap(raisedCap);
+        raiseCap.stamp(plane, 1, 2, 4, Stone, false, constant);
+        check(raisedCap.height(0, 0) == 10 && raisedCap.block(0, 10, 0) == Grass &&
+                  raisedCap.block(0, 9, 0) == Air,
+              "raising flatten builds one cap and preserves air below");
+        auto lowerCap = caveBefore;
+        plane.y = 8;
+        Stroke lowCap(lowerCap);
+        lowCap.stamp(plane, 1, 2, 4, Stone, false, constant);
+        check(lowerCap.height(1, 0) == 8 && !lowerCap.isAir(lowerCap.block(1, 8, 0)) &&
+                  lowerCap.block(1, 9, 0) == Air && lowerCap.block(1, 7, 0) == Air,
+              "lowering flatten clears top and preserves deeper cave");
+        auto direction = flat;
+        BrushOptions onlyRaise;
+        onlyRaise.flattenMode = 1;
+        Stroke skipLower(direction);
+        check(!skipLower.stamp(plane, 1, 2, 4, Stone, false, onlyRaise) && equal(direction, flat),
+              "raise-only flatten rejects lowering");
+        plane.y = 12;
+        BrushOptions onlyLower;
+        onlyLower.flattenMode = 2;
+        Stroke skipRaise(direction);
+        check(!skipRaise.stamp(plane, 1, 2, 4, Stone, false, onlyLower) && equal(direction, flat),
+              "lower-only flatten rejects raising");
+        plane.y = 10;
+        auto circle = flat, square = flat;
+        BrushOptions squareOptions;
+        squareOptions.shape = 1;
+        squareOptions.falloff = 1;
+        Stroke circular(circle), rectangular(square);
+        circular.stamp(plane, 0, 2, 4, Stone, false);
+        rectangular.stamp(plane, 0, 2, 4, Stone, false, squareOptions);
+        check(circle.height(2, 2) == 10 && square.height(2, 2) == 14,
+              "round and square footprints differ at corners");
+        check(circle.height(2, 0) < circle.height(0, 0) && square.height(2, 0) == square.height(0, 0),
+              "linear versus constant strength");
+        auto smooth = flat;
+        smooth.heights[smooth.column(0, 0)] = 20;
+        Stroke smoothing(smooth);
+        smoothing.stamp(plane, 5, 2, 4, Stone, false, constant);
+        check(smooth.height(0, 0) == 16 && smooth.height(-1, 0) == smooth.height(1, 0),
+              "smooth reduces spike with symmetric frozen kernel");
+        auto filtered = flat;
+        BrushOptions filter;
+        filter.filterEnabled = true;
+        filter.minHeight = 11;
+        Stroke filterHeight(filtered);
+        check(!filterHeight.stamp(plane, 0, 2, 4, Stone, false, filter), "height filter prevents changes");
+        filter.minHeight = -63;
+        filter.minSlope = 1;
+        Stroke filterSlope(filtered);
+        check(!filterSlope.stamp(plane, 0, 2, 4, Stone, false, filter), "slope filter excludes flat terrain");
+        filter.minSlope = 0;
+        filter.materialFilter = 1;
+        filter.filterBlock = "minecraft:stone";
+        Stroke filterMaterial(filtered);
+        check(!filterMaterial.stamp(plane, 0, 2, 4, Stone, false, filter), "only material filter");
+        filter.materialFilter = 2;
+        Stroke excludeMaterial(filtered);
+        check(excludeMaterial.stamp(plane, 0, 2, 4, Stone, false, filter), "except material filter");
+        auto vol = flat;
+        filter.materialFilter = 0;
+        filter.minHeight = filter.maxHeight = 11;
+        Stroke filterVolume(vol);
+        filterVolume.stamp(plane, 3, 2, 1, Planks, false, filter);
+        check(vol.block(0, 11, 0) == Planks && vol.block(0, 12, 0) == Air && vol.block(0, 10, 0) == Grass,
+              "volume filter applies to each voxel");
+        Stroke noChange(flat);
+        check(!noChange.stamp(plane, 1, 2, 4, Stone, false), "settled flatten avoids needless mesh jobs");
+        Command inner;
+        inner.cells.push_back({flat.key(-8, 8, -8), -1, int(Air)});
+        check(affectedChunks(flat, inner).size() == 1, "undo interior affects one chunk");
+        inner.cells[0].key = flat.key(-1, 8, -1);
+        check(affectedChunks(flat, inner).size() == 4, "undo boundary includes adjacent chunk faces");
+        const auto keys = searchKeys("minecraft:anvil", "铁砧");
+        check(searchScore(keys, "tiezhen") >= 0 && searchScore(keys, "tz") >= 0 &&
+                  searchScore(keys, "tie zhen") >= 0,
+              "pinyin full spelling initials and segmented search");
+        check(searchScore(keys, "tiezhn") >= 0 && searchScore(keys, "anvl") >= 0,
+              "bounded fuzzy typo search");
+        check(searchScore(keys, "灯笼") < 0 && searchScore(keys, "xyzq") < 0, "unrelated search excluded");
+        check(searchScore(keys, "铁砧") < searchScore(keys, "tiezhn"),
+              "exact results rank ahead of fuzzy matches");
         auto w = World::create(32);
         w.overrides.clear();
         w.seaLevel = -60;

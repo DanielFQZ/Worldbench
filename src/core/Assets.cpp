@@ -1,4 +1,5 @@
 #include "Assets.h"
+#include "Search.h"
 #include "World.h"
 #include <QBuffer>
 #include <QFile>
@@ -122,9 +123,15 @@ std::shared_ptr<const BlockModel> fallbackModel(int b) {
         m->diagnostic = "未找到可渲染的 JSON 模型（可能使用游戏专用渲染器）";
     return m;
 }
-std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QString &error) {
+std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QString &error,
+                                                 Progress progress) {
     auto lib = std::make_shared<AssetLibrary>();
     lib->sources = paths;
+    auto report = [&](int percent, const QString &message) {
+        if (progress)
+            progress(percent, message);
+    };
+    report(0, "开始解析资源");
     static const QJsonObject bundledChinese = [] {
         initializeBlockNames();
         QFile f(":/translations/zh_cn_blocks_1.20.1.json");
@@ -152,13 +159,21 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
         const QString path = paths[sourceIndex];
         if (QFileInfo(path).size() > 512 * 1024 * 1024)
             return fail("资源文件超过 512 MiB");
+        report(sourceIndex * 70 / paths.size(), "打开来源：" + QFileInfo(path).fileName());
         QZipReader zip(path);
         if (!zip.isReadable())
             return fail("无法读取 ZIP/JAR：" + path);
         const auto entries = zip.fileInfoList();
         if (entries.size() > 100000)
             return fail("压缩包条目过多");
+        int scanned = 0;
         for (const auto &e : entries) {
+            if ((scanned++ % 128) == 0)
+                report((sourceIndex * 70 + 70 * scanned / std::max(1, int(entries.size()))) / paths.size(),
+                       QString("扫描 %1：%2 / %3 条目")
+                           .arg(QFileInfo(path).fileName())
+                           .arg(scanned)
+                           .arg(entries.size()));
             const auto &n = e.filePath;
             if (n == "version.json" && sourceIndex == 0 && e.size >= 0 && e.size < 65536)
                 lib->version = QJsonDocument::fromJson(zip.fileData(n)).object()["id"].toString();
@@ -249,6 +264,7 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
         lang[i.key()] = i.value();
     if (images.size() > 6000)
         return fail("贴图数量超过 6000");
+    report(70, QString("构建纹理图集：%1 张纹理").arg(images.size()));
     int side = 1, grid = int(std::ceil(std::sqrt(images.size() + 2.0)));
     while (side < grid * 34)
         side *= 2;
@@ -284,6 +300,25 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
             b.defaults.properties[p.key()] = choose(p.key(), p.value());
         }
     }
+    int prepared = 0;
+    for (auto it = lib->catalog.begin(); it != lib->catalog.end(); ++it) {
+        if ((prepared++ % 32) == 0)
+            report(75 + 20 * prepared / std::max(1, int(lib->catalog.size())),
+                   QString("准备方块模型与搜索目录：%1 / %2").arg(prepared).arg(lib->catalog.size()));
+        auto &entry = it.value();
+        entry.searchTerms = searchKeys(entry.name, entry.title);
+        entry.preview = lib->model(entry.defaults);
+        const auto img = lib->thumbnails.value(entry.preview->thumbnail);
+        if (!img.isNull()) {
+            QByteArray png;
+            QBuffer buffer(&png);
+            buffer.open(QIODevice::WriteOnly);
+            img.save(&buffer, "PNG");
+            entry.thumbnailData = "data:image/png;base64," + QString::fromLatin1(png.toBase64());
+        }
+    }
+    report(100,
+           QString("解析完成：%1 个目录项，跳过 %2 项").arg(lib->catalog.size()).arg(lib->skippedEntries));
     if (lib->catalog.isEmpty() && lib->version.isEmpty())
         lib->warnings << "资源包未包含方块状态；仅覆盖已有基础材质。";
     return lib;
@@ -326,6 +361,9 @@ bool AssetLibrary::validate(const BlockState &state, QString &error) const {
     return true;
 }
 std::shared_ptr<const BlockModel> AssetLibrary::model(const BlockState &state) const {
+    auto cached = catalog.constFind(state.name);
+    if (cached != catalog.cend() && cached->preview && cached->defaults == state)
+        return cached->preview;
     if (state.name == "minecraft:air" || state.name.endsWith(":cave_air") || state.name.endsWith(":void_air"))
         return std::make_shared<BlockModel>();
     auto m = std::make_shared<BlockModel>();

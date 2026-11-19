@@ -63,15 +63,22 @@ QJsonArray toolList() {
          {"expected_revision", revision}},
         {"min", "max", "block", "expected_revision"}, false);
     add("sculpt",
-        "Apply one terrain brush stamp. Tools: 0 raise/lower, 1 flatten, 2 carve, 3 fill, 4 paint. radius "
+        "Apply one terrain brush stamp. Tools: 0 raise/lower, 1 flatten, 2 carve, 3 fill, 4 paint, 5 smooth. "
+        "radius "
         "1..16, strength 1..4. material_id is a read_region palette index (default stone). reverse flips the "
-        "tool.",
+        "tool. Flatten preserves cavities and caps the surface; fill_holes optionally fills air to "
+        "fill_depth below it.",
         {{"position", position},
-         {"tool", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 4}}},
+         {"tool", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 5}}},
          {"radius", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 16}}},
          {"strength", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 4}}},
          {"material_id", integer},
          {"reverse", boolean},
+         {"fill_holes", boolean},
+         {"fill_depth", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 383}}},
+         {"shape", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 1}}},
+         {"falloff", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 2}}},
+         {"flatten_mode", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 2}}},
          {"expected_revision", revision}},
         {"position", "tool", "radius", "strength", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",
@@ -137,7 +144,7 @@ McpServer::McpServer(Editor *editor) : QObject(editor), m_editor(editor) {
                         result = {
                             {"protocolVersion", "2025-06-18"},
                             {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
-                            {"serverInfo", QJsonObject{{"name", "Worldbench"}, {"version", "0.2.1"}}},
+                            {"serverInfo", QJsonObject{{"name", "Worldbench"}, {"version", "0.3.0"}}},
                             {"instructions",
                              "Local editor session. Read world_info and catalog before editing. Writes "
                              "require expected_revision and are undoable. The user can edit concurrently. "

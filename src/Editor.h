@@ -29,6 +29,12 @@ class Editor : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
+    Q_PROPERTY(int assetProgress READ assetProgress NOTIFY assetProgressChanged)
+    Q_PROPERTY(QString assetStage READ assetStage NOTIFY assetProgressChanged)
+    Q_PROPERTY(QString assetLog READ assetLog NOTIFY assetProgressChanged)
+    Q_PROPERTY(QStringList defaultResourceSources READ defaultResourceSources NOTIFY changed)
+    Q_PROPERTY(QVariantMap brushOptions READ brushOptions NOTIFY changed)
+    Q_PROPERTY(QString meshUpdateSummary READ meshUpdateSummary NOTIFY changed)
     Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
     Q_PROPERTY(QString resourceDiagnostics READ resourceDiagnostics NOTIFY changed)
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
@@ -53,6 +59,18 @@ class Editor : public QObject {
     int material() const { return m_material; }
     void setMaterial(int v);
     bool assetBusy() const { return m_assetsLoading; }
+    int assetProgress() const { return m_assetProgress; }
+    QString assetStage() const { return m_assetStage; }
+    QString assetLog() const { return m_assetLog.join('\n'); }
+    QStringList defaultResourceSources() const;
+    QVariantMap brushOptions() const;
+    int brushShape() const { return m_brushOptions.shape; }
+    QString meshUpdateSummary() const;
+    Q_INVOKABLE void setBrushOption(const QString &name, const QVariant &value);
+    Q_INVOKABLE void initializeResources();
+    Q_INVOKABLE QUrl dialogFolder(const QString &key) const;
+    Q_INVOKABLE void rememberDialogFolder(const QString &key, const QUrl &url, bool directory = false);
+    Q_INVOKABLE void clearDefaultResources();
     QString resourceSummary() const;
     QString resourceDiagnostics() const;
     QVariantList sceneNodes() const;
@@ -106,6 +124,7 @@ class Editor : public QObject {
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void newWorld();
+    Q_INVOKABLE bool createWorld(int size, int seed, int baseHeight, int variation, int seaLevel, bool flat);
     Q_INVOKABLE bool save(const QUrl &url = QUrl());
     Q_INVOKABLE bool open(const QUrl &url);
     Q_INVOKABLE void exportWorld(const QUrl &parent, const QString &name);
@@ -117,13 +136,20 @@ class Editor : public QObject {
     void failure(const QString &message);
     void exported(const QString &path);
     void catalogChanged();
+    void assetProgressChanged();
+    void resourceLoadStarted();
+    void resourceSetupRequested();
 
   private:
     void dirtyAll();
+    void dirtyCommand(const wb::Command &command);
     void startMesh();
     void resetHistory();
     void pushCommand(wb::Command command);
-    void loadResources(const QStringList &paths, bool restoring = false);
+    void loadResources(const QStringList &paths, bool restoring = false, bool rememberDefault = false);
+    void reportAssetProgress(int progress, const QString &message);
+    static QString resourceFingerprint(const QStringList &paths);
+    wb::BrushOptions m_brushOptions;
     wb::World m_world;
     std::shared_ptr<const wb::MeshScene> m_scene;
     std::unique_ptr<wb::Stroke> m_stroke;
@@ -141,7 +167,8 @@ class Editor : public QObject {
     QFutureWatcher<std::shared_ptr<wb::MeshScene>> m_meshWatcher;
     QFutureWatcher<wb::ExportResult> m_exportWatcher;
     struct AssetResult {
-        std::shared_ptr<wb::AssetLibrary> library;
+        std::shared_ptr<const wb::AssetLibrary> library;
+        std::vector<std::shared_ptr<const wb::BlockModel>> models;
         QString error;
     };
     QFutureWatcher<AssetResult> m_assetWatcher;
@@ -150,6 +177,12 @@ class Editor : public QObject {
     QString m_selectedNode = "terrain-base-1";
     QPointer<QObject> m_cameraController;
     bool m_restoringAssets = false;
+    bool m_rememberDefault = false;
+    int m_assetProgress = 0;
+    QString m_assetStage;
+    QStringList m_assetLog;
+    std::shared_ptr<const wb::AssetLibrary> m_defaultAssets;
+    QString m_defaultFingerprint, m_loadingFingerprint;
     bool m_assetsLoading = false, m_meshActive = false, m_exportActive = false;
     std::atomic_bool m_cancelExport = false;
 };

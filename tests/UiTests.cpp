@@ -1,5 +1,6 @@
 #include "Editor.h"
 #include "Viewport.h"
+#include "core/Project.h"
 #include <QBuffer>
 #include <QDir>
 #include <QElapsedTimer>
@@ -11,6 +12,8 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <iostream>
@@ -28,6 +31,9 @@ static void check(bool b, const char *what) {
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("Worldbench integration tests");
+    QTemporaryDir settingsRoot;
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot.path());
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -319,12 +325,81 @@ int main(int argc, char **argv) {
             houseImage.loadFromData(QByteArray::fromBase64(screenshot["data"].toString().toLatin1()), "PNG"),
             "decode real MCP screenshot");
         QDir().mkpath("test-output");
-        check(houseImage.save("test-output/mcp-house-0.2.1.png"), "capture MCP house");
+        check(houseImage.save("test-output/mcp-house-0.3.0.png"), "capture MCP house");
+        const int caveY = editor.world().height(-20, -20);
+        result = call("fill_box", {{"min", QJsonArray{-20, caveY - 4, -20}},
+                                   {"max", QJsonArray{-20, caveY, -20}},
+                                   {"block", "minecraft:air"},
+                                   {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool(), "MCP creates flatten cavity fixture");
+        QJsonObject flatten{{"position", QJsonArray{-20, caveY, -20}},
+                            {"tool", 1},
+                            {"radius", 1},
+                            {"strength", 4},
+                            {"fill_holes", false},
+                            {"expected_revision", double(editor.revision())}};
+        result = call("sculpt", flatten);
+        check(!result["isError"].toBool() && !editor.world().isAir(editor.world().block(-20, caveY, -20)) &&
+                  editor.world().isAir(editor.world().block(-20, caveY - 1, -20)),
+              "MCP flatten caps surface and preserves cavity");
+        flatten["fill_holes"] = true;
+        flatten["fill_depth"] = 2;
+        flatten["expected_revision"] = double(editor.revision());
+        result = call("sculpt", flatten);
+        check(!result["isError"].toBool() && editor.world().block(-20, caveY - 2, -20) == wb::Stone &&
+                  editor.world().isAir(editor.world().block(-20, caveY - 3, -20)),
+              "MCP fill depth preserves deeper cavity");
         editor.setMcpEnabled(false);
         check(!editor.mcpEnabled(), "MCP disabled");
         bridge.closeWriteChannel();
         check(QTest::qWaitFor([&] { return bridge.state() == QProcess::NotRunning; }, 5000),
               "MCP bridge exits on stdin EOF");
+        // Creation and local history invalidation, with the real renderer.
+        check(editor.createWorld(128, 42, 24, 0, -60, true), "create configured flat world");
+        check(editor.world().seed == 42 && editor.world().seaLevel == -60 &&
+                  editor.world().height(0, 0) == 24 && editor.world().overrides.empty(),
+              "creation parameters applied");
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "flat world rendered");
+        const auto fullBuild = editor.scene()->buildMilliseconds;
+        editor.setTool(0);
+        editor.setRadius(1);
+        editor.beginStroke();
+        editor.stamp({true, -24, 24, -24, {-23.5f, 25, -23.5f}, {0, 1, 0}, wb::Grass}, false);
+        editor.endStroke();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "small stroke rendered");
+        auto localScene = editor.scene();
+        editor.undo();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "local undo rendered");
+        int sameChunks = 0;
+        for (size_t i = 0; i < localScene->chunks.size(); ++i)
+            if (localScene->chunks[i] == editor.scene()->chunks[i])
+                ++sameChunks;
+        check(editor.scene()->updatedChunks == 1 && sameChunks == 63,
+              "undo keeps 63 of 64 meshes instead of rebuilding world");
+        std::cout << "Mesh full " << fullBuild << " ms / undo " << editor.scene()->buildMilliseconds
+                  << " ms (1 of 64 chunks)\n";
+        editor.redo();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000) &&
+                  editor.scene()->updatedChunks == 1,
+              "redo updates one chunk");
+        editor.setTool(1);
+        editor.setBrushOption("fillHoles", false);
+        QTest::qWait(30);
+        auto *depthControls = win->findChild<QQuickItem *>("fillDepthControls");
+        check(depthControls && !depthControls->isVisible(), "fill depth hidden unless enabled");
+        editor.setBrushOption("fillHoles", true);
+        QTest::qWait(30);
+        check(depthControls->isVisible(), "fill depth shown when enabled");
+        editor.setBrushOption("fillHoles", false);
+        QDir().mkpath(tmp.filePath("jar-folder"));
+        QDir().mkpath(tmp.filePath("pack-folder"));
+        editor.rememberDialogFolder("baseResource", QUrl::fromLocalFile(tmp.filePath("jar-folder/game.jar")));
+        editor.rememberDialogFolder("overlayResource",
+                                    QUrl::fromLocalFile(tmp.filePath("pack-folder/pack.zip")));
+        check(editor.dialogFolder("baseResource") != editor.dialogFolder("overlayResource"),
+              "separate picker histories");
+        check(editor.save(QUrl::fromLocalFile(tmp.filePath("without-resources.wbench"))),
+              "save project before default resources");
         const QString resource = tmp.filePath("texture-pack.zip");
         {
             QImage tile(16, 16, QImage::Format_RGBA8888);
@@ -337,20 +412,85 @@ int main(int argc, char **argv) {
             zip.addFile("assets/minecraft/textures/block/stone.png", png);
             zip.close();
         }
+        QSignalSpy progressSpy(&editor, &Editor::assetProgressChanged);
+        int progressLast = 0;
+        bool progressMonotonic = true;
+        auto progressConnection = QObject::connect(&editor, &Editor::assetProgressChanged, [&] {
+            progressMonotonic &= editor.assetProgress() >= progressLast;
+            progressLast = editor.assetProgress();
+        });
         editor.importResource(QUrl::fromLocalFile(resource), false);
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 10000),
               "async resource import settles");
+        QObject::disconnect(progressConnection);
+        check(progressSpy.size() > 3 && progressMonotonic && editor.assetProgress() == 100 &&
+                  !editor.assetLog().isEmpty(),
+              "resource progress and live logs");
+        check(editor.defaultResourceSources() == QStringList{resource},
+              "successful manual import becomes default");
+        const auto cached = editor.world().assets;
+        editor.newWorld();
+        check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
+                  editor.world().assets == cached && editor.assetLog().contains("复用"),
+              "new world reuses parsed default resource");
+        check(editor.open(QUrl::fromLocalFile(tmp.filePath("without-resources.wbench"))),
+              "open project without own resources");
+        check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
+                  editor.world().assets == cached && !editor.modified(),
+              "resource-free project inherits default without false dirty state");
+        {
+            Editor restarted;
+            restarted.initializeResources();
+            check(QTest::qWaitFor([&] { return !restarted.assetBusy() && !restarted.meshBusy(); }, 15000) &&
+                      restarted.world().resourcePaths == QStringList{resource},
+                  "fresh editor automatically reloads persistent default");
+            const auto previousAssets = restarted.world().assets;
+            QSignalSpy failures(&restarted, &Editor::failure);
+            restarted.importResource(QUrl::fromLocalFile(tmp.filePath("missing.jar")), false);
+            check(QTest::qWaitFor([&] { return !restarted.assetBusy(); }, 15000) && failures.size() == 1 &&
+                      restarted.world().assets == previousAssets &&
+                      restarted.defaultResourceSources() == QStringList{resource},
+                  "failed manual import preserves current and default resources");
+            QFile changedResource(resource);
+            check(changedResource.open(QIODevice::Append) && changedResource.write("\n") == 1,
+                  "modify resource cache fixture");
+            changedResource.close();
+            restarted.newWorld();
+            check(QTest::qWaitFor([&] { return !restarted.assetBusy() && !restarted.meshBusy(); }, 15000) &&
+                      restarted.world().assets && restarted.world().assets != previousAssets &&
+                      !restarted.assetLog().contains("复用"),
+                  "changed resource invalidates in-process cache");
+        }
         check(editor.world().assets && editor.world().assets->thumbnails.contains("minecraft:block/stone"),
               "texture-only pack applied");
-        check(editor.blockCatalog("stone").size() == 1, "searchable material catalog");
+        check(!editor.blockCatalog("stone").isEmpty() &&
+                  editor.blockCatalog("stone")[0].toMap()["name"] == "minecraft:stone",
+              "exact catalog result ranks first");
+        check(!editor.blockCatalog("shitou").isEmpty() && !editor.blockCatalog("st").isEmpty(),
+              "pinyin and initials UI search");
         check(!editor.blockCatalog("石").isEmpty(), "Chinese material search");
         check(editor.save(QUrl::fromLocalFile(tmp.filePath("resources.wbench"))), "save resource paths");
         check(editor.open(QUrl::fromLocalFile(tmp.filePath("resources.wbench"))), "reopen resource project");
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 10000),
               "asynchronous resource restoration");
         check(editor.world().assets && !editor.modified(), "resource restoration retains saved state");
+        const auto defaultBefore = editor.defaultResourceSources();
+        const auto alternate = tmp.filePath("alternate.zip");
+        QFile::copy(resource, alternate);
+        auto explicitWorld = editor.world();
+        explicitWorld.resourcePaths = {alternate};
+        QString projectError;
+        check(wb::saveProject(tmp.filePath("explicit.wbench"), explicitWorld, projectError),
+              "project-specific resource fixture");
+        check(editor.open(QUrl::fromLocalFile(tmp.filePath("explicit.wbench"))),
+              "open project-specific resources");
+        check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
+                  editor.world().resourcePaths == QStringList{alternate} &&
+                  editor.defaultResourceSources() == defaultBefore,
+              "project sources take precedence without changing defaults");
         editor.removeResource(0);
         check(!editor.world().assets && editor.modified(), "removing resource marks project modified");
+        check(editor.defaultResourceSources().isEmpty(), "removing base clears remembered defaults");
         if (app.arguments().size() > 1) {
             check(editor.open(QUrl::fromLocalFile(app.arguments()[1])), "open real resource preview fixture");
             check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 120000),
@@ -359,20 +499,42 @@ int main(int argc, char **argv) {
                   "real pack import diagnostics reach editor");
             check(!editor.blockCatalog("铁砧").isEmpty(), "real JAR Chinese search reaches UI catalog");
         }
+        QMetaObject::invokeMethod(win->findChild<QObject *>("editorSettingsDialog"), "close");
         editor.setTool(4);
         v->resetCamera();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "final layout mesh settles");
         QTest::qWait(120);
         QDir().mkpath("test-output");
-        check(win->grabWindow().save("test-output/ui-0.2.1.png"), "capture brush and scene layout");
+        check(win->grabWindow().save("test-output/ui-0.3.0.png"), "capture brush and scene layout");
         auto *settings = win->findChild<QObject *>("editorSettingsDialog");
         auto *settingsContent = win->findChild<QObject *>("settingsContent");
         check(settings && settingsContent, "settings pages loaded outside scene outliner");
         settingsContent->setProperty("page", "resources");
         check(QMetaObject::invokeMethod(settings, "open"), "resource settings opens");
         QTest::qWait(80);
-        check(win->grabWindow().save("test-output/resources-0.2.1.png"), "capture resource management");
+        check(win->grabWindow().save("test-output/resources-0.3.0.png"), "capture resource management");
         QMetaObject::invokeMethod(settings, "close");
+        auto *fileMenu = win->findChild<QObject *>("fileMenu");
+        check(fileMenu && QMetaObject::invokeMethod(fileMenu, "open"), "custom file menu opens");
+        fileMenu->setProperty("currentIndex", 1);
+        QTest::qWait(100);
+        check(win->grabWindow().save("test-output/menu-hover-0.3.0.png"), "capture menu highlight contrast");
+        QMetaObject::invokeMethod(fileMenu, "close");
+        auto *newWorldDialog = win->findChild<QObject *>("newWorldDialog");
+        check(newWorldDialog && QMetaObject::invokeMethod(newWorldDialog, "open"), "creation dialog opens");
+        QTest::qWait(100);
+        check(win->grabWindow().save("test-output/new-world-0.3.0.png"), "capture creation settings");
+        QMetaObject::invokeMethod(newWorldDialog, "close");
+        editor.setTool(1);
+        editor.setBrushOption("fillHoles", true);
+        editor.setBrushOption("filterEnabled", true);
+        auto *selector = win->findChild<QObject *>("flattenModeSelector");
+        auto *popup = selector ? selector->property("popup").value<QObject *>() : nullptr;
+        check(popup && QMetaObject::invokeMethod(popup, "open"), "flatten options dropdown opens");
+        selector->setProperty("highlightedIndex", 1);
+        QTest::qWait(100);
+        check(win->grabWindow().save("test-output/flatten-controls-0.3.0.png"), "capture flatten controls");
+        QMetaObject::invokeMethod(popup, "close");
         std::cout << "PASS " << checks << " UI integration checks; mesh settle " << elapsed.elapsed()
                   << " ms\n";
         win->hide();

@@ -4,10 +4,12 @@
 #include <QBuffer>
 #include <QClipboard>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QtConcurrent>
 #include <algorithm>
 
@@ -45,10 +47,22 @@ Editor::Editor(QObject *parent)
         if (!result.library) {
             emit failure(result.error);
             m_status = "资源载入失败，保留原资源";
+            reportAssetProgress(m_assetProgress, "失败：" + result.error);
             emit changed();
             return;
         }
-        m_world.setAssets(result.library);
+        m_world.assets = result.library;
+        m_world.resourcePaths = result.library->sources;
+        m_world.resourceVersion = result.library->version;
+        m_world.models = result.models;
+        if (m_rememberDefault) {
+            QSettings().setValue("resources/defaultSources", m_world.resourcePaths);
+        }
+        if (m_world.resourcePaths == defaultResourceSources()) {
+            m_defaultAssets = result.library;
+            m_defaultFingerprint = m_loadingFingerprint;
+        }
+        reportAssetProgress(100, "资源载入完成；预览网格在后台更新");
         ++m_epoch;
         ++m_revision;
         if (!m_restoringAssets)
@@ -75,7 +89,7 @@ Editor::~Editor() {
 }
 void Editor::setTool(int v) {
     endStroke();
-    m_tool = std::clamp(v, -1, 4);
+    m_tool = std::clamp(v, -1, 5);
     emit changed();
 }
 void Editor::setRadius(int v) {
@@ -109,7 +123,7 @@ void Editor::stamp(const wb::Hit &hit, bool reverse) {
     if (!hit.valid || m_tool < 0 || assetBusy())
         return;
     beginStroke();
-    if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse))
+    if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, m_brushOptions))
         return;
     m_strokeChanged = true;
     ++m_revision;
@@ -154,6 +168,8 @@ void Editor::pushCommand(wb::Command c) {
     emit changed();
 }
 void Editor::undo() {
+    if (assetBusy())
+        return;
     endStroke();
     if (!canUndo())
         return;
@@ -161,11 +177,13 @@ void Editor::undo() {
     m_world.apply(e.command, false);
     m_state = e.before;
     ++m_revision;
-    dirtyAll();
+    dirtyCommand(e.command);
     m_status = "已撤销一个笔划";
     emit changed();
 }
 void Editor::redo() {
+    if (assetBusy())
+        return;
     endStroke();
     if (!canRedo())
         return;
@@ -173,7 +191,7 @@ void Editor::redo() {
     m_world.apply(e.command, true);
     m_state = e.after;
     ++m_revision;
-    dirtyAll();
+    dirtyCommand(e.command);
     m_status = "已重做一个笔划";
     emit changed();
 }
@@ -189,22 +207,37 @@ void Editor::resetHistory() {
     m_resourceRevision = m_savedResourceRevision = 0;
 }
 void Editor::newWorld() {
+    createWorld(128, 2026, 24, 12, 12, false);
+}
+bool Editor::createWorld(int size, int seed, int baseHeight, int variation, int seaLevel, bool flat) {
     if (exportBusy() || assetBusy())
-        return;
+        return false;
+    wb::World next;
+    try {
+        next = wb::World::create(wb::WorldOptions{size, seed, seaLevel, baseHeight, variation, flat});
+    } catch (const std::exception &e) {
+        emit failure(QString::fromUtf8(e.what()));
+        return false;
+    }
     endStroke();
-    m_world = wb::World::create();
+    m_world = std::move(next);
     m_material = wb::Stone;
-    emit catalogChanged();
     m_path.clear();
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
     dirtyAll();
-    m_status = "新建 128 × 128 演示地形";
+    m_status = QString("新建 %1 × %1 %2地形").arg(size).arg(flat ? "平坦" : "丘陵");
+    emit catalogChanged();
     emit sceneChanged();
     emit worldReset();
     emit changed();
+    if (!defaultResourceSources().isEmpty())
+        loadResources(defaultResourceSources(), true);
+    return true;
 }
 bool Editor::save(const QUrl &url) {
+    if (assetBusy())
+        return false;
     endStroke();
     QString path = url.isEmpty() ? m_path : url.toLocalFile();
     if (path.isEmpty())
@@ -244,9 +277,22 @@ bool Editor::open(const QUrl &url) {
     emit sceneChanged();
     emit worldReset();
     emit changed();
-    if (!m_world.resourcePaths.isEmpty())
-        loadResources(m_world.resourcePaths, true);
+    const auto sources = m_world.resourcePaths.isEmpty() ? defaultResourceSources() : m_world.resourcePaths;
+    if (!sources.isEmpty())
+        loadResources(sources, true);
     return true;
+}
+void Editor::dirtyCommand(const wb::Command &command) {
+    auto chunks = wb::affectedChunks(m_world, command);
+    m_dirty.insert(chunks.begin(), chunks.end());
+    if (!m_dirty.empty())
+        m_meshTimer.start();
+}
+QString Editor::meshUpdateSummary() const {
+    return QString("最近更新 %1 / %2 区块 · %3 ms")
+        .arg(m_scene->updatedChunks)
+        .arg(m_scene->chunks.size())
+        .arg(m_scene->buildMilliseconds);
 }
 void Editor::dirtyAll() {
     const int n = m_world.size / 16;
@@ -268,6 +314,8 @@ void Editor::startMesh() {
     m_meshActive = true;
     m_meshWatcher.setFuture(
         QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old, serial] {
+            QElapsedTimer elapsed;
+            elapsed.start();
             auto next = std::make_shared<wb::MeshScene>(*old);
             const int n = snapshot.size / 16;
             next->chunks.resize(n * n);
@@ -276,6 +324,8 @@ void Editor::startMesh() {
             for (int i : dirty)
                 next->chunks[i] = wb::buildChunkMesh(snapshot, snapshot.originX / 16 + i % n,
                                                      snapshot.originZ / 16 + i / n, serial);
+            next->updatedChunks = int(dirty.size());
+            next->buildMilliseconds = elapsed.elapsed();
             next->vertices = 0;
             for (const auto &c : next->chunks)
                 if (c)

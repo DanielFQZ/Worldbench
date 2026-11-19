@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.2.1");
+    app.setApplicationVersion("0.3.0");
     const auto local = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir().mkpath(local);
     logPath = local + "/Worldbench.log";
@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.2.1 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.3.0 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -64,6 +64,8 @@ int main(int argc, char **argv) {
     const int openIndex = args.indexOf("--open");
     if (openIndex >= 0 && !args.value(openIndex + 1).isEmpty())
         editor.open(QUrl::fromLocalFile(args.value(openIndex + 1)));
+    else
+        editor.initializeResources();
     if (args.contains("--model-preview")) {
         if (auto *viewport = engine.rootObjects().first()->findChild<Viewport *>("voxelViewport"))
             viewport->applyCamera({{"position", QJsonArray{9, 11, 17}}, {"yaw", -27}, {"pitch", -18}});

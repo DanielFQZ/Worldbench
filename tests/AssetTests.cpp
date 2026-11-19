@@ -51,12 +51,23 @@ int main(int argc, char **argv) {
             z.close();
         }
         QString error;
-        auto lib = wb::AssetLibrary::load({base}, error);
+        int lastProgress = -1, progressEvents = 0;
+        bool monotonic = true;
+        auto lib = wb::AssetLibrary::load({base}, error, [&](int p, const QString &message) {
+            monotonic &= p >= lastProgress && !message.isEmpty();
+            lastProgress = p;
+            ++progressEvents;
+        });
+        check(monotonic && lastProgress == 100 && progressEvents >= 4,
+              "loader reports real monotonic stages");
         check(bool(lib), qPrintable(error));
         check(lib->version == "1.20.1" && lib->catalog.size() == 2, "catalog/version");
         auto state = lib->catalog["test:pillar"].defaults;
         check(state.properties["axis"] == "y", "default axis");
         auto model = lib->model(state);
+        check(model == lib->catalog["test:pillar"].preview &&
+                  !lib->catalog["test:pillar"].thumbnailData.isEmpty(),
+              "background catalog model and thumbnail cache");
         check(model->faces.size() == 6 && !model->full && !model->fallback, "inherited partial model");
         check(lib->thumbnails[model->thumbnail].pixelColor(10, 10) == QColor(Qt::red),
               "first frame thumbnail");
