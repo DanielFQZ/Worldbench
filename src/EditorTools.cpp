@@ -16,10 +16,37 @@ QString Editor::resourceSummary() const {
         return "正在解析资源与构建图集…";
     if (!m_world.assets)
         return "内置调试材质 · 尚未载入 Minecraft 资源";
-    return QString("%1 · %2 个方块 · %3 个来源\n32 px 贴图预览 / 首帧 / JSON 模型")
+    return QString("%1 · %2 个方块 · %3 个来源\n32 px 贴图预览 / 首帧 / JSON 模型\n跳过 %4 个无效条目 · 忽略 "
+                   "%5 个 OptiFine 条目")
         .arg(m_world.assets->version.isEmpty() ? "资源包" : m_world.assets->version)
         .arg(m_world.assets->catalog.size())
-        .arg(m_world.resourcePaths.size());
+        .arg(m_world.resourcePaths.size())
+        .arg(m_world.assets->skippedEntries)
+        .arg(m_world.assets->unsupportedEntries);
+}
+QString Editor::resourceDiagnostics() const {
+    if (!m_world.assets)
+        return {};
+    auto lines = m_world.assets->warnings;
+    if (m_world.assets->skippedEntries > 80)
+        lines << QString("仅显示前 80 条跳过详情，共 %1 条。").arg(m_world.assets->skippedEntries);
+    if (m_world.assets->unsupportedEntries)
+        lines << "OptiFine CTM / 自定义颜色等专用效果尚未支持，普通纹理和 JSON 模型仍会加载。";
+    return lines.isEmpty() ? "未发现需要跳过的资源条目。" : lines.join('\n');
+}
+QVariantList Editor::sceneNodes() const {
+    return {QVariantMap{{"id", "terrain-base-1"}, {"name", "基础地形层1"}, {"kind", "terrain"}}};
+}
+QVariantMap Editor::layerDetails() const {
+    return {{"name", "基础地形层1"},
+            {"size", m_world.size},
+            {"originX", m_world.originX},
+            {"originZ", m_world.originZ},
+            {"minY", wb::World::MinY},
+            {"maxY", wb::World::MaxY - 1},
+            {"seaLevel", m_world.seaLevel},
+            {"seed", double(m_world.seed)},
+            {"overrideCells", int(m_world.overrides.size())}};
 }
 QString Editor::materialLabel() const {
     return m_world.palette[m_material].label();
@@ -113,6 +140,7 @@ void Editor::loadResources(const QStringList &paths, bool restoring) {
     m_restoringAssets = restoring;
     if (paths.isEmpty()) {
         m_world.setAssets({});
+        m_status = "已清除资源来源 · 使用内置调试材质";
         ++m_epoch;
         ++m_revision;
         ++m_resourceRevision;
@@ -171,22 +199,21 @@ void Editor::copyMcpConfiguration() {
     QGuiApplication::clipboard()->setText(mcpConfiguration());
 }
 QJsonObject Editor::worldInfo() const {
-    return {
-        {"revision", double(m_revision)},
-        {"size", m_world.size},
-        {"min", QJsonArray{m_world.originX, wb::World::MinY, m_world.originZ}},
-        {"max", QJsonArray{m_world.originX + m_world.size - 1, wb::World::MaxY - 1,
-                           m_world.originZ + m_world.size - 1}},
-        {"protected_y", wb::World::MinY},
-        {"modified", modified()},
-        {"resource_version", m_world.resourceVersion},
-        {"palette_states", int(m_world.palette.size())},
-        {"override_cells", int(m_world.overrides.size())},
-        {"busy", commandBusy()},
-        {"mesh_busy", meshBusy()},
-        {"can_undo", canUndo()},
-        {"can_redo", canRedo()},
-        {"scene_nodes", QJsonArray{"World", "Terrain base", "Voxel edits", "Camera", "Resource sources"}}};
+    return {{"revision", double(m_revision)},
+            {"size", m_world.size},
+            {"min", QJsonArray{m_world.originX, wb::World::MinY, m_world.originZ}},
+            {"max", QJsonArray{m_world.originX + m_world.size - 1, wb::World::MaxY - 1,
+                               m_world.originZ + m_world.size - 1}},
+            {"protected_y", wb::World::MinY},
+            {"modified", modified()},
+            {"resource_version", m_world.resourceVersion},
+            {"palette_states", int(m_world.palette.size())},
+            {"override_cells", int(m_world.overrides.size())},
+            {"busy", commandBusy()},
+            {"mesh_busy", meshBusy()},
+            {"can_undo", canUndo()},
+            {"can_redo", canRedo()},
+            {"scene_nodes", QJsonArray::fromVariantList(sceneNodes())}};
 }
 QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     auto integer = [](const QJsonValue &v, int lo, int hi) -> int {

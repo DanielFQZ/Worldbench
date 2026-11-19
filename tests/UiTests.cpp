@@ -1,6 +1,7 @@
 #include "Editor.h"
 #include "Viewport.h"
 #include <QBuffer>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QJsonArray>
@@ -49,6 +50,19 @@ int main(int argc, char **argv) {
         v->setRawInput(false);
         check(QTest::qWaitFor([&] { return !editor.meshBusy() && v->frameCounter()->load() > 0; }, 15000),
               "initial GPU render");
+        check(win->findChild<QQuickItem *>("sceneOutliner"), "actual outliner QML loaded");
+        auto *brushPanel = win->findChild<QQuickItem *>("leftBrushSettings");
+        check(brushPanel && brushPanel->isVisible() &&
+                  brushPanel->mapToScene({0, 0}).x() < v->mapToScene({0, 0}).x(),
+              "brush settings expand to left of viewport");
+        check(editor.sceneNodes().size() == 1 && editor.sceneNodes()[0].toMap()["name"] == "基础地形层1",
+              "outliner contains only actual terrain layer");
+        editor.setTool(-1);
+        QTest::qWait(40);
+        check(!brushPanel->isVisible(), "navigation collapses brush settings");
+        editor.setTool(0);
+        QTest::qWait(40);
+        check(editor.selectedNode() == "terrain-base-1", "tool selection preserves scene selection");
         const auto baseline = editor.world().heights;
         QPoint point = v->mapToScene(QPointF(v->width() * .58, v->height() * .61)).toPoint();
         QTest::mouseMove(win, point);
@@ -95,6 +109,45 @@ int main(int argc, char **argv) {
         QTest::mouseRelease(win, Qt::LeftButton, Qt::AltModifier, point + QPoint(20, 0));
         check((v->camera() - orbitBefore).length() > .1 && editor.world().heights == edited,
               "Alt orbit without sculpting");
+        // Identical orbit deltas must be independent of the cursor's initial location.
+        auto orbitAt = [&](QPointF local) {
+            v->resetCamera();
+            const auto start = v->mapToScene(local).toPoint();
+            const auto initial = v->camera();
+            const auto matrix = v->viewProjection();
+            QTest::mousePress(win, Qt::LeftButton, Qt::AltModifier, start);
+            check(v->camera() == initial && v->viewProjection() == matrix, "orbit press has zero snap");
+            const auto pivot = v->orbitPivot();
+            const auto centered = (matrix * QVector4D(pivot, 1)).toVector3DAffine();
+            check(std::abs(centered.x()) < .001 && std::abs(centered.y()) < .001, "orbit pivot on view axis");
+            QTest::mouseMove(win, start + QPoint(1, 0), 10);
+            check((v->camera() - initial).length() < 1, "first orbit pixel stays continuous");
+            QTest::mouseMove(win, start + QPoint(20, 10), 20);
+            QTest::mouseRelease(win, Qt::LeftButton, Qt::AltModifier, start + QPoint(20, 10));
+            check(std::abs((v->camera() - pivot).length() - (initial - pivot).length()) < .001,
+                  "orbit radius preserved");
+            const auto after = (v->viewProjection() * QVector4D(pivot, 1)).toVector3DAffine();
+            check(std::abs(after.x()) < .001 && std::abs(after.y()) < .001, "pivot remains at view center");
+            return v->camera();
+        };
+        auto orbitLeft = orbitAt({v->width() * .2, v->height() * .3});
+        auto orbitRight = orbitAt({v->width() * .75, v->height() * .75});
+        check((orbitLeft - orbitRight).length() < .001, "cursor position cannot change orbit");
+        v->applyCamera({{"position", QJsonArray{10, 100, 10}}, {"yaw", 0}, {"pitch", 45}});
+        auto skyStart = v->camera();
+        QTest::mousePress(win, Qt::LeftButton, Qt::AltModifier, point);
+        QTest::mouseMove(win, point + QPoint(1, 0), 10);
+        QTest::mouseRelease(win, Qt::LeftButton, Qt::AltModifier, point + QPoint(1, 0));
+        check((v->camera() - skyStart).length() < 1, "sky orbit uses continuous view-axis fallback");
+        // A surface closer than five blocks must not be pushed away on first movement.
+        int surface = editor.world().height(0, 0);
+        v->applyCamera({{"position", QJsonArray{.5, surface + 2., .5}}, {"yaw", 0}, {"pitch", -89}});
+        auto nearStart = v->camera();
+        QTest::mousePress(win, Qt::LeftButton, Qt::AltModifier, point);
+        QTest::mouseMove(win, point + QPoint(1, 0), 10);
+        QTest::mouseRelease(win, Qt::LeftButton, Qt::AltModifier, point + QPoint(1, 0));
+        check((v->camera() - nearStart).length() < .1, "near-surface orbit has no minimum-radius snap");
+        v->resetCamera();
         auto panBefore = v->camera();
         QTest::mousePress(win, Qt::MiddleButton, Qt::NoModifier, point);
         QTest::mouseMove(win, point + QPoint(15, 10), 20);
@@ -192,6 +245,13 @@ int main(int argc, char **argv) {
         auto call = [&](QString name, QJsonObject args) {
             return request("tools/call", {{"name", name}, {"arguments", args}})["result"].toObject();
         };
+        auto sceneResult = call("world_info", {});
+        auto sceneInfo = QJsonDocument::fromJson(
+                             sceneResult["content"].toArray()[0].toObject()["text"].toString().toUtf8())
+                             .object();
+        check(sceneInfo["scene_nodes"].toArray().size() == 1 &&
+                  sceneInfo["scene_nodes"].toArray()[0].toObject()["id"] == "terrain-base-1",
+              "MCP uses same actual scene nodes as outliner");
         auto beforeBlocks = editor.world().overrides;
         auto revision = editor.revision();
         auto result = call("fill_box", {{"min", QJsonArray{0, 90, 0}},
@@ -223,14 +283,43 @@ int main(int argc, char **argv) {
               "one MCP fill undoes as one command");
         result = call("read_region", {{"min", QJsonArray{0, 90, 0}}, {"max", QJsonArray{2, 92, 2}}});
         check(!result["isError"].toBool(), "MCP region read");
+        QJsonArray house;
+        for (int y = 80; y <= 84; ++y)
+            for (int z = 10; z <= 16; ++z)
+                for (int x = 10; x <= 16; ++x) {
+                    if (y != 80 && y != 84 && x != 10 && x != 16 && z != 10 && z != 16)
+                        continue;
+                    if (z == 16 && x == 13 && (y == 81 || y == 82))
+                        continue; // Doorway.
+                    house << QJsonObject{{"position", QJsonArray{x, y, z}},
+                                         {"block", y == 82 && x == 10 && z == 13 ? "minecraft:glass"
+                                                                                 : "minecraft:oak_planks"}};
+                }
+        result = call("set_blocks", {{"blocks", house}, {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().block(10, 82, 13) == wb::Glass &&
+                  editor.world().block(13, 81, 16) == wb::Air && editor.world().block(13, 82, 13) == wb::Air,
+              "MCP constructs hollow house with doorway and window");
+        result = call("undo", {{"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().overrides == beforeBlocks,
+              "MCP building undone atomically");
+        result = call("redo", {{"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().block(10, 82, 13) == wb::Glass,
+              "MCP building redo");
         result = call("catalog", {{"query", "stone"}});
         check(!result["isError"].toBool(), "MCP block catalog");
-        result = call("camera", {{"position", QJsonArray{10, 40, 60}}, {"yaw", -10}, {"pitch", -15}});
-        check(!result["isError"].toBool() && v->camera() == QVector3D(10, 40, 60), "MCP camera control");
+        result = call("camera", {{"position", QJsonArray{24, 92, 32}}, {"yaw", -30}, {"pitch", -24}});
+        check(!result["isError"].toBool() && v->camera() == QVector3D(24, 92, 32), "MCP camera control");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 10000), "MCP mesh drains");
         result = call("screenshot", {});
         check(!result["isError"].toBool() && result["content"].toArray()[0].toObject()["type"] == "image",
               "MCP image result");
+        const auto screenshot = result["content"].toArray()[0].toObject();
+        QImage houseImage;
+        check(
+            houseImage.loadFromData(QByteArray::fromBase64(screenshot["data"].toString().toLatin1()), "PNG"),
+            "decode real MCP screenshot");
+        QDir().mkpath("test-output");
+        check(houseImage.save("test-output/mcp-house-0.2.1.png"), "capture MCP house");
         editor.setMcpEnabled(false);
         check(!editor.mcpEnabled(), "MCP disabled");
         bridge.closeWriteChannel();
@@ -254,6 +343,7 @@ int main(int argc, char **argv) {
         check(editor.world().assets && editor.world().assets->thumbnails.contains("minecraft:block/stone"),
               "texture-only pack applied");
         check(editor.blockCatalog("stone").size() == 1, "searchable material catalog");
+        check(!editor.blockCatalog("石").isEmpty(), "Chinese material search");
         check(editor.save(QUrl::fromLocalFile(tmp.filePath("resources.wbench"))), "save resource paths");
         check(editor.open(QUrl::fromLocalFile(tmp.filePath("resources.wbench"))), "reopen resource project");
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 10000),
@@ -261,6 +351,28 @@ int main(int argc, char **argv) {
         check(editor.world().assets && !editor.modified(), "resource restoration retains saved state");
         editor.removeResource(0);
         check(!editor.world().assets && editor.modified(), "removing resource marks project modified");
+        if (app.arguments().size() > 1) {
+            check(editor.open(QUrl::fromLocalFile(app.arguments()[1])), "open real resource preview fixture");
+            check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 120000),
+                  "real resource preview finishes");
+            check(editor.world().assets && editor.world().assets->skippedEntries == 25,
+                  "real pack import diagnostics reach editor");
+            check(!editor.blockCatalog("铁砧").isEmpty(), "real JAR Chinese search reaches UI catalog");
+        }
+        editor.setTool(4);
+        v->resetCamera();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "final layout mesh settles");
+        QTest::qWait(120);
+        QDir().mkpath("test-output");
+        check(win->grabWindow().save("test-output/ui-0.2.1.png"), "capture brush and scene layout");
+        auto *settings = win->findChild<QObject *>("editorSettingsDialog");
+        auto *settingsContent = win->findChild<QObject *>("settingsContent");
+        check(settings && settingsContent, "settings pages loaded outside scene outliner");
+        settingsContent->setProperty("page", "resources");
+        check(QMetaObject::invokeMethod(settings, "open"), "resource settings opens");
+        QTest::qWait(80);
+        check(win->grabWindow().save("test-output/resources-0.2.1.png"), "capture resource management");
+        QMetaObject::invokeMethod(settings, "close");
         std::cout << "PASS " << checks << " UI integration checks; mesh settle " << elapsed.elapsed()
                   << " ms\n";
         win->hide();

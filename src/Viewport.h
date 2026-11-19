@@ -35,6 +35,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_INVOKABLE void focusTarget();
     QMatrix4x4 viewProjection() const;
     QVector3D camera() const { return m_camera; }
+    QVector3D orbitPivot() const { return m_pivot; }
     wb::Hit hit() const { return m_hit; }
     std::shared_ptr<std::atomic_int> frameCounter() const { return m_frames; }
   signals:

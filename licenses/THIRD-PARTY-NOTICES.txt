@@ -1,5 +1,14 @@
-Worldbench 0.2.0 - third-party component notices
+Worldbench 0.2.1 - third-party component notices
 Private development testing build. Final public project licensing is recorded in DEVELOPMENT.md.
+
+Minecraft Chinese block names (Java 1.20.1): Mojang/Microsoft and translation contributors.
+Source: https://resources.download.minecraft.net/78/78cee27ad20ff7ba349607098c638a6263cf9dfc
+Original zh_cn.json SHA-1: 78cee27ad20ff7ba349607098c638a6263cf9dfc
+Subset: 2000 block.minecraft.* strings plus 18 aliases for wall banners and item frames
+using names from the same original language file (2018 entries total).
+This attribution does not assert public-domain status or relicense the language data
+under Worldbench's code license. No Minecraft JAR, texture or model assets are bundled.
+Minecraft usage terms: https://www.minecraft.net/eula and https://www.minecraft.net/usage-guidelines
 
 KDDockWidgets: commit 66e66fa5d8a824488538558e274023822ac13952
 Copyright KDAB / Klaralvdalens Datakonsult AB and contributors.

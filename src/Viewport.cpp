@@ -315,6 +315,8 @@ void Viewport::focusTarget() {
 }
 void Viewport::mousePressEvent(QMouseEvent *e) {
     forceActiveFocus();
+    const bool wasNavigating =
+        m_altNav || m_buttons.testFlag(Qt::RightButton) || m_buttons.testFlag(Qt::MiddleButton);
     m_buttons = e->buttons();
     m_altNav = e->modifiers().testFlag(Qt::AltModifier);
     m_reverse = e->modifiers().testFlag(Qt::ShiftModifier);
@@ -325,8 +327,17 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         if (m_sculpting && m_editor)
             m_editor->endStroke();
         m_sculpting = false;
-        if (m_hit.valid)
-            m_pivot = m_hit.position;
+        if (!wasNavigating && m_editor) {
+            // Freeze a pivot on the view axis for this gesture. Picking at the cursor
+            // forces the camera to realign on the first orbit delta and causes a snap.
+            const auto direction = forward();
+            const auto centerHit = m_editor->world().raycast(m_camera, direction);
+            float depth = centerHit.valid ? QVector3D::dotProduct(centerHit.position - m_camera, direction)
+                                          : QVector3D::dotProduct(m_pivot - m_camera, direction);
+            if (depth <= .01f)
+                depth = 100.f;
+            m_pivot = m_camera + direction * depth;
+        }
         m_anchorGlobal = e->globalPosition();
         setCursor(QCursor(Qt::BlankCursor));
         beginRawInput();
@@ -556,7 +567,8 @@ bool Viewport::nativeEventFilter(const QByteArray &, void *message, qintptr *) {
 void Viewport::navigate(float dx, float dy) {
     if (!std::isfinite(dx) || !std::isfinite(dy) || (dx == 0 && dy == 0))
         return;
-    const float distance = std::max(5.f, (m_camera - m_pivot).length()), scale = float(m_sensitivity / .2);
+    const float radius = std::max(.01f, (m_camera - m_pivot).length());
+    const float distance = std::max(5.f, radius), scale = float(m_sensitivity / .2);
     if (m_buttons.testFlag(Qt::MiddleButton) ||
         (m_buttons.testFlag(Qt::LeftButton) && m_buttons.testFlag(Qt::RightButton))) {
         QVector3D move = (-right() * dx + QVector3D(0, 1, 0) * dy) * (distance * .0015f * scale);
@@ -568,7 +580,7 @@ void Viewport::navigate(float dx, float dy) {
         m_yaw += dx * float(m_sensitivity);
         m_pitch = std::clamp(m_pitch - dy * float(m_sensitivity), -89.f, 89.f);
         if (m_altNav)
-            m_camera = m_pivot - forward() * distance;
+            m_camera = m_pivot - forward() * radius;
     }
     changedCamera();
 }

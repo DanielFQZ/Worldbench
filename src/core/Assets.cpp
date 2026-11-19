@@ -1,6 +1,7 @@
 #include "Assets.h"
 #include "World.h"
 #include <QBuffer>
+#include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
 #include <QJsonArray>
@@ -12,6 +13,11 @@
 #include <algorithm>
 #include <cmath>
 #include <private/qzipreader_p.h>
+
+// Explicit initialization keeps the resource object linked from the static core library.
+static void initializeBlockNames() {
+    Q_INIT_RESOURCE(block_names);
+}
 
 namespace wb {
 namespace {
@@ -119,12 +125,25 @@ std::shared_ptr<const BlockModel> fallbackModel(int b) {
 std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QString &error) {
     auto lib = std::make_shared<AssetLibrary>();
     lib->sources = paths;
-    QMap<QString, QByteArray> files;
-    QJsonObject lang;
+    static const QJsonObject bundledChinese = [] {
+        initializeBlockNames();
+        QFile f(":/translations/zh_cn_blocks_1.20.1.json");
+        if (!f.open(QIODevice::ReadOnly))
+            return QJsonObject{};
+        return QJsonDocument::fromJson(f.readAll()).object();
+    }();
+    QJsonObject english, chinese;
+    QMap<QString, QImage> images;
     qint64 budget = 0;
+    int loadedEntries = 0;
     auto fail = [&](QString s) -> std::shared_ptr<AssetLibrary> {
         error = s;
         return {};
+    };
+    auto skip = [&](const QString &source, const QString &entry, const QString &reason) {
+        ++lib->skippedEntries;
+        if (lib->warnings.size() < 80)
+            lib->warnings << QFileInfo(source).fileName() + " / " + entry + "：" + reason;
     };
     if (paths.isEmpty() || paths.size() > 8)
         return fail("请选择 1–8 个资源来源");
@@ -141,71 +160,93 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
             return fail("压缩包条目过多");
         for (const auto &e : entries) {
             const auto &n = e.filePath;
-            if (n == "version.json" && sourceIndex == 0 && e.size < 65536)
+            if (n == "version.json" && sourceIndex == 0 && e.size >= 0 && e.size < 65536)
                 lib->version = QJsonDocument::fromJson(zip.fileData(n)).object()["id"].toString();
             if (!e.isFile || !n.startsWith("assets/"))
                 continue;
-            if (n.contains("..") || n.contains('\\') || !safe.match(n).hasMatch())
-                return fail("资源路径不合法：" + n);
-            if (!(n.endsWith(".png") || n.endsWith(".json")))
+            const auto parts = n.split('/');
+            if (n.contains('\\') || parts.contains("..") || parts.contains(".") || parts.contains("") ||
+                !safe.match(n).hasMatch()) {
+                skip(path, n, "跳过不合法的资源路径");
                 continue;
-            if (!(n.contains("/blockstates/") || n.contains("/models/") || n.contains("/textures/") ||
-                  n.endsWith("/lang/zh_cn.json") || n.endsWith("/lang/en_us.json")))
+            }
+            if (parts.size() < 4)
                 continue;
-            if (e.size < 0 || e.size > 16 * 1024 * 1024 || (budget += e.size) > 256 * 1024 * 1024)
-                return fail("资源解压预算超限（单项 16 MiB / 总量 256 MiB）");
-            auto data = zip.fileData(n);
-            if (data.size() != e.size || zip.status() != QZipReader::NoError)
-                return fail("资源解压失败：" + n);
-            files[n] = data;
-        }
-        // A pack may replace rendering assets, but must not create registry entries on top of a JAR.
-        if (sourceIndex == 0)
-            for (auto it = files.begin(); it != files.end(); ++it) {
-                const auto parts = it.key().split('/');
-                if (parts.size() == 4 && parts[2] == "blockstates" && parts[3].endsWith(".json")) {
-                    const QString name = parts[1] + ":" + parts[3].chopped(5);
-                    lib->catalog[name].name = name;
+            const auto ns = parts[1], type = parts[2];
+            if (type == "optifine") {
+                ++lib->unsupportedEntries;
+                continue;
+            }
+            const bool texture = type == "textures" && n.endsWith(".png");
+            const bool model = type == "models" && n.endsWith(".json");
+            const bool state = type == "blockstates" && n.endsWith(".json");
+            const bool lang =
+                type == "lang" && (parts.last() == "zh_cn.json" || parts.last() == "en_us.json");
+            if (!texture && !model && !state && !lang)
+                continue;
+            if (e.size < 0 || e.size > 16 * 1024 * 1024) {
+                skip(path, n, "条目超过 16 MiB 读取上限");
+                continue;
+            }
+            if ((budget += e.size) > 256 * 1024 * 1024)
+                return fail("资源总解压预算超过 256 MiB");
+            const auto data = zip.fileData(n);
+            if (data.size() != e.size || zip.status() != QZipReader::NoError) {
+                skip(path, n, "条目无法解压");
+                continue;
+            }
+            const auto id = ns + ":" + parts.mid(3).join('/').chopped(texture ? 4 : 5);
+            if (texture) {
+                QBuffer buffer;
+                buffer.setData(data);
+                buffer.open(QIODevice::ReadOnly);
+                QImageReader reader(&buffer, "png");
+                const auto sz = reader.size();
+                if (sz.width() < 1 || sz.height() < 1 ||
+                    qint64(sz.width()) * sz.height() > 16 * 1024 * 1024) {
+                    skip(path, n, "PNG 尺寸无效或超过预算");
+                    continue;
+                }
+                auto image = reader.read();
+                if (image.isNull()) {
+                    skip(path, n, "PNG 解码失败");
+                    continue;
+                }
+                const int side = std::min(image.width(), image.height());
+                images[id] = image.copy(0, 0, side, side)
+                                 .scaled(32, 32, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+            } else {
+                QJsonParseError parse;
+                const auto doc = QJsonDocument::fromJson(data, &parse);
+                if (parse.error != QJsonParseError::NoError || !doc.isObject()) {
+                    skip(path, n, "JSON 无效，保留下层同名资源");
+                    continue;
+                }
+                const auto object = doc.object();
+                if (lang) {
+                    auto &target = parts.last() == "zh_cn.json" ? chinese : english;
+                    for (auto i = object.begin(); i != object.end(); ++i)
+                        if (i.value().isString())
+                            target[i.key()] = i.value();
+                } else if (model)
+                    lib->m_models[id] = object;
+                else {
+                    lib->m_states[id] = object;
+                    // Only the base source defines available blocks; overlays cannot add a registry.
+                    if (sourceIndex == 0)
+                        lib->catalog[id].name = id;
                 }
             }
-    }
-    QMap<QString, QImage> images;
-    for (auto it = files.begin(); it != files.end(); ++it) {
-        const auto parts = it.key().split('/');
-        if (parts.size() < 4)
-            continue;
-        const auto ns = parts[1];
-        if (parts[2] == "lang") {
-            auto o = QJsonDocument::fromJson(it.value()).object();
-            for (auto p = o.begin(); p != o.end(); ++p)
-                lang[p.key()] = p.value();
-        } else if (parts[2] == "textures" && it.key().endsWith(".png")) {
-            QBuffer buffer;
-            buffer.setData(it.value());
-            buffer.open(QIODevice::ReadOnly);
-            QImageReader reader(&buffer, "png");
-            const auto sz = reader.size();
-            if (sz.width() < 1 || sz.height() < 1 || qint64(sz.width()) * sz.height() > 16 * 1024 * 1024)
-                return fail("贴图尺寸超限：" + it.key());
-            QImage image = reader.read();
-            if (image.isNull())
-                return fail("PNG 无效：" + it.key());
-            int side = std::min(image.width(), image.height());
-            image =
-                image.copy(0, 0, side, side).scaled(32, 32, Qt::IgnoreAspectRatio, Qt::FastTransformation);
-            images[ns + ":" + parts.mid(3).join('/').chopped(4)] = image;
-        } else if (parts[2] == "models" || parts[2] == "blockstates") {
-            QJsonParseError parse;
-            auto doc = QJsonDocument::fromJson(it.value(), &parse);
-            if (parse.error != QJsonParseError::NoError || !doc.isObject())
-                return fail("模型 JSON 无效：" + it.key());
-            const auto id = ns + ":" + parts.mid(3).join('/').chopped(5);
-            if (parts[2] == "models")
-                lib->m_models[id] = doc.object();
-            else
-                lib->m_states[id] = doc.object();
+            ++loadedEntries;
         }
     }
+    if (!loadedEntries)
+        return fail("压缩包中没有可用的 Minecraft 纹理/模型/方块状态或语言资源；不合法条目已跳过。");
+    auto lang = english;
+    for (auto i = bundledChinese.begin(); i != bundledChinese.end(); ++i)
+        lang[i.key()] = i.value();
+    for (auto i = chinese.begin(); i != chinese.end(); ++i)
+        lang[i.key()] = i.value();
     if (images.size() > 6000)
         return fail("贴图数量超过 6000");
     int side = 1, grid = int(std::ceil(std::sqrt(images.size() + 2.0)));

@@ -58,6 +58,9 @@ Editor::Editor(QObject *parent)
         m_status = QString("资源已载入 · %1 个方块 · %2")
                        .arg(result.library->catalog.size())
                        .arg(result.library->version.isEmpty() ? "资源包" : result.library->version);
+        if (result.library->skippedEntries)
+            m_status +=
+                QString(" · 跳过 %1 个无效条目（资源菜单查看详情）").arg(result.library->skippedEntries);
         emit catalogChanged();
         emit sceneChanged();
         emit changed();
@@ -73,8 +76,6 @@ Editor::~Editor() {
 void Editor::setTool(int v) {
     endStroke();
     m_tool = std::clamp(v, -1, 4);
-    if (m_tool >= 0)
-        m_selectedNode = m_tool < 2 ? "terrain" : "voxels";
     emit changed();
 }
 void Editor::setRadius(int v) {

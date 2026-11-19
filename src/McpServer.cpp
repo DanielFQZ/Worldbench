@@ -137,7 +137,7 @@ McpServer::McpServer(Editor *editor) : QObject(editor), m_editor(editor) {
                         result = {
                             {"protocolVersion", "2025-06-18"},
                             {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
-                            {"serverInfo", QJsonObject{{"name", "Worldbench"}, {"version", "0.2.0"}}},
+                            {"serverInfo", QJsonObject{{"name", "Worldbench"}, {"version", "0.2.1"}}},
                             {"instructions",
                              "Local editor session. Read world_info and catalog before editing. Writes "
                              "require expected_revision and are undoable. The user can edit concurrently. "

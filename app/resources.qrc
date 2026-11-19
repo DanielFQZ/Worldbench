@@ -1,6 +1,7 @@
 <RCC><qresource prefix="/">
 <file alias="main.qml">qml/main.qml</file>
 <file alias="ToolRail.qml">qml/ToolRail.qml</file>
+<file alias="SettingsPanel.qml">qml/SettingsPanel.qml</file>
 <file alias="ToolPanel.qml">qml/ToolPanel.qml</file>
 <file alias="WorldPanel.qml">qml/WorldPanel.qml</file>
 <file alias="ViewportPane.qml">qml/ViewportPane.qml</file>

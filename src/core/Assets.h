@@ -40,6 +40,7 @@ class AssetLibrary {
     QImage atlas;
     QMap<QString, QImage> thumbnails;
     QStringList warnings;
+    int skippedEntries = 0, unsupportedEntries = 0;
     static std::shared_ptr<AssetLibrary> load(const QStringList &paths, QString &error);
     std::shared_ptr<const BlockModel> model(const BlockState &state) const;
     bool validate(const BlockState &state, QString &error) const;

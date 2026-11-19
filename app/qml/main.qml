@@ -6,14 +6,15 @@ import com.kdab.dockwidgets 2.0 as KDDW
 
 ApplicationWindow {
     id: win
-    width: 1440; height: 900; minimumWidth: 1024; minimumHeight: 680
+    width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.2.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.2.1"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
     palette.base: "#151b23"; palette.alternateBase: "#293240"
     palette.text: "#e0e6ef"; palette.button: "#303b4b"; palette.buttonText: "#dce4ee"
+    palette.placeholderText: "#7e8da1"
     palette.highlight: "#43a9bf"; palette.highlightedText: "#101b24"
     property string pendingAction: ""
     property bool allowClose: false
@@ -64,14 +65,14 @@ ApplicationWindow {
         Menu {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
-            Action { text: "相机与鼠标设置"; onTriggered: { editor.selectedNode = "camera"; worldDock.dockWidget.show() } }
+            Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
         }
         Menu {
             title: "资源"
             Action { text: "载入客户端 JAR / 基础 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = false; resourceDialog.open() } }
             Action { text: "叠加资源包 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = true; resourceDialog.open() } }
-            Action { text: "管理资源来源"; onTriggered: { editor.selectedNode = "resources"; worldDock.dockWidget.show() } }
+            Action { text: "管理资源来源"; onTriggered: { settingsContent.page = "resources"; settingsDialog.open() } }
         }
         Menu {
             title: "自动化"
@@ -79,13 +80,23 @@ ApplicationWindow {
         }
         Menu {
             title: "帮助"
-            Action { text: "视口操作说明"; onTriggered: { editor.selectedNode = "world"; worldDock.dockWidget.show() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.2.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.2.1 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     RowLayout {
         anchors.fill: parent; spacing: 0
         ToolRail { Layout.preferredWidth: 56; Layout.fillHeight: true }
+        Pane {
+            objectName: "leftBrushSettings"
+            visible: editor.tool >= 0
+            Layout.preferredWidth: 280; Layout.fillHeight: true; padding: 0
+            background: Rectangle { color: "#23262d"; border.color: "#343b46" }
+            ScrollView {
+                id: brushScroll; anchors.fill: parent; clip: true; contentWidth: availableWidth
+                ToolPanel { width: brushScroll.availableWidth }
+            }
+        }
         KDDW.DockingArea {
             id: workspace; Layout.fillWidth: true; Layout.fillHeight: true
             uniqueName: "WorldbenchWorkspace"
@@ -94,7 +105,7 @@ ApplicationWindow {
             KDDW.DockWidget { id: worldDock; uniqueName: "world-info"; source: "qrc:/WorldPanel.qml" }
             Component.onCompleted: {
                 worldDock.dockWidget.title = "场景 / 详细信息"
-                addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(350, 0))
+                addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(310, 0))
             }
         }
     }
@@ -102,7 +113,14 @@ ApplicationWindow {
         id: resourceDialog; property bool overlay: false
         title: overlay ? "叠加资源包" : "载入基础 Minecraft 资源"
         fileMode: FileDialog.OpenFile; nameFilters: ["Minecraft 资源 (*.jar *.zip)"]
-        onAccepted: { editor.importResource(selectedFile, overlay); editor.selectedNode = "resources" }
+        onAccepted: { editor.importResource(selectedFile, overlay); settingsContent.page = "resources"; settingsDialog.open() }
+    }
+    Dialog {
+        id: settingsDialog; objectName: "editorSettingsDialog"
+        title: settingsContent.page === "camera" ? "相机与鼠标设置" : "资源来源与导入诊断"
+        modal: false; width: Math.min(680, win.width - 60); height: Math.min(650, win.height - 100)
+        anchors.centerIn: parent; standardButtons: Dialog.Close
+        contentItem: SettingsPanel { id: settingsContent; objectName: "settingsContent" }
     }
     Dialog {
         id: mcpDialog; title: "MCP / LLM 接入"; modal: true; width: 670; anchors.centerIn: parent

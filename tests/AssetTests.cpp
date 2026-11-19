@@ -111,6 +111,31 @@ int main(int argc, char **argv) {
             z.close();
         }
         check(!wb::AssetLibrary::load({bad}, error), "invalid JSON rejected");
+        // A bad overlay must not poison good files or replace an already usable base resource.
+        {
+            QZipWriter z(bad);
+            z.addFile("assets/test/textures/block/stone.png", "bad png");
+            z.addFile("assets/test/models/block/base.json", "{invalid");
+            z.addFile("assets/test/blockstates/pillar.json", "{invalid");
+            z.addFile("assets/test/textures/block/old iron/unused.png", png);
+            z.addFile("assets/test/../escape.json", "{}");
+            z.addFile("assets/test/textures/block/valid.png", png);
+            z.addFile("assets/test/optifine/ctm/valid.png", png);
+            z.addFile("assets/test/lang/en_us.json", R"({"block.test.pillar":"English pillar"})");
+            z.addFile("assets/test/lang/zh_cn.json", R"({"block.test.pillar":"测试柱"})");
+            z.close();
+        }
+        auto mixed = wb::AssetLibrary::load({base, bad}, error);
+        check(mixed && mixed->skippedEntries == 5 && mixed->unsupportedEntries == 1,
+              "mixed pack counts skipped files and unsupported effects");
+        check(mixed->thumbnails["test:block/valid"].pixelColor(0, 0) == QColor(Qt::blue),
+              "valid resource after bad entries still loads");
+        check(mixed->thumbnails["test:block/stone"].pixelColor(10, 10) == QColor(Qt::red),
+              "bad PNG overlay preserves lower texture");
+        check(mixed->model(state)->faces.size() == 6 && !mixed->model(state)->fallback,
+              "bad model and blockstate JSON preserve lower models");
+        check(mixed->catalog["test:pillar"].title == "测试柱", "external Chinese beats English");
+        check(mixed->warnings.join('\n').contains("old iron"), "diagnostics identify skipped path");
         if (app.arguments().size() > 1) {
             auto real = wb::AssetLibrary::load({app.arguments()[1]}, error);
             check(bool(real), qPrintable(error));
@@ -130,6 +155,35 @@ int main(int argc, char **argv) {
                               "model vertices and atlas UV");
                     }
                 std::cout << name.toStdString() << ": " << m->faces.size() << " faces\n";
+            }
+            check(real->catalog["minecraft:anvil"].title == "铁砧", "bundled Chinese beats JAR English");
+            for (auto i = real->catalog.begin(); i != real->catalog.end(); ++i)
+                check(i->title != i.key(), "all official resource entries have bundled names");
+            {
+                QZipWriter z(overlay);
+                z.addFile("assets/minecraft/lang/zh_cn.json", R"({"block.minecraft.anvil":"资源包铁砧"})");
+                z.close();
+            }
+            auto renamed = wb::AssetLibrary::load({app.arguments()[1], overlay}, error);
+            check(renamed && renamed->catalog["minecraft:anvil"].title == "资源包铁砧",
+                  "external Chinese overrides bundled translation");
+            if (app.arguments().size() > 2) {
+                auto pack = wb::AssetLibrary::load({app.arguments()[1], app.arguments()[2]}, error);
+                check(bool(pack), qPrintable(error));
+                check(pack->skippedEntries > 0 && pack->unsupportedEntries > 0, "Stay True diagnostics");
+                check(pack->version == "1.20.1" && pack->catalog.size() == real->catalog.size(),
+                      "1.21 overlay does not redefine base export version or catalog");
+                check(pack->thumbnails["minecraft:block/stone"] != real->thumbnails["minecraft:block/stone"],
+                      "Stay True valid stone texture overlays base");
+                check(!pack->model(pack->catalog["minecraft:anvil"].defaults)->fallback,
+                      "Stay True model resolves against base resources");
+                auto preview = wb::World::create(128);
+                preview.setAssets(pack);
+                QDir().mkpath("test-output");
+                check(wb::saveProject("test-output/stay-true-preview.wbench", preview, error),
+                      "Stay True fixture");
+                std::cout << "Stay True: " << pack->skippedEntries << " skipped, " << pack->unsupportedEntries
+                          << " unsupported, " << pack->catalog.size() << " catalog entries\n";
             }
             auto gallery = wb::World::create(32);
             std::fill(gallery.heights.begin(), gallery.heights.end(), 4);

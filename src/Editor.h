@@ -30,6 +30,9 @@ class Editor : public QObject {
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
     Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
+    Q_PROPERTY(QString resourceDiagnostics READ resourceDiagnostics NOTIFY changed)
+    Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
+    Q_PROPERTY(QVariantMap layerDetails READ layerDetails NOTIFY changed)
     Q_PROPERTY(QString materialLabel READ materialLabel NOTIFY changed)
     Q_PROPERTY(QVariantList materialProperties READ materialProperties NOTIFY changed)
     Q_PROPERTY(QStringList resourceSources READ resourceSources NOTIFY changed)
@@ -51,6 +54,9 @@ class Editor : public QObject {
     void setMaterial(int v);
     bool assetBusy() const { return m_assetsLoading; }
     QString resourceSummary() const;
+    QString resourceDiagnostics() const;
+    QVariantList sceneNodes() const;
+    QVariantMap layerDetails() const;
     QString materialLabel() const;
     QVariantList materialProperties() const;
     QStringList resourceSources() const { return m_world.resourcePaths; }
@@ -60,6 +66,8 @@ class Editor : public QObject {
     QString mcpActivity() const;
     QString selectedNode() const { return m_selectedNode; }
     void setSelectedNode(const QString &node) {
+        if (node != "terrain-base-1" || node == m_selectedNode)
+            return;
         m_selectedNode = node;
         emit changed();
     }
@@ -139,7 +147,7 @@ class Editor : public QObject {
     QFutureWatcher<AssetResult> m_assetWatcher;
     std::unique_ptr<McpServer> m_mcp;
     uint64_t m_revision = 1, m_resourceRevision = 0, m_savedResourceRevision = 0;
-    QString m_selectedNode = "terrain";
+    QString m_selectedNode = "terrain-base-1";
     QPointer<QObject> m_cameraController;
     bool m_restoringAssets = false;
     bool m_assetsLoading = false, m_meshActive = false, m_exportActive = false;
