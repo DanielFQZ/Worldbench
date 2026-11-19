@@ -34,9 +34,10 @@ $env:PATH = "$QtRoot\bin;$env:PATH"
 & (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
 if ($LASTEXITCODE) { throw 'Core tests failed.' }
 if ($Package) {
-    $dist = Join-Path $root 'dist\Worldbench-0.1.0-p0'
+    $dist = Join-Path $root 'dist\Worldbench-0.2.0'
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     Copy-Item -LiteralPath "$build\Worldbench.exe" -Destination $dist -Force
+    Copy-Item -LiteralPath "$build\WorldbenchMcp.exe" -Destination $dist -Force
     & "$QtRoot\bin\windeployqt.exe" --release --qmldir "$root\app\qml" --no-translations --no-opengl-sw "$dist\Worldbench.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed.' }
     Copy-Item -LiteralPath "$root\licenses" -Destination $dist -Recurse -Force

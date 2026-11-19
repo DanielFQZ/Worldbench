@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QtEndian>
 #include <algorithm>
@@ -17,9 +18,26 @@ bool saveProject(const QString &path, const World &w, QString &error) {
     std::sort(ordered.begin(), ordered.end());
     for (auto [k, v] : ordered)
         cells.append(QJsonArray{int(k), int(v)});
-    QJsonObject root{{"format", 1},          {"size", w.size},    {"originX", w.originX},
-                     {"originZ", w.originZ}, {"seed", w.seed},    {"seaLevel", w.seaLevel},
-                     {"heights", heights},   {"overrides", cells}};
+    QJsonArray palette, paths;
+    for (const auto &state : w.palette) {
+        QJsonObject props;
+        for (auto p = state.properties.begin(); p != state.properties.end(); ++p)
+            props[p.key()] = p.value();
+        palette.append(QJsonObject{{"name", state.name}, {"properties", props}});
+    }
+    for (const auto &path : w.resourcePaths)
+        paths.append(path);
+    QJsonObject root{{"format", 2},
+                     {"size", w.size},
+                     {"originX", w.originX},
+                     {"originZ", w.originZ},
+                     {"seed", w.seed},
+                     {"seaLevel", w.seaLevel},
+                     {"heights", heights},
+                     {"overrides", cells},
+                     {"palette", palette},
+                     {"resources", paths},
+                     {"resourceVersion", w.resourceVersion}};
     QByteArray data = QJsonDocument(root).toJson(QJsonDocument::Compact);
     if (data.size() > 64 * 1024 * 1024) {
         error = "工程数据超过 P0 格式的 64 MiB 解压上限，未覆盖原文件";
@@ -71,7 +89,8 @@ bool loadProject(const QString &path, World &world, QString &error) {
     auto integer = [&](const QJsonValue &v, int lo, int hi) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
-    if (o["format"].toInt() != 1 || !integer(o["size"], 32, 256) || o["size"].toInt() % 16)
+    if ((o["format"].toInt() != 1 && o["format"].toInt() != 2) || !integer(o["size"], 32, 256) ||
+        o["size"].toInt() % 16)
         return fail("首版只支持 32–256、16 对齐的工程尺寸");
     w.size = o["size"].toInt();
     if (!integer(o["originX"], -1000000, 1000000) || !integer(o["originZ"], -1000000, 1000000) ||
@@ -90,12 +109,49 @@ bool loadProject(const QString &path, World &world, QString &error) {
             return fail("高度越界");
         w.heights.push_back(int16_t(h.toInt()));
     }
+    if (o["format"].toInt() == 2) {
+        const auto states = o["palette"].toArray();
+        if (states.size() < BlockCount || states.size() > 65536)
+            return fail("方块调色板大小错误");
+        const QRegularExpression id("^[a-z0-9_.-]+:[a-z0-9_./-]+$"), prop("^[a-z0-9_]+$");
+        const auto defaults = w.palette;
+        w.palette.clear();
+        w.models.clear();
+        for (int i = 0; i < states.size(); ++i) {
+            const auto object = states[i].toObject();
+            BlockState s{object["name"].toString(), {}};
+            if (s.name.size() > 256 || !id.match(s.name).hasMatch() || !object["properties"].isObject())
+                return fail("方块标识无效");
+            const auto props = object["properties"].toObject();
+            if (props.size() > 32)
+                return fail("方块属性过多");
+            for (auto p = props.begin(); p != props.end(); ++p) {
+                if (p.key().size() > 64 || !prop.match(p.key()).hasMatch() || !p.value().isString() ||
+                    p.value().toString().size() > 64 || !prop.match(p.value().toString()).hasMatch())
+                    return fail("方块属性无效");
+                s.properties[p.key()] = p.value().toString();
+            }
+            if (i < BlockCount && !(s == defaults[i]))
+                return fail("基础方块调色板不匹配");
+            w.palette.push_back(s);
+            w.models.push_back(fallbackModel(i));
+        }
+        auto paths = o["resources"].toArray();
+        if (paths.size() > 8)
+            return fail("资源来源数量过多");
+        for (const auto &path : paths) {
+            if (!path.isString() || path.toString().size() > 4096)
+                return fail("资源路径无效");
+            w.resourcePaths << path.toString();
+        }
+        w.resourceVersion = o["resourceVersion"].toString();
+    }
     if (!o["overrides"].isArray())
         return fail("缺少体素差量");
     for (auto v : o["overrides"].toArray()) {
         auto a = v.toArray();
         if (a.size() != 2 || !integer(a[0], 0, w.size * w.size * (World::MaxY - World::MinY) - 1) ||
-            !integer(a[1], 0, BlockCount - 1))
+            !integer(a[1], 0, int(w.palette.size()) - 1))
             return fail("体素差量无效");
         if (a[0].toInt() < w.size * w.size)
             return fail("基岩保护层不允许包含体素差量");

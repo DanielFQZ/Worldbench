@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1024; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.1.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.2.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -18,7 +18,7 @@ ApplicationWindow {
     property string pendingAction: ""
     property bool allowClose: false
     function requestAction(action) {
-        if (editor.exportBusy) { errorBox.text = "请等待导出完成，或先取消导出。"; errorBox.open(); return }
+        if (editor.exportBusy || editor.assetBusy) { errorBox.text = "请等待导出完成，或先取消导出。"; errorBox.open(); return }
         pendingAction = action
         if (editor.modified) unsaved.open(); else finishAction()
     }
@@ -29,43 +29,94 @@ ApplicationWindow {
         else if (action === "close") { allowClose = true; win.close() }
     }
     function saveCurrent() {
+        if (editor.assetBusy) return
         if (editor.projectPath.length === 0) saveDialog.open()
         else if (editor.save()) finishAction()
     }
     onClosing: function(close) { if (!allowClose) { close.accepted = false; requestAction("close") } }
-    header: Rectangle {
-        height: 66; color: "#171e28"
-        RowLayout {
-            anchors.fill: parent; anchors.leftMargin: 20; anchors.rightMargin: 18; spacing: 9
-            ColumnLayout {
-                spacing: 0; Layout.rightMargin: 22
-                Label { text: "WORLDBENCH"; font.pixelSize: 19; font.bold: true; font.letterSpacing: 2; color: "#e7f2f5" }
-                Label { text: "0.1.0  /  P0 体素编辑测试版"; font.pixelSize: 10; color: "#7992a8" }
-            }
-            Button { text: "新建"; onClicked: win.requestAction("new"); enabled: !editor.exportBusy }
-            Button { text: "打开"; onClicked: win.requestAction("open"); enabled: !editor.exportBusy }
-            Button { text: "保存"; onClicked: win.saveCurrent() }
-            Rectangle { width: 1; height: 24; color: "#394354"; Layout.leftMargin: 7; Layout.rightMargin: 7 }
-            Button { text: "撤销"; enabled: editor.canUndo; onClicked: editor.undo() }
-            Button { text: "重做"; enabled: editor.canRedo; onClicked: editor.redo() }
-            Item { Layout.fillWidth: true }
-            Button { text: "工具面板"; onClicked: toolDock.dockWidget.show() }
-            Button { text: "世界面板"; onClicked: worldDock.dockWidget.show() }
-            Button { text: "导出 Minecraft"; highlighted: true; enabled: !editor.exportBusy; onClicked: exportDialog.open() }
+    menuBar: MenuBar {
+        Menu {
+            title: "文件"
+            Action { text: "新建工程     Ctrl+N"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.requestAction("new") }
+            Action { text: "打开工程…    Ctrl+O"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.requestAction("open") }
+            Action { text: "保存         Ctrl+S"; enabled: !editor.assetBusy; onTriggered: win.saveCurrent() }
+            Action { text: "另存为…"; enabled: !editor.assetBusy; onTriggered: saveDialog.open() }
+            MenuSeparator {}
+            Action { text: "导出 Minecraft 1.20.1…"; enabled: !editor.exportBusy && !editor.assetBusy; onTriggered: exportDialog.open() }
+            MenuSeparator {}
+            Action { text: "退出"; onTriggered: win.requestAction("close") }
+        }
+        Menu {
+            title: "编辑"
+            Action { text: "撤销    Ctrl+Z"; enabled: editor.canUndo && !editor.assetBusy; onTriggered: editor.undo() }
+            Action { text: "重做    Ctrl+Y"; enabled: editor.canRedo && !editor.assetBusy; onTriggered: editor.redo() }
+        }
+        Menu {
+            title: "工具"
+            Action { text: "选择 / 导航"; onTriggered: editor.tool = -1 }
+            MenuSeparator {}
+            Action { text: "抬升 / 降低"; onTriggered: editor.tool = 0 }
+            Action { text: "整平地表"; onTriggered: editor.tool = 1 }
+            Action { text: "体积挖除"; onTriggered: editor.tool = 2 }
+            Action { text: "体积填充"; onTriggered: editor.tool = 3 }
+            Action { text: "材质涂绘"; onTriggered: editor.tool = 4 }
+        }
+        Menu {
+            title: "视图"
+            Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
+            Action { text: "相机与鼠标设置"; onTriggered: { editor.selectedNode = "camera"; worldDock.dockWidget.show() } }
+            Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
+        }
+        Menu {
+            title: "资源"
+            Action { text: "载入客户端 JAR / 基础 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = false; resourceDialog.open() } }
+            Action { text: "叠加资源包 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: { resourceDialog.overlay = true; resourceDialog.open() } }
+            Action { text: "管理资源来源"; onTriggered: { editor.selectedNode = "resources"; worldDock.dockWidget.show() } }
+        }
+        Menu {
+            title: "自动化"
+            Action { text: "MCP / LLM 接入…"; onTriggered: mcpDialog.open() }
+        }
+        Menu {
+            title: "帮助"
+            Action { text: "视口操作说明"; onTriggered: { editor.selectedNode = "world"; worldDock.dockWidget.show() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.2.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
-    KDDW.DockingArea {
-        id: workspace; anchors.fill: parent
-        uniqueName: "WorldbenchWorkspace"
-        options: KDDW.KDDockWidgets.MainWindowOption_HasCentralWidget
-        persistentCentralItemComponent: ViewportPane {}
-        KDDW.DockWidget { id: toolDock; uniqueName: "sculpt-tools"; source: "qrc:/ToolPanel.qml" }
-        KDDW.DockWidget { id: worldDock; uniqueName: "world-info"; source: "qrc:/WorldPanel.qml" }
-        Component.onCompleted: {
-            toolDock.dockWidget.title = "雕刻工具"
-            worldDock.dockWidget.title = "世界与操作"
-            addDockWidget(toolDock, KDDW.KDDockWidgets.Location_OnLeft, null, Qt.size(255, 0))
-            addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(260, 0))
+    RowLayout {
+        anchors.fill: parent; spacing: 0
+        ToolRail { Layout.preferredWidth: 56; Layout.fillHeight: true }
+        KDDW.DockingArea {
+            id: workspace; Layout.fillWidth: true; Layout.fillHeight: true
+            uniqueName: "WorldbenchWorkspace"
+            options: KDDW.KDDockWidgets.MainWindowOption_HasCentralWidget
+            persistentCentralItemComponent: ViewportPane {}
+            KDDW.DockWidget { id: worldDock; uniqueName: "world-info"; source: "qrc:/WorldPanel.qml" }
+            Component.onCompleted: {
+                worldDock.dockWidget.title = "场景 / 详细信息"
+                addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(350, 0))
+            }
+        }
+    }
+    FileDialog {
+        id: resourceDialog; property bool overlay: false
+        title: overlay ? "叠加资源包" : "载入基础 Minecraft 资源"
+        fileMode: FileDialog.OpenFile; nameFilters: ["Minecraft 资源 (*.jar *.zip)"]
+        onAccepted: { editor.importResource(selectedFile, overlay); editor.selectedNode = "resources" }
+    }
+    Dialog {
+        id: mcpDialog; title: "MCP / LLM 接入"; modal: true; width: 670; anchors.centerIn: parent
+        standardButtons: Dialog.Close
+        contentItem: ColumnLayout {
+            spacing: 12
+            CheckBox { text: "允许本机 LLM 客户端操作当前编辑器"; checked: editor.mcpEnabled; onToggled: editor.mcpEnabled = checked }
+            Label { text: "启用后复制下方 stdio 配置到支持 MCP 的客户端。配置仅对本次启用有效。\nLLM 可读取、填方块、雕刻、撤销、移动相机及截图；不提供任意代码执行。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; color: "#9caabb" }
+            ScrollView {
+                Layout.fillWidth: true; Layout.preferredHeight: 230; clip: true
+                TextArea { text: editor.mcpConfiguration; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "Consolas"; font.pixelSize: 12 }
+            }
+            Button { text: "复制 MCP 客户端配置"; enabled: editor.mcpEnabled; onClicked: editor.copyMcpConfiguration() }
+            Label { text: editor.mcpActivity; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: "#79c2c8" }
         }
     }
     footer: Rectangle {
@@ -115,7 +166,7 @@ ApplicationWindow {
             }
             Label { text: "新存档名称"; color: "#96a8bc" }
             TextField { id: exportName; text: "Worldbench-001"; Layout.fillWidth: true; selectByMouse: true; maximumLength: 64 }
-            Label { text: "使用字母、数字、短横线或下划线。已存在的目录不会被覆盖。\nP0：地形范围外为虚空；光照由游戏重新计算。\n不含实体、复杂方块、其他版本或自定义高度。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12; color: "#9aaabe" }
+            Label { text: "使用字母、数字、短横线或下划线。已存在的目录不会被覆盖。\nP0：地形范围外为虚空；光照由游戏重新计算。\n不含实体/方块实体、其他版本或自定义高度。动态方块需 1.20.1 JAR。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12; color: "#9aaabe" }
         }
         onAccepted: editor.exportWorld(exportParent.text, exportName.text)
     }

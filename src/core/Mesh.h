@@ -3,7 +3,7 @@
 #include <memory>
 namespace wb {
 struct Vertex {
-    float x, y, z, nx, ny, nz, r, g, b, a;
+    float x, y, z, nx, ny, nz, r, g, b, a, u, v;
 };
 struct ChunkMesh {
     std::vector<Vertex> opaque, transparent;
@@ -15,6 +15,7 @@ struct MeshScene {
     std::vector<MeshPtr> chunks;
     uint64_t revision = 0;
     size_t vertices = 0;
+    std::shared_ptr<const AssetLibrary> assets;
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision);
 } // namespace wb

@@ -1,54 +1,63 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-
-Rectangle {
-    property size kddockwidgets_min_size: Qt.size(230, 380)
-    color: "#202630"; implicitWidth: 255; implicitHeight: 600
-    ScrollView {
-        anchors.fill: parent; anchors.margins: 16; clip: true
-        contentWidth: availableWidth
-        ColumnLayout {
-            width: parent.width; spacing: 12
-            Label { text: "SCULPT"; font.pixelSize: 11; font.letterSpacing: 2; color: "#6faabb" }
-            Label { text: "雕刻地形"; font.pixelSize: 21; font.bold: true; color: "#edf2f8"; Layout.bottomMargin: 4 }
-            Repeater {
-                model: ["抬升 / 降低", "整平地表", "体积挖除", "体积填充", "材质涂绘"]
-                delegate: Button {
-                    required property int index; required property string modelData
-                    Layout.fillWidth: true; implicitHeight: 38
-                    text: modelData; highlighted: editor.tool === index; onClicked: editor.tool = index
-                    background: Rectangle {
-                        radius: 3
-                        color: editor.tool === index ? "#254b59" : "#303b4b"
-                        border.width: 1; border.color: editor.tool === index ? "#51b8ca" : "#3b4657"
-                    }
-                }
-            }
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#364150"; Layout.topMargin: 8; Layout.bottomMargin: 5 }
-            RowLayout {
-                Label { text: "笔刷半径"; color: "#c2ccd9"; Layout.fillWidth: true }
-                Label { text: editor.radius + " 格"; color: "#74cbd8" }
-            }
-            Slider { Layout.fillWidth: true; from: 1; to: 16; stepSize: 1; value: editor.radius; onMoved: editor.radius = value }
-            RowLayout {
-                Label { text: "高度步进"; color: editor.tool < 2 ? "#c2ccd9" : "#67798d"; Layout.fillWidth: true }
-                Label { text: editor.strength + " 格"; color: "#74cbd8" }
-            }
-            Slider { Layout.fillWidth: true; from: 1; to: 4; stepSize: 1; value: editor.strength; enabled: editor.tool < 2; onMoved: editor.strength = value }
-            Label { text: "填充 / 涂绘材质"; color: "#c2ccd9"; Layout.topMargin: 8 }
-            ComboBox {
-                Layout.fillWidth: true
-                model: ["草方块", "泥土", "石头", "沙子", "水", "橡木木板", "玻璃", "橡木半砖"]
-                currentIndex: editor.material - 1; onActivated: editor.material = currentIndex + 1
-            }
-            Label {
-                Layout.fillWidth: true; Layout.topMargin: 10; wrapMode: Text.WordWrap; font.pixelSize: 12; lineHeight: 1.5
-                color: "#8e9fb3"
-                text: editor.tool === 0 ? "左键抬升地表，Shift + 左键降低。按住可连续应用。" : editor.tool === 1 ? "按下笔划时采样高度，将周围地表逐渐整平到该高度。" : editor.tool === 2 ? "在命中位置挖除球形体积。Shift 反转为填充。" : editor.tool === 3 ? "在命中表面外填充球形体积。Shift 反转为挖除。" : "将球形范围内已有方块替换为选中材质，不填充空气。"
-            }
-            Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: "每个完整笔划为一次撤销。\n[ / ] 调整半径。底层基岩受保护。"; font.pixelSize: 11; lineHeight: 1.5; color: "#74879e" }
-            Item { implicitHeight: 20 }
-        }
+ColumnLayout {
+ id:panel;spacing:10
+ property var catalog:[]
+ function refresh(){catalog=editor.blockCatalog(search.text)}
+ Component.onCompleted:refresh()
+ Connections{target:editor;function onCatalogChanged(){panel.refresh()}}
+ Label{text:editor.selectedNode==="terrain"?"地形基底 / 高度雕刻":"体素编辑 / 材质";font.pixelSize:16;Layout.leftMargin:12}
+ Label{text:editor.tool<0?"选择模式 · 左键不修改地形":["抬升 / 降低","整平地表","体积挖除","体积填充","材质涂绘"][editor.tool];color:"#79c2c8";Layout.leftMargin:12}
+ RowLayout{
+  Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+  Label{text:"半径";color:"#a6b4c5"}
+  Slider{Layout.fillWidth:true;from:1;to:16;stepSize:1;value:editor.radius;onMoved:editor.radius=value}
+  Label{text:editor.radius;Layout.preferredWidth:22}
+ }
+ RowLayout{
+  Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+  Label{text:"步进";color:"#a6b4c5"}
+  Slider{Layout.fillWidth:true;from:1;to:4;stepSize:1;value:editor.strength;onMoved:editor.strength=value}
+  Label{text:editor.strength;Layout.preferredWidth:22}
+ }
+ Label{text:"填充 / 涂绘材质";font.bold:true;Layout.leftMargin:12;Layout.topMargin:8}
+ TextField{id:search;objectName:"materialSearch";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;placeholderText:"搜索名称或 minecraft:id";selectByMouse:true;onTextEdited:searchTimer.restart()}
+ Timer{id:searchTimer;interval:180;onTriggered:panel.refresh()}
+ Label{text:panel.catalog.length+" 个匹配方块";color:"#8997a9";font.pixelSize:11;Layout.leftMargin:12}
+ ListView {
+  id:materials;Layout.fillWidth:true;Layout.preferredHeight:240;clip:true;model:panel.catalog
+  ScrollBar.vertical:ScrollBar{}
+  delegate:ItemDelegate {
+   required property var modelData
+   width:materials.width;height:48;highlighted:editor.materialLabel.split("[")[0]===modelData.name
+   background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
+   onClicked:editor.selectBlock(modelData.name)
+   ToolTip.visible:hovered;ToolTip.delay:700;ToolTip.text:modelData.name+(modelData.diagnostic?"\n"+modelData.diagnostic:"")
+   contentItem:RowLayout {
+    spacing:10
+    Rectangle{
+     Layout.preferredWidth:30;Layout.preferredHeight:30;color:modelData.color;radius:2
+     Image{anchors.fill:parent;source:modelData.thumbnail;smooth:false;fillMode:Image.PreserveAspectFit}
+     Label{visible:modelData.fallback;text:"!";color:"#ff95ce";anchors.centerIn:parent}
     }
+    ColumnLayout{
+     spacing:1;Layout.fillWidth:true
+     Label{text:modelData.title;elide:Text.ElideRight;Layout.fillWidth:true;font.pixelSize:12}
+     Label{text:modelData.name;elide:Text.ElideRight;Layout.fillWidth:true;color:"#8494a7";font.pixelSize:10}
+    }
+   }
+  }
+ }
+ Label{text:editor.materialLabel;wrapMode:Text.WrapAnywhere;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;color:"#94c9cf";font.pixelSize:11}
+ Repeater{
+  model:editor.materialProperties
+  delegate:RowLayout{
+   required property var modelData
+   Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:modelData.key;Layout.fillWidth:true;color:"#9caabb"}
+   ComboBox{model:modelData.values;currentIndex:modelData.values.indexOf(modelData.value);Layout.preferredWidth:145;onActivated:editor.setBlockProperty(modelData.key,currentText)}
+  }
+ }
+ Label{text:"模型状态按所选值放置；门的上下半、栅栏连接需分别指定，当前不模拟游戏邻居更新。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#8997a9";font.pixelSize:11}
 }

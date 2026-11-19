@@ -129,5 +129,30 @@ def verify(base):
     print(f"PASS independent NBT/Anvil verification: {len(seen)} chunks, {compared:,} blocks, 4,096 heightmap values")
 
 
+def verify_models(base):
+    expected = json.loads((base / "expected_models.json").read_text(encoding="utf-8"))
+    assert len(expected) >= 6
+    for item in expected:
+        x, y, z = item["position"]
+        cx, cz = x // 16, z // 16
+        region = (base / f"minecraft/region/r.{cx // 32}.{cz // 32}.mca").read_bytes()
+        index = cx % 32 + (cz % 32) * 32
+        location = int.from_bytes(region[index * 4:index * 4 + 4], "big")
+        start = (location >> 8) * 4096
+        length = int.from_bytes(region[start:start + 4], "big")
+        chunk = Nbt(zlib.decompress(region[start + 5:start + 4 + length])).root()
+        section = next(s for s in chunk["sections"] if s["Y"] == y // 16)
+        states = section["block_states"]
+        palette = states["palette"]
+        values = unpack(states["data"], max(4, (len(palette) - 1).bit_length()), 4096) if len(palette) > 1 else [0] * 4096
+        actual = palette[values[(y % 16) * 256 + (z % 16) * 16 + x % 16]]
+        assert actual["Name"] == item["Name"]
+        assert actual.get("Properties", {}) == item["Properties"], (item, actual)
+    print(f"PASS independent model export: {len(expected)} placed states including both door halves and connected fence")
+
+
 if __name__ == "__main__":
-    verify(pathlib.Path(sys.argv[1]))
+    if sys.argv[1] == "--models":
+        verify_models(pathlib.Path(sys.argv[2]))
+    else:
+        verify(pathlib.Path(sys.argv[1]))

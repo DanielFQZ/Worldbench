@@ -6,10 +6,6 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     mesh->revision = rev;
     mesh->center = {float(cx * 16 + 8), 20, float(cz * 16 + 8)};
     const int normals[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-    const float corners[6][4][3] = {
-        {{1, 0, 0}, {1, 1, 0}, {1, 1, 1}, {1, 0, 1}}, {{0, 0, 1}, {0, 1, 1}, {0, 1, 0}, {0, 0, 0}},
-        {{0, 1, 1}, {1, 1, 1}, {1, 1, 0}, {0, 1, 0}}, {{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}},
-        {{1, 0, 1}, {1, 1, 1}, {0, 1, 1}, {0, 0, 1}}, {{0, 0, 0}, {0, 1, 0}, {1, 1, 0}, {1, 0, 0}}};
     const int tri[6] = {0, 1, 2, 0, 2, 3};
     int maxY = std::max(40, w.seaLevel + 1);
     for (auto [k, v] : w.overrides) {
@@ -27,19 +23,23 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                 const Block b = w.block(x, y, z);
                 if (b == Air)
                     continue;
-                const auto &m = info(b);
-                auto &vertices = m.a < 1 ? mesh->transparent : mesh->opaque;
-                for (int face = 0; face < 6; ++face) {
-                    const auto &n = normals[face];
-                    Block nb = w.block(x + n[0], y + n[1], z + n[2]);
-                    if (b != Slab && nb == b && m.a < 1)
-                        continue;
-                    if (nb != Air && nb != Slab && info(nb).a == 1 && !(b == Slab && face == 2))
-                        continue;
+                const auto &m = *w.models[b];
+                auto &vertices = m.translucent ? mesh->transparent : mesh->opaque;
+                for (const auto &face : m.faces) {
+                    if (face.cull >= 0) {
+                        const auto &n = normals[face.cull];
+                        Block nb = w.block(x + n[0], y + n[1], z + n[2]);
+                        const auto &neighbor = *w.models[nb];
+                        if ((nb == b && m.translucent) ||
+                            (neighbor.full && !neighbor.translucent && nb != Air))
+                            continue;
+                    }
                     for (int t : tri) {
-                        const auto &c = corners[face][t];
-                        vertices.push_back({x + c[0], y + c[1] * (b == Slab ? .5f : 1.f), z + c[2],
-                                            float(n[0]), float(n[1]), float(n[2]), m.r, m.g, m.b, m.a});
+                        const auto &p = face.points[t];
+                        const auto &n = face.normal;
+                        const auto &c = face.color;
+                        vertices.push_back({x + p.x(), y + p.y(), z + p.z(), n.x(), n.y(), n.z(), c.x(),
+                                            c.y(), c.z(), c.w(), face.uv[t].x(), face.uv[t].y()});
                     }
                 }
             }

@@ -1,28 +1,73 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-
-Rectangle {
-    property size kddockwidgets_min_size: Qt.size(230, 380)
-    color: "#202630"; implicitWidth: 260; implicitHeight: 600
-    ScrollView {
-        anchors.fill: parent; anchors.margins: 17; clip: true; contentWidth: availableWidth
-        ColumnLayout {
-            width: parent.width; spacing: 14
-            Label { text: "WORKSPACE"; font.pixelSize: 11; font.letterSpacing: 2; color: "#6faabb" }
-            Label { text: "世界概览"; font.pixelSize: 21; font.bold: true; color: "#edf2f8" }
-            Label { text: editor.projectName + (editor.modified ? " · 未保存" : ""); color: "#c9d6e3"; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true }
-            Label { text: "高度  −64 … 319\n导出  Java 1.20.1\n工程  .wbench / v1"; lineHeight: 1.8; font.pixelSize: 12; color: "#91a8bc" }
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#364150" }
-            Label { text: "UE 式视口导航"; font.pixelSize: 14; font.bold: true; color: "#d8e3ed" }
-            Repeater {
-                model: ["右键拖动      环视", "右键 + WASD   前后左右", "右键 + Q / E    下降 / 上升", "右键 + 滚轮    飞行速度", "Shift             加速飞行", "中键 / 双键     平移", "Alt + 左键      围绕焦点旋转", "Alt + 中键      平移", "Alt + 右键      推拉", "滚轮 / F         推拉 / 聚焦", "Ctrl + Z / Y     撤销 / 重做", "Ctrl + S           保存工程"]
-                delegate: Label { required property string modelData; text: modelData; color: "#a1b2c5"; font.pixelSize: 11 }
-            }
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#364150"; Layout.topMargin: 6 }
-            Label { text: "P0 测试边界"; color: "#d3b57a"; font.pixelSize: 13 }
-            Label { text: "默认 128 × 128 场景。\n尚未包含大地图 LOD、复杂资产、路网、其他版本或超高世界。\n透明材质为简化预览；不模拟游戏光照与流体更新。"; Layout.fillWidth: true; wrapMode: Text.WordWrap; lineHeight: 1.5; font.pixelSize: 11; color: "#8598ad" }
-            Item { implicitHeight: 12 }
-        }
+Pane {
+ padding:0
+ background:Rectangle { color:"#23262d" }
+ palette.window:"#23262d"; palette.windowText:"#dce4ee"
+ palette.base:"#191e26"; palette.text:"#dce4ee"
+ palette.button:"#303741"; palette.buttonText:"#dce4ee"
+ palette.highlight:"#344957"; palette.highlightedText:"#dce4ee"
+ palette.placeholderText:"#7e8da1"
+ property size kddockwidgets_min_size:Qt.size(305,480)
+ SplitView {
+  anchors.fill:parent;orientation:Qt.Vertical
+  ColumnLayout {
+   SplitView.preferredHeight:220;SplitView.minimumHeight:130;spacing:2
+   Label{text:"场景大纲";font.bold:true;color:"#c9d2df";Layout.margins:12}
+   Repeater {
+    model:[{node:"world",title:"◇  世界 / "+editor.projectName},{node:"terrain",title:"    ▧  地形基底"},{node:"voxels",title:"    ▦  体素编辑"},{node:"camera",title:"    ◉  透视相机"},{node:"resources",title:"    ▣  资源来源"}]
+    delegate:ItemDelegate{
+     required property var modelData
+     Layout.fillWidth:true;implicitHeight:29;text:modelData.title;highlighted:editor.selectedNode===modelData.node
+     background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
+     onClicked:editor.selectedNode=modelData.node
     }
+   }
+   Item{Layout.fillHeight:true}
+  }
+  ScrollView {
+   SplitView.fillHeight:true;SplitView.minimumHeight:200;clip:true;contentWidth:availableWidth
+   ColumnLayout {
+    width:parent.width;spacing:12
+    Label{text:"详细信息";font.bold:true;Layout.leftMargin:12;Layout.topMargin:12;color:"#c9d2df"}
+    ColumnLayout {
+     visible:editor.selectedNode==="world";Layout.fillWidth:true;Layout.margins:12;spacing:12
+     Label{text:editor.projectName;font.pixelSize:18;font.bold:true}
+     Label{text:editor.sceneStats;wrapMode:Text.WordWrap;Layout.fillWidth:true}
+     Label{text:"Java 1.20.1 · Y −64…319\n128 × 128 原型场景\nMCP 与人工编辑共享撤销历史。";color:"#9caabb";wrapMode:Text.WordWrap;Layout.fillWidth:true}
+     Label{text:"右键 + WASDQE 漫游\nAlt + 左键环绕 / 中键平移\n右键 + 滚轮调速 / F 聚焦\n雕刻时 Shift 反向 / [ ] 半径";color:"#9caabb";lineHeight:1.5}
+    }
+    ToolPanel{visible:editor.selectedNode==="terrain"||editor.selectedNode==="voxels";Layout.fillWidth:true}
+    ColumnLayout {
+     visible:editor.selectedNode==="camera";Layout.fillWidth:true;Layout.margins:12;spacing:12
+     Label{text:"透视相机";font.pixelSize:17}
+     Label{text:editor.cameraController?editor.cameraController.cameraText:"";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#a6b4c5"}
+     CheckBox{text:"Windows 原始鼠标输入";checked:editor.cameraController?editor.cameraController.rawInput:false;onToggled:if(editor.cameraController)editor.cameraController.rawInput=checked}
+     Label{text:"旋转灵敏度  "+(editor.cameraController?editor.cameraController.sensitivity.toFixed(2):"")+" °/计数";color:"#a6b4c5"}
+     Slider{Layout.fillWidth:true;from:.01;to:.5;stepSize:.01;value:editor.cameraController?editor.cameraController.sensitivity:.12;onMoved:if(editor.cameraController)editor.cameraController.sensitivity=value}
+     Label{text:editor.cameraController&&editor.cameraController.rawActive?"原始输入：捕获中":"原始输入：导航时启用";color:"#74c2bd"}
+     Label{text:"已接收原始输入包："+(editor.cameraController?editor.cameraController.rawPackets:0);color:"#9caabb"}
+     Button{text:"重置视角";onClicked:if(editor.cameraController)editor.cameraController.resetCamera()}
+     Label{text:"原始输入绕过系统指针加速。松开鼠标、Esc 或切出窗口会释放捕获。关闭时使用普通相对拖动，受桌面边界限制。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#8997a9"}
+    }
+    ColumnLayout {
+     visible:editor.selectedNode==="resources";Layout.fillWidth:true;Layout.margins:12;spacing:12
+     Label{text:"Minecraft 资源";font.pixelSize:17}
+     Label{text:editor.resourceSummary;wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#a6b4c5"}
+     Repeater {
+      model:editor.resourceSources
+      delegate:ColumnLayout {
+       required property string modelData;required property int index
+       Layout.fillWidth:true
+       Label{text:(index===0?"基础 · ":"覆盖 "+index+" · ")+modelData;wrapMode:Text.WrapAnywhere;Layout.fillWidth:true;font.pixelSize:11;color:"#c4ccd8"}
+       Button{text:index===0?"清除所有来源":"移除此覆盖包";enabled:!editor.assetBusy&&!editor.exportBusy;onClicked:editor.removeResource(index)}
+      }
+     }
+     Label{text:"从顶部“资源”菜单载入客户端 JAR，然后叠加 ZIP。后载入的包优先。\n专用实体渲染模型、动画及模组格式尚未支持；缺失模型显示洋红色方块。";color:"#8997a9";Layout.fillWidth:true;wrapMode:Text.WordWrap}
+    }
+    Item{height:12}
+   }
+  }
+ }
 }

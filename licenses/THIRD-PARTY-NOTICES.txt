@@ -1,5 +1,5 @@
-Worldbench 0.1.0 - third-party component notices
-Private P0 testing build. Final public project licensing is recorded in DEVELOPMENT.md.
+Worldbench 0.2.0 - third-party component notices
+Private development testing build. Final public project licensing is recorded in DEVELOPMENT.md.
 
 KDDockWidgets: commit 66e66fa5d8a824488538558e274023822ac13952
 Copyright KDAB / Klaralvdalens Datakonsult AB and contributors.

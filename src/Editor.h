@@ -3,10 +3,14 @@
 #include "core/MinecraftExport.h"
 #include "core/World.h"
 #include <QFutureWatcher>
+#include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 #include <set>
+class McpServer;
 
 class Editor : public QObject {
     Q_OBJECT
@@ -24,6 +28,16 @@ class Editor : public QObject {
     Q_PROPERTY(QString projectPath READ projectPath NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
+    Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
+    Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
+    Q_PROPERTY(QString materialLabel READ materialLabel NOTIFY changed)
+    Q_PROPERTY(QVariantList materialProperties READ materialProperties NOTIFY changed)
+    Q_PROPERTY(QStringList resourceSources READ resourceSources NOTIFY changed)
+    Q_PROPERTY(bool mcpEnabled READ mcpEnabled WRITE setMcpEnabled NOTIFY changed)
+    Q_PROPERTY(QString mcpConfiguration READ mcpConfiguration NOTIFY changed)
+    Q_PROPERTY(QString mcpActivity READ mcpActivity NOTIFY changed)
+    Q_PROPERTY(QString selectedNode READ selectedNode WRITE setSelectedNode NOTIFY changed)
+    Q_PROPERTY(QObject *cameraController READ cameraController NOTIFY changed)
   public:
     explicit Editor(QObject *parent = nullptr);
     ~Editor() override;
@@ -35,11 +49,42 @@ class Editor : public QObject {
     void setStrength(int v);
     int material() const { return m_material; }
     void setMaterial(int v);
-    bool modified() const { return m_strokeChanged || m_state != m_savedState; }
+    bool assetBusy() const { return m_assetsLoading; }
+    QString resourceSummary() const;
+    QString materialLabel() const;
+    QVariantList materialProperties() const;
+    QStringList resourceSources() const { return m_world.resourcePaths; }
+    bool mcpEnabled() const;
+    void setMcpEnabled(bool enabled);
+    QString mcpConfiguration() const;
+    QString mcpActivity() const;
+    QString selectedNode() const { return m_selectedNode; }
+    void setSelectedNode(const QString &node) {
+        m_selectedNode = node;
+        emit changed();
+    }
+    QObject *cameraController() const { return m_cameraController; }
+    void setCameraController(QObject *controller) {
+        m_cameraController = controller;
+        emit changed();
+    }
+    uint64_t revision() const { return m_revision; }
+    bool commandBusy() const { return bool(m_stroke) || assetBusy(); }
+    QJsonObject worldInfo() const;
+    QJsonObject executeTool(const QString &name, const QJsonObject &args);
+    Q_INVOKABLE QVariantList blockCatalog(const QString &filter = QString()) const;
+    Q_INVOKABLE void selectBlock(const QString &name);
+    Q_INVOKABLE void setBlockProperty(const QString &key, const QString &value);
+    Q_INVOKABLE void importResource(const QUrl &url, bool overlay);
+    Q_INVOKABLE void removeResource(int index);
+    Q_INVOKABLE void copyMcpConfiguration();
+    bool modified() const {
+        return m_strokeChanged || m_state != m_savedState || m_resourceRevision != m_savedResourceRevision;
+    }
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
-    bool meshBusy() const { return m_meshWatcher.isRunning() || !m_dirty.empty(); }
-    bool exportBusy() const { return m_exportWatcher.isRunning(); }
+    bool meshBusy() const { return m_meshActive || !m_dirty.empty(); }
+    bool exportBusy() const { return m_exportActive; }
     int exportProgress() const { return m_exportProgress; }
     QString projectName() const;
     QString projectPath() const { return m_path; }
@@ -63,11 +108,14 @@ class Editor : public QObject {
     void worldReset();
     void failure(const QString &message);
     void exported(const QString &path);
+    void catalogChanged();
 
   private:
     void dirtyAll();
     void startMesh();
     void resetHistory();
+    void pushCommand(wb::Command command);
+    void loadResources(const QStringList &paths, bool restoring = false);
     wb::World m_world;
     std::shared_ptr<const wb::MeshScene> m_scene;
     std::unique_ptr<wb::Stroke> m_stroke;
@@ -84,5 +132,16 @@ class Editor : public QObject {
     QTimer m_meshTimer;
     QFutureWatcher<std::shared_ptr<wb::MeshScene>> m_meshWatcher;
     QFutureWatcher<wb::ExportResult> m_exportWatcher;
+    struct AssetResult {
+        std::shared_ptr<wb::AssetLibrary> library;
+        QString error;
+    };
+    QFutureWatcher<AssetResult> m_assetWatcher;
+    std::unique_ptr<McpServer> m_mcp;
+    uint64_t m_revision = 1, m_resourceRevision = 0, m_savedResourceRevision = 0;
+    QString m_selectedNode = "terrain";
+    QPointer<QObject> m_cameraController;
+    bool m_restoringAssets = false;
+    bool m_assetsLoading = false, m_meshActive = false, m_exportActive = false;
     std::atomic_bool m_cancelExport = false;
 };

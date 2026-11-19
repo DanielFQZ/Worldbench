@@ -1,4 +1,5 @@
 #pragma once
+#include "Assets.h"
 #include <QString>
 #include <QVector3D>
 #include <cstdint>
@@ -7,7 +8,20 @@
 #include <vector>
 
 namespace wb {
-enum Block : uint8_t { Air, Grass, Dirt, Stone, Sand, Water, Planks, Glass, Slab, Bedrock, BlockCount };
+using Block = uint32_t;
+enum BuiltinBlock : uint32_t {
+    Air,
+    Grass,
+    Dirt,
+    Stone,
+    Sand,
+    Water,
+    Planks,
+    Glass,
+    Slab,
+    Bedrock,
+    BlockCount
+};
 struct BlockInfo {
     const char *name;
     const char *minecraft;
@@ -36,10 +50,18 @@ struct Command {
 
 class World {
   public:
+    World();
     static constexpr int MinY = -64, MaxY = 320, ChunkSize = 16;
     int size = 128, originX = -64, originZ = -64, seed = 2026, seaLevel = 12;
     std::vector<int16_t> heights;
     std::unordered_map<uint32_t, Block> overrides;
+    std::vector<BlockState> palette;
+    std::vector<std::shared_ptr<const BlockModel>> models;
+    std::shared_ptr<const AssetLibrary> assets;
+    QStringList resourcePaths;
+    QString resourceVersion;
+    Block intern(const BlockState &state);
+    void setAssets(std::shared_ptr<const AssetLibrary> library);
     static World create(int size = 128, int seed = 2026);
     bool contains(int x, int y, int z) const;
     int column(int x, int z) const;

@@ -1,7 +1,12 @@
 #include "Editor.h"
+#include "McpServer.h"
 #include "core/Project.h"
+#include <QBuffer>
+#include <QClipboard>
 #include <QDir>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
 #include <QRegularExpression>
 #include <QtConcurrent>
 #include <algorithm>
@@ -12,6 +17,7 @@ Editor::Editor(QObject *parent)
     m_meshTimer.setInterval(25);
     connect(&m_meshTimer, &QTimer::timeout, this, &Editor::startMesh);
     connect(&m_meshWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_meshActive = false;
         if (m_jobEpoch == m_epoch) {
             m_scene = m_meshWatcher.result();
             emit sceneChanged();
@@ -23,6 +29,7 @@ Editor::Editor(QObject *parent)
         emit changed();
     });
     connect(&m_exportWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_exportActive = false;
         const auto r = m_exportWatcher.result();
         m_status = r.ok ? QString("导出完成 · %1 个区块").arg(r.chunks) : r.error;
         emit changed();
@@ -31,16 +38,43 @@ Editor::Editor(QObject *parent)
         else if (!m_cancelExport.load())
             emit failure(r.error);
     });
+    m_mcp = std::make_unique<McpServer>(this);
+    connect(&m_assetWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_assetsLoading = false;
+        const auto result = m_assetWatcher.result();
+        if (!result.library) {
+            emit failure(result.error);
+            m_status = "资源载入失败，保留原资源";
+            emit changed();
+            return;
+        }
+        m_world.setAssets(result.library);
+        ++m_epoch;
+        ++m_revision;
+        if (!m_restoringAssets)
+            ++m_resourceRevision;
+        m_scene = std::make_shared<wb::MeshScene>();
+        dirtyAll();
+        m_status = QString("资源已载入 · %1 个方块 · %2")
+                       .arg(result.library->catalog.size())
+                       .arg(result.library->version.isEmpty() ? "资源包" : result.library->version);
+        emit catalogChanged();
+        emit sceneChanged();
+        emit changed();
+    });
     dirtyAll();
 }
 Editor::~Editor() {
     m_cancelExport = true;
+    m_assetWatcher.waitForFinished();
     m_meshWatcher.waitForFinished();
     m_exportWatcher.waitForFinished();
 }
 void Editor::setTool(int v) {
     endStroke();
-    m_tool = std::clamp(v, 0, 4);
+    m_tool = std::clamp(v, -1, 4);
+    if (m_tool >= 0)
+        m_selectedNode = m_tool < 2 ? "terrain" : "voxels";
     emit changed();
 }
 void Editor::setRadius(int v) {
@@ -52,7 +86,7 @@ void Editor::setStrength(int v) {
     emit changed();
 }
 void Editor::setMaterial(int v) {
-    m_material = std::clamp(v, int(wb::Grass), int(wb::Slab));
+    m_material = std::clamp(v, 0, int(m_world.palette.size()) - 1);
     emit changed();
 }
 QString Editor::projectName() const {
@@ -71,12 +105,13 @@ void Editor::beginStroke() {
     }
 }
 void Editor::stamp(const wb::Hit &hit, bool reverse) {
-    if (!hit.valid)
+    if (!hit.valid || m_tool < 0 || assetBusy())
         return;
     beginStroke();
     if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse))
         return;
     m_strokeChanged = true;
+    ++m_revision;
     const int n = m_world.size / 16;
     for (int z = wb::floorDiv(hit.z - m_radius - 2 - m_world.originZ, 16);
          z <= wb::floorDiv(hit.z + m_radius + 2 - m_world.originZ, 16); ++z)
@@ -94,6 +129,9 @@ void Editor::endStroke() {
     auto c = m_stroke->finish("雕刻笔划");
     m_stroke.reset();
     m_strokeChanged = false;
+    pushCommand(std::move(c));
+}
+void Editor::pushCommand(wb::Command c) {
     if (!c.cells.empty() || !c.heights.empty()) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
@@ -121,6 +159,7 @@ void Editor::undo() {
     const auto &e = m_history[--m_cursor];
     m_world.apply(e.command, false);
     m_state = e.before;
+    ++m_revision;
     dirtyAll();
     m_status = "已撤销一个笔划";
     emit changed();
@@ -132,6 +171,7 @@ void Editor::redo() {
     const auto &e = m_history[m_cursor++];
     m_world.apply(e.command, true);
     m_state = e.after;
+    ++m_revision;
     dirtyAll();
     m_status = "已重做一个笔划";
     emit changed();
@@ -144,12 +184,16 @@ void Editor::resetHistory() {
     m_state = m_nextState++;
     m_savedState = m_state;
     ++m_epoch;
+    ++m_revision;
+    m_resourceRevision = m_savedResourceRevision = 0;
 }
 void Editor::newWorld() {
-    if (exportBusy())
+    if (exportBusy() || assetBusy())
         return;
     endStroke();
     m_world = wb::World::create();
+    m_material = wb::Stone;
+    emit catalogChanged();
     m_path.clear();
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
@@ -173,12 +217,13 @@ bool Editor::save(const QUrl &url) {
     }
     m_path = path;
     m_savedState = m_state;
+    m_savedResourceRevision = m_resourceRevision;
     m_status = "已保存：" + path;
     emit changed();
     return true;
 }
 bool Editor::open(const QUrl &url) {
-    if (exportBusy())
+    if (exportBusy() || assetBusy())
         return false;
     endStroke();
     wb::World next;
@@ -188,6 +233,8 @@ bool Editor::open(const QUrl &url) {
         return false;
     }
     m_world = std::move(next);
+    m_material = wb::Stone;
+    emit catalogChanged();
     m_path = url.toLocalFile();
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
@@ -196,6 +243,8 @@ bool Editor::open(const QUrl &url) {
     emit sceneChanged();
     emit worldReset();
     emit changed();
+    if (!m_world.resourcePaths.isEmpty())
+        loadResources(m_world.resourcePaths, true);
     return true;
 }
 void Editor::dirtyAll() {
@@ -207,7 +256,7 @@ void Editor::dirtyAll() {
     emit changed();
 }
 void Editor::startMesh() {
-    if (m_meshWatcher.isRunning() || m_dirty.empty())
+    if (m_meshActive || m_dirty.empty())
         return;
     auto dirty = std::move(m_dirty);
     m_dirty.clear();
@@ -215,12 +264,14 @@ void Editor::startMesh() {
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
     m_jobEpoch = m_epoch;
+    m_meshActive = true;
     m_meshWatcher.setFuture(
         QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old, serial] {
             auto next = std::make_shared<wb::MeshScene>(*old);
             const int n = snapshot.size / 16;
             next->chunks.resize(n * n);
             next->revision = serial;
+            next->assets = snapshot.assets;
             for (int i : dirty)
                 next->chunks[i] = wb::buildChunkMesh(snapshot, snapshot.originX / 16 + i % n,
                                                      snapshot.originZ / 16 + i / n, serial);
@@ -233,7 +284,7 @@ void Editor::startMesh() {
     emit changed();
 }
 void Editor::exportWorld(const QUrl &parent, const QString &name) {
-    if (exportBusy())
+    if (exportBusy() || assetBusy())
         return;
     endStroke();
     const QString clean = name.trimmed();
@@ -242,11 +293,27 @@ void Editor::exportWorld(const QUrl &parent, const QString &name) {
         emit failure("请选择已存在的父目录；存档名称仅使用 1–64 位英文字母、数字、下划线或短横线。");
         return;
     }
+    if (!m_world.resourceVersion.isEmpty() && m_world.resourceVersion != "1.20.1") {
+        emit failure("当前基础资源版本为 " + m_world.resourceVersion +
+                     "；本版仅允许 1.20.1 导出。请加载 1.20.1 客户端资源。");
+        return;
+    }
+    for (const auto &[key, block] : m_world.overrides)
+        if (block >= wb::BlockCount) {
+            QString error;
+            if (!m_world.assets || m_world.assets->version != "1.20.1" ||
+                !m_world.assets->validate(m_world.palette[block], error)) {
+                emit failure("动态方块导出需要对应的 1.20.1 JAR 目录：" + m_world.palette[block].name + " " +
+                             error);
+                return;
+            }
+        }
     m_cancelExport = false;
     m_exportProgress = 0;
     m_status = "正在烘焙 Minecraft 1.20.1 存档（导出开始时的快照）…";
     auto snapshot = m_world;
     const auto path = QDir(parent.toLocalFile()).filePath(clean);
+    m_exportActive = true;
     m_exportWatcher.setFuture(QtConcurrent::run([this, snapshot = std::move(snapshot), path] {
         return wb::exportMinecraft(snapshot, path, &m_cancelExport, [this](int done, int total) {
             QMetaObject::invokeMethod(

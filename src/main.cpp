@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QMutex>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.2.0");
     const auto local = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir().mkpath(local);
     logPath = local + "/Worldbench.log";
@@ -43,7 +44,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.1.0 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.2.0 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -51,6 +52,7 @@ int main(int argc, char **argv) {
     qmlRegisterUncreatableType<Editor>("Worldbench", 1, 0, "WorldEditor",
                                        "Use the application editor instance");
     Editor editor;
+    editor.setTool(-1);
     QQmlApplicationEngine engine;
     KDDockWidgets::QtQuick::Platform::instance()->setQmlEngine(&engine);
     engine.rootContext()->setContextProperty("editor", &editor);
@@ -59,13 +61,20 @@ int main(int argc, char **argv) {
         return 1;
     // CI smoke path uses the same renderer and window; it does not replace manual tests.
     const auto args = app.arguments();
+    const int openIndex = args.indexOf("--open");
+    if (openIndex >= 0 && !args.value(openIndex + 1).isEmpty())
+        editor.open(QUrl::fromLocalFile(args.value(openIndex + 1)));
+    if (args.contains("--model-preview")) {
+        if (auto *viewport = engine.rootObjects().first()->findChild<Viewport *>("voxelViewport"))
+            viewport->applyCamera({{"position", QJsonArray{9, 11, 17}}, {"yaw", -27}, {"pitch", -18}});
+    }
     const int smoke = args.indexOf("--smoke-test");
     if (smoke >= 0) {
         const QString capture = args.value(smoke + 1);
         auto *timer = new QTimer(&app);
         timer->setInterval(500);
         QObject::connect(timer, &QTimer::timeout, &app, [&app, &engine, &editor, capture, timer] {
-            if (editor.meshBusy() || editor.scene()->chunks.empty())
+            if (editor.assetBusy() || editor.meshBusy() || editor.scene()->chunks.empty())
                 return;
             timer->stop();
             QTimer::singleShot(800, &app, [&app, &engine, capture] {

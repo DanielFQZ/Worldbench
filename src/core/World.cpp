@@ -21,6 +21,44 @@ const BlockInfo &info(Block b) {
 int floorDiv(int v, int d) {
     return v >= 0 ? v / d : -((-v + d - 1) / d);
 }
+World::World() {
+    for (int i = 0; i < BlockCount; ++i) {
+        BlockState state{QString::fromUtf8(info(i).minecraft), {}};
+        if (i == Grass)
+            state.properties["snowy"] = "false";
+        if (i == Water)
+            state.properties["level"] = "0";
+        if (i == Slab) {
+            state.properties["type"] = "bottom";
+            state.properties["waterlogged"] = "false";
+        }
+        palette.push_back(state);
+        models.push_back(fallbackModel(i));
+    }
+}
+Block World::intern(const BlockState &state) {
+    for (size_t i = 0; i < palette.size(); ++i)
+        if (palette[i] == state)
+            return Block(i);
+    if (palette.size() >= 65536)
+        throw std::runtime_error("工程方块状态数量超过 65536");
+    palette.push_back(state);
+    models.push_back(assets ? assets->model(state) : fallbackModel(BlockCount));
+    return Block(palette.size() - 1);
+}
+void World::setAssets(std::shared_ptr<const AssetLibrary> library) {
+    assets = std::move(library);
+    models.clear();
+    if (assets) {
+        resourcePaths = assets->sources;
+        resourceVersion = assets->version;
+    } else {
+        resourcePaths.clear();
+        resourceVersion.clear();
+    }
+    for (size_t i = 0; i < palette.size(); ++i)
+        models.push_back(assets ? assets->model(palette[i]) : fallbackModel(int(i)));
+}
 World World::create(int n, int randomSeed) {
     if (n < 32 || n > 256 || n % 32)
         throw std::invalid_argument("P0 world creation requires size 32..256, aligned to 32");
@@ -82,7 +120,7 @@ Block World::block(int x, int y, int z) const {
     return it == overrides.end() ? baseBlock(x, y, z) : it->second;
 }
 void World::setBlock(int x, int y, int z, Block b) {
-    if (!contains(x, y, z) || y == MinY || b >= BlockCount)
+    if (!contains(x, y, z) || y == MinY || b >= palette.size())
         return;
     const auto k = key(x, y, z);
     if (b == baseBlock(x, y, z))
@@ -141,13 +179,36 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     }
     for (int i = 0; i < 8000 && contains(c[0], c[1], c[2]); ++i) {
         const Block b = block(c[0], c[1], c[2]);
-        float t;
-        QVector3D n;
-        if (b != Air &&
-            boxIntersect(o, d, {float(c[0]), float(c[1]), float(c[2])},
-                         {float(c[0] + 1), c[1] + (b == Slab ? .5f : 1.f), float(c[2] + 1)}, t, n) &&
-            t <= maxDistance)
-            return {true, c[0], c[1], c[2], o + d * t, n, b};
+        float closest = maxDistance + 1;
+        QVector3D normal;
+        if (b != Air && b < models.size())
+            for (const auto &face : models[b]->faces) {
+                const QVector3D cell{float(c[0]), float(c[1]), float(c[2])};
+                for (int triangle = 0; triangle < 2; ++triangle) {
+                    auto a = cell + face.points[0], edge1 = face.points[triangle + 1] - face.points[0],
+                         edge2 = face.points[triangle + 2] - face.points[0];
+                    auto h = QVector3D::crossProduct(d, edge2);
+                    float det = QVector3D::dotProduct(edge1, h);
+                    if (std::abs(det) < 1e-8f)
+                        continue;
+                    float inv = 1 / det;
+                    auto s = o - a;
+                    float u = inv * QVector3D::dotProduct(s, h);
+                    if (u < 0 || u > 1)
+                        continue;
+                    auto q = QVector3D::crossProduct(s, edge1);
+                    float v = inv * QVector3D::dotProduct(d, q);
+                    if (v < 0 || u + v > 1)
+                        continue;
+                    float t = inv * QVector3D::dotProduct(edge2, q);
+                    if (t >= 0 && t < closest) {
+                        closest = t;
+                        normal = face.normal;
+                    }
+                }
+            }
+        if (closest <= maxDistance)
+            return {true, c[0], c[1], c[2], o + d * closest, normal, b};
         int a = next[0] < next[1] ? (next[0] < next[2] ? 0 : 2) : (next[1] < next[2] ? 1 : 2);
         if (next[a] > maxDistance)
             break;

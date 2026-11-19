@@ -1,5 +1,13 @@
 #include "Viewport.h"
+#include <QCoreApplication>
 #include <QCursor>
+#include <QJsonArray>
+#include <QSettings>
+#include <stdexcept>
+#ifdef Q_OS_WIN
+#define NOMINMAX
+#include <windows.h>
+#endif
 #include <QFile>
 #include <QMouseEvent>
 #include <QQuickWindow>
@@ -26,6 +34,10 @@ class Renderer final : public QQuickRhiItemRenderer {
     QRhi *m_rhi = nullptr;
     std::unique_ptr<QRhiBuffer> m_uniform;
     std::unique_ptr<QRhiShaderResourceBindings> m_bindings;
+    std::unique_ptr<QRhiTexture> m_texture;
+    std::unique_ptr<QRhiSampler> m_sampler;
+    std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
+    bool m_textureReady = false;
     std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha;
     std::vector<GpuChunk> m_chunks;
     std::shared_ptr<const wb::MeshScene> m_scene;
@@ -41,16 +53,28 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_alpha.reset();
             m_bindings.reset();
             m_uniform.reset();
+            m_texture.reset();
+            m_sampler.reset();
+            m_uploadedAssets.reset();
+            m_textureReady = false;
             m_rhi = rhi();
         }
         if (!m_uniform) {
             m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 112));
             if (!m_uniform->create())
                 qFatal("Unable to create uniform buffer");
+            m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
+            m_texture->create();
+            m_sampler.reset(rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                              QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+            m_sampler->create();
             m_bindings.reset(rhi()->newShaderResourceBindings());
-            m_bindings->setBindings({QRhiShaderResourceBinding::uniformBuffer(
-                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                m_uniform.get())});
+            m_bindings->setBindings(
+                {QRhiShaderResourceBinding::uniformBuffer(
+                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                     m_uniform.get()),
+                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                           m_texture.get(), m_sampler.get())});
             if (!m_bindings->create())
                 qFatal("Unable to create shader bindings");
         }
@@ -62,7 +86,8 @@ class Renderer final : public QQuickRhiItemRenderer {
             layout.setBindings({QRhiVertexInputBinding(sizeof(wb::Vertex))});
             layout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
                                   {0, 1, QRhiVertexInputAttribute::Float3, 12},
-                                  {0, 2, QRhiVertexInputAttribute::Float4, 24}});
+                                  {0, 2, QRhiVertexInputAttribute::Float4, 24},
+                                  {0, 3, QRhiVertexInputAttribute::Float2, 40}});
             p->setVertexInputLayout(layout);
             p->setTopology(QRhiGraphicsPipeline::Triangles);
             p->setCullMode(QRhiGraphicsPipeline::None);
@@ -100,6 +125,24 @@ class Renderer final : public QQuickRhiItemRenderer {
     }
     void render(QRhiCommandBuffer *cb) override {
         auto *updates = rhi()->nextResourceUpdateBatch();
+        auto assets = m_scene ? m_scene->assets : std::shared_ptr<const wb::AssetLibrary>{};
+        if (!m_textureReady || assets != m_uploadedAssets) {
+            QImage image = assets ? assets->atlas : wb::whiteAtlas();
+            m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, image.size()));
+            if (!m_texture->create())
+                qFatal("Unable to allocate texture atlas");
+            m_bindings->setBindings(
+                {QRhiShaderResourceBinding::uniformBuffer(
+                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                     m_uniform.get()),
+                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                           m_texture.get(), m_sampler.get())});
+            if (!m_bindings->create())
+                qFatal("Unable to bind atlas");
+            updates->uploadTexture(m_texture.get(), image);
+            m_uploadedAssets = assets;
+            m_textureReady = true;
+        }
         const QMatrix4x4 mvp = rhi()->clipSpaceCorrMatrix() * m_matrix;
         std::array<float, 28> u{};
         std::memcpy(u.data(), mvp.constData(), 64);
@@ -110,7 +153,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[21] = m_hit.y + .5f;
         u[22] = m_hit.z + .5f;
         u[23] = float(m_radius);
-        u[24] = m_hit.valid ? 1.f : 0.f;
+        u[24] = m_hit.valid && m_tool >= 0 ? 1.f : 0.f;
         u[25] = float(m_tool);
         updates->updateDynamicBuffer(m_uniform.get(), 0, 112, u.data());
         if (m_scene) {
@@ -186,6 +229,10 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_elapsed.start();
     m_stampClock.start();
     m_timer.start();
+    QSettings settings;
+    m_rawInput = settings.value("input/raw", true).toBool();
+    m_sensitivity = std::clamp(settings.value("input/sensitivity", .12).toDouble(), .01, 1.0);
+    QCoreApplication::instance()->installNativeEventFilter(this);
 }
 QQuickRhiItemRenderer *Viewport::createRenderer() {
     return new Renderer;
@@ -197,6 +244,7 @@ void Viewport::setEditor(Editor *e) {
         disconnect(m_editor, nullptr, this, nullptr);
     m_editor = e;
     if (e) {
+        e->setCameraController(this);
         connect(e, &Editor::sceneChanged, this, [this] { update(); });
         connect(e, &Editor::changed, this, [this] { update(); });
         connect(e, &Editor::worldReset, this, &Viewport::resetCamera);
@@ -213,7 +261,7 @@ QString Viewport::cameraText() const {
 }
 QString Viewport::hitText() const {
     return m_hit.valid ? QString("%1 · (%2, %3, %4)")
-                             .arg(QString::fromUtf8(wb::info(m_hit.block).name))
+                             .arg(m_editor->world().palette[m_hit.block].label())
                              .arg(m_hit.x)
                              .arg(m_hit.y)
                              .arg(m_hit.z)
@@ -237,9 +285,9 @@ void Viewport::pick(QPointF pos) {
     if (!m_editor || width() < 1 || height() < 1)
         return;
     const auto inv = viewProjection().inverted();
-    QVector4D far =
+    QVector4D farPoint =
         inv * QVector4D(float(pos.x() / width() * 2 - 1), float(1 - pos.y() / height() * 2), 1, 1);
-    m_hit = m_editor->world().raycast(m_camera, far.toVector3DAffine() - m_camera);
+    m_hit = m_editor->world().raycast(m_camera, farPoint.toVector3DAffine() - m_camera);
     update();
     emit cameraChanged();
 }
@@ -281,7 +329,8 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
             m_pivot = m_hit.position;
         m_anchorGlobal = e->globalPosition();
         setCursor(QCursor(Qt::BlankCursor));
-    } else if (e->button() == Qt::LeftButton && m_editor) {
+        beginRawInput();
+    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() >= 0 && !m_editor->assetBusy()) {
         m_sculpting = true;
         m_editor->beginStroke();
         m_editor->stamp(m_hit, m_reverse);
@@ -297,6 +346,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent *e) {
         m_sculpting = false;
     }
     if (m_buttons == Qt::NoButton) {
+        endRawInput();
         unsetCursor();
         m_keys.clear();
         m_altNav = false;
@@ -307,26 +357,13 @@ void Viewport::mouseMoveEvent(QMouseEvent *e) {
     m_reverse = e->modifiers().testFlag(Qt::ShiftModifier);
     const bool nav = m_altNav || m_buttons.testFlag(Qt::RightButton) || m_buttons.testFlag(Qt::MiddleButton);
     if (nav) {
-        const QPointF delta = e->globalPosition() - m_anchorGlobal;
-        if (delta.manhattanLength() < .1)
+        if (m_rawActive) {
+            e->accept();
             return;
-        const float dx = float(delta.x()), dy = float(delta.y());
-        const float distance = std::max(5.f, (m_camera - m_pivot).length());
-        if (m_buttons.testFlag(Qt::MiddleButton) ||
-            (m_buttons.testFlag(Qt::LeftButton) && m_buttons.testFlag(Qt::RightButton))) {
-            QVector3D move = (-right() * dx + QVector3D(0, 1, 0) * dy) * (distance * .0015f);
-            m_camera += move;
-            m_pivot += move;
-        } else if (m_altNav && m_buttons.testFlag(Qt::RightButton)) {
-            m_camera += forward() * (dx - dy) * distance * .005f;
-        } else {
-            m_yaw += dx * .2f;
-            m_pitch = std::clamp(m_pitch - dy * .2f, -89.f, 89.f);
-            if (m_altNav)
-                m_camera = m_pivot - forward() * distance;
         }
-        changedCamera();
-        QCursor::setPos(m_anchorGlobal.toPoint());
+        const QPointF delta = e->globalPosition() - m_anchorGlobal;
+        m_anchorGlobal = e->globalPosition();
+        navigate(float(delta.x()), float(delta.y()));
     } else {
         pick(e->position());
         if (m_sculpting && m_editor && m_stampClock.elapsed() > 60) {
@@ -398,6 +435,7 @@ void Viewport::keyReleaseEvent(QKeyEvent *e) {
     e->accept();
 }
 void Viewport::stopInput() {
+    endRawInput();
     m_keys.clear();
     m_buttons = Qt::NoButton;
     m_altNav = false;
@@ -444,4 +482,124 @@ void Viewport::tick() {
         m_editor->stamp(m_hit, m_reverse);
         m_stampClock.restart();
     }
+}
+
+Viewport::~Viewport() {
+    endRawInput();
+    QCoreApplication::instance()->removeNativeEventFilter(this);
+}
+void Viewport::setRawInput(bool value) {
+    stopInput();
+    m_rawInput = value;
+    QSettings().setValue("input/raw", value);
+    emit cameraChanged();
+}
+void Viewport::setSensitivity(double value) {
+    if (!std::isfinite(value))
+        return;
+    m_sensitivity = std::clamp(value, .01, 1.0);
+    QSettings().setValue("input/sensitivity", m_sensitivity);
+    emit cameraChanged();
+}
+void Viewport::beginRawInput() {
+#ifdef Q_OS_WIN
+    if (!m_rawInput || m_rawActive || !window())
+        return;
+    RAWINPUTDEVICE device{1, 2, 0, reinterpret_cast<HWND>(window()->winId())};
+    if (!RegisterRawInputDevices(&device, 1, sizeof(device)))
+        return;
+    POINT p;
+    GetCursorPos(&p);
+    RECT clip{p.x, p.y, p.x + 1, p.y + 1};
+    if (!ClipCursor(&clip)) {
+        RAWINPUTDEVICE remove{1, 2, RIDEV_REMOVE, nullptr};
+        RegisterRawInputDevices(&remove, 1, sizeof(remove));
+        return;
+    }
+    m_rawActive = true;
+    emit cameraChanged();
+#endif
+}
+void Viewport::endRawInput() {
+#ifdef Q_OS_WIN
+    if (m_rawActive) {
+        ClipCursor(nullptr);
+        RAWINPUTDEVICE device{1, 2, RIDEV_REMOVE, nullptr};
+        RegisterRawInputDevices(&device, 1, sizeof(device));
+    }
+#endif
+    if (m_rawActive) {
+        m_rawActive = false;
+        emit cameraChanged();
+    }
+}
+bool Viewport::nativeEventFilter(const QByteArray &, void *message, qintptr *) {
+#ifdef Q_OS_WIN
+    auto *msg = static_cast<MSG *>(message);
+    if (m_rawActive && msg->message == WM_INPUT && hasActiveFocus() && window() && window()->isActive()) {
+        RAWINPUT raw{};
+        UINT size = sizeof(raw);
+        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(msg->lParam), RID_INPUT, &raw, &size,
+                            sizeof(RAWINPUTHEADER)) != UINT(-1) &&
+            raw.header.dwType == RIM_TYPEMOUSE) {
+            if (!(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+                ++m_rawPackets;
+                navigate(float(raw.data.mouse.lLastX), float(raw.data.mouse.lLastY));
+            }
+        }
+    }
+#else
+    Q_UNUSED(message);
+#endif
+    return false;
+}
+void Viewport::navigate(float dx, float dy) {
+    if (!std::isfinite(dx) || !std::isfinite(dy) || (dx == 0 && dy == 0))
+        return;
+    const float distance = std::max(5.f, (m_camera - m_pivot).length()), scale = float(m_sensitivity / .2);
+    if (m_buttons.testFlag(Qt::MiddleButton) ||
+        (m_buttons.testFlag(Qt::LeftButton) && m_buttons.testFlag(Qt::RightButton))) {
+        QVector3D move = (-right() * dx + QVector3D(0, 1, 0) * dy) * (distance * .0015f * scale);
+        m_camera += move;
+        m_pivot += move;
+    } else if (m_altNav && m_buttons.testFlag(Qt::RightButton))
+        m_camera += forward() * (dx - dy) * distance * .005f * scale;
+    else {
+        m_yaw += dx * float(m_sensitivity);
+        m_pitch = std::clamp(m_pitch - dy * float(m_sensitivity), -89.f, 89.f);
+        if (m_altNav)
+            m_camera = m_pivot - forward() * distance;
+    }
+    changedCamera();
+}
+void Viewport::applyCamera(const QJsonObject &a) {
+    if (a.isEmpty())
+        return;
+    auto camera = m_camera;
+    float yaw = m_yaw, pitch = m_pitch;
+    auto number = [](const QJsonValue &v, double lo, double hi) {
+        if (!v.isDouble() || !std::isfinite(v.toDouble()) || v.toDouble() < lo || v.toDouble() > hi)
+            throw std::runtime_error("Invalid camera value");
+        return float(v.toDouble());
+    };
+    if (a.contains("position")) {
+        auto p = a["position"].toArray();
+        if (p.size() != 3)
+            throw std::runtime_error("Camera position requires [x,y,z]");
+        camera = {number(p[0], -1000000, 1000000), number(p[1], -1000000, 1000000),
+                  number(p[2], -1000000, 1000000)};
+    }
+    if (a.contains("yaw"))
+        yaw = number(a["yaw"], -360000, 360000);
+    if (a.contains("pitch"))
+        pitch = number(a["pitch"], -89, 89);
+    if (a["reset"].toBool()) {
+        resetCamera();
+        return;
+    }
+    stopInput();
+    m_camera = camera;
+    m_yaw = yaw;
+    m_pitch = pitch;
+    changedCamera();
 }

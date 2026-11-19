@@ -3,6 +3,7 @@
 #include "core/Project.h"
 #include "core/World.h"
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -111,6 +112,26 @@ int main(int argc, char **argv) {
         check(saveProject(path, w, error), "save project");
         World loaded;
         check(loadProject(path, loaded, error) && equal(w, loaded), "project exact roundtrip");
+        {
+            QFile current(path);
+            check(current.open(QIODevice::ReadOnly), "read v2 migration fixture");
+            auto bytes = current.readAll();
+            auto root = QJsonDocument::fromJson(qUncompress(bytes.mid(40))).object();
+            root["format"] = 1;
+            root.remove("palette");
+            root.remove("resources");
+            root.remove("resourceVersion");
+            auto data = QJsonDocument(root).toJson(QJsonDocument::Compact);
+            QFile legacy(tmp.filePath("legacy.wbench"));
+            check(legacy.open(QIODevice::WriteOnly), "write v1 fixture");
+            legacy.write(QByteArray("WBENCH01", 8) +
+                         QCryptographicHash::hash(data, QCryptographicHash::Sha256) + qCompress(data));
+            legacy.close();
+            World migrated;
+            check(loadProject(legacy.fileName(), migrated, error) && equal(w, migrated) &&
+                      migrated.palette == w.palette,
+                  "v1 loads with preserved built-in IDs and states");
+        }
         QFile corrupt(path);
         check(corrupt.open(QIODevice::ReadWrite), "open corruption fixture");
         corrupt.seek(12);

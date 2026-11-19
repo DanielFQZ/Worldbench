@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 #include <QUuid>
 #include <QtEndian>
 #include <array>
@@ -100,18 +101,12 @@ void write(const QString &path, const QByteArray &b) {
     if (!f.open(QIODevice::WriteOnly | QIODevice::NewOnly) || f.write(b) != b.size() || !f.flush())
         throw std::runtime_error(("写入失败: " + path + " " + f.errorString()).toStdString());
 }
-void paletteEntry(Nbt &n, Block b) {
-    n.text("Name", info(b).minecraft);
-    if (b == Grass || b == Water || b == Slab) {
+void paletteEntry(Nbt &n, const BlockState &b) {
+    n.text("Name", b.name.toUtf8());
+    if (!b.properties.isEmpty()) {
         n.compound("Properties");
-        if (b == Grass)
-            n.text("snowy", "false");
-        if (b == Water)
-            n.text("level", "0");
-        if (b == Slab) {
-            n.text("type", "bottom");
-            n.text("waterlogged", "false");
-        }
+        for (auto p = b.properties.begin(); p != b.properties.end(); ++p)
+            n.text(p.key().toUtf8().constData(), p.value().toUtf8());
         n.end();
     }
     n.end();
@@ -130,8 +125,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
     n.list("sections", 10, 24);
     for (int sy = -4; sy < 20; ++sy) {
         n.byte("Y", sy);
-        std::array<int, BlockCount> indices;
-        indices.fill(-1);
+        std::vector<int> indices(w.palette.size(), -1);
         std::vector<Block> palette;
         std::vector<int> values;
         values.reserve(4096);
@@ -148,7 +142,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
         n.compound("block_states");
         n.list("palette", 10, int(palette.size()));
         for (Block b : palette)
-            paletteEntry(n, b);
+            paletteEntry(n, w.palette[b]);
         if (palette.size() > 1) {
             int bits = 4;
             while ((1u << bits) < palette.size())
@@ -292,6 +286,19 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
     result.path = QDir::cleanPath(directory);
     QString temp;
     try {
+        if (!w.resourceVersion.isEmpty() && w.resourceVersion != "1.20.1")
+            throw std::runtime_error("本版只支持导出 1.20.1，资源版本不匹配");
+        QSet<Block> checked;
+        for (const auto &[key, b] : w.overrides) {
+            if (b >= w.palette.size())
+                throw std::runtime_error("工程包含越界的方块索引");
+            if (b < BlockCount || checked.contains(b))
+                continue;
+            checked.insert(b);
+            QString error;
+            if (!w.assets || w.assets->version != "1.20.1" || !w.assets->validate(w.palette[b], error))
+                throw std::runtime_error(("动态方块需要对应的 1.20.1 客户端资源：" + error).toStdString());
+        }
         if (w.size < 32 || w.size > 256 || w.size % 16 || w.originX % 16 || w.originZ % 16 ||
             w.heights.size() != size_t(w.size * w.size))
             throw std::runtime_error("不支持的 P0 世界尺寸或区块对齐");
