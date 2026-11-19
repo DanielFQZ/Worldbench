@@ -7,6 +7,26 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     mesh->center = {float(cx * 16 + 8), 20, float(cz * 16 + 8)};
     const int normals[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     const int tri[6] = {0, 1, 2, 0, 2, 3};
+    // Evaluate procedural heights once for this chunk and its face-neighbour border.
+    int heights[18][18];
+    for (int z = 0; z < 18; ++z)
+        for (int x = 0; x < 18; ++x)
+            heights[z][x] = w.height(cx * 16 + x - 1, cz * 16 + z - 1);
+    auto blockAt = [&](int x, int y, int z) -> Block {
+        if (!w.contains(x, y, z))
+            return Air;
+        auto it = w.overrides.find(w.key(x, y, z));
+        if (it != w.overrides.end())
+            return it->second;
+        if (y == World::MinY)
+            return Bedrock;
+        const int h = heights[z - cz * 16 + 1][x - cx * 16 + 1];
+        if (y > h)
+            return y <= w.seaLevel ? Water : Air;
+        if (y == h)
+            return h <= w.seaLevel + 1 ? Sand : Grass;
+        return y >= h - 3 ? (h <= w.seaLevel + 1 ? Sand : Dirt) : Stone;
+    };
     int maxY = std::max(40, w.seaLevel + 1);
     for (auto [k, v] : w.overrides) {
         int x, y, z;
@@ -20,7 +40,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     for (int y = World::MinY; y < std::min(World::MaxY, maxY); ++y)
         for (int z = cz * 16; z < cz * 16 + 16; ++z)
             for (int x = cx * 16; x < cx * 16 + 16; ++x) {
-                const Block b = w.block(x, y, z);
+                const Block b = blockAt(x, y, z);
                 if (b == Air)
                     continue;
                 const auto &m = *w.models[b];
@@ -28,7 +48,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                 for (const auto &face : m.faces) {
                     if (face.cull >= 0) {
                         const auto &n = normals[face.cull];
-                        Block nb = w.block(x + n[0], y + n[1], z + n[2]);
+                        Block nb = blockAt(x + n[0], y + n[1], z + n[2]);
                         const auto &neighbor = *w.models[nb];
                         if ((nb == b && m.translucent) ||
                             (neighbor.full && !neighbor.translucent && nb != Air))

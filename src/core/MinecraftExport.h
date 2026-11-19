@@ -1,5 +1,6 @@
 #pragma once
 #include "World.h"
+#include <QRect>
 #include <atomic>
 #include <functional>
 namespace wb {
@@ -10,5 +11,5 @@ struct ExportResult {
 };
 ExportResult exportMinecraft(const World &world, const QString &directory,
                              std::atomic_bool *cancelled = nullptr,
-                             std::function<void(int, int)> progress = {});
+                             std::function<void(int, int)> progress = {}, QRect area = {});
 } // namespace wb

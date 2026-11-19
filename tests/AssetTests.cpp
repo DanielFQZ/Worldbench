@@ -197,7 +197,7 @@ int main(int argc, char **argv) {
                           << " unsupported, " << pack->catalog.size() << " catalog entries\n";
             }
             auto gallery = wb::World::create(32);
-            std::fill(gallery.heights.begin(), gallery.heights.end(), 4);
+            gallery.heights.fill(4);
             gallery.overrides.clear();
             gallery.seaLevel = -60;
             gallery.setAssets(real);

@@ -45,6 +45,8 @@ class Renderer final : public QQuickRhiItemRenderer {
     QVector3D m_camera;
     wb::Hit m_hit;
     int m_radius = 4, m_tool = 0, m_brushShape = 0;
+    double m_decay = 0;
+    QRect m_selection;
     std::shared_ptr<std::atomic_int> m_frames;
     void initialize(QRhiCommandBuffer *) override {
         if (m_rhi != rhi()) {
@@ -60,7 +62,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_rhi = rhi();
         }
         if (!m_uniform) {
-            m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 112));
+            m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 144));
             if (!m_uniform->create())
                 qFatal("Unable to create uniform buffer");
             m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
@@ -122,6 +124,8 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
             m_brushShape = v->editor()->brushShape();
+            m_decay = v->editor()->brushDecay();
+            m_selection = v->editor()->selectionRect();
         }
     }
     void render(QRhiCommandBuffer *cb) override {
@@ -145,7 +149,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_textureReady = true;
         }
         const QMatrix4x4 mvp = rhi()->clipSpaceCorrMatrix() * m_matrix;
-        std::array<float, 28> u{};
+        std::array<float, 36> u{};
         std::memcpy(u.data(), mvp.constData(), 64);
         u[16] = m_camera.x();
         u[17] = m_camera.y();
@@ -154,10 +158,16 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[21] = m_hit.y + .5f;
         u[22] = m_hit.z + .5f;
         u[23] = float(m_radius);
-        u[24] = m_hit.valid && m_tool >= 0 ? 1.f : 0.f;
+        u[24] = m_hit.valid && m_tool >= 0 && m_tool <= 5 ? 1.f : 0.f;
         u[25] = m_tool == 5 ? 1.f : float(m_tool);
         u[26] = float(m_brushShape);
-        updates->updateDynamicBuffer(m_uniform.get(), 0, 112, u.data());
+        u[27] = (m_tool == 0 || m_tool == 1 || m_tool == 5) ? float(1 - m_decay) : 1.f;
+        u[28] = float(m_selection.left());
+        u[29] = float(m_selection.top());
+        u[30] = float(m_selection.right() + 1);
+        u[31] = float(m_selection.bottom() + 1);
+        u[32] = m_selection.isValid() ? 1.f : 0.f;
+        updates->updateDynamicBuffer(m_uniform.get(), 0, 144, u.data());
         if (m_scene) {
             m_chunks.resize(m_scene->chunks.size());
             for (size_t i = 0; i < m_chunks.size(); ++i) {
@@ -283,6 +293,17 @@ QMatrix4x4 Viewport::viewProjection() const {
     return p * v;
 }
 void Viewport::pick(QPointF pos) {
+    if (m_sculpting && pos == m_pointer && m_editor &&
+        (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5) && m_hit.valid) {
+        const auto &w = m_editor->world();
+        m_hit.y = w.height(m_hit.x, m_hit.z);
+        m_hit.position = {m_hit.x + .5f, float(m_hit.y + 1), m_hit.z + .5f};
+        m_hit.block = w.block(m_hit.x, m_hit.y, m_hit.z);
+        m_hit.normal = {0, 1, 0};
+        update();
+        emit cameraChanged();
+        return;
+    }
     m_pointer = pos;
     if (!m_editor || width() < 1 || height() < 1)
         return;
@@ -290,11 +311,17 @@ void Viewport::pick(QPointF pos) {
     QVector4D farPoint =
         inv * QVector4D(float(pos.x() / width() * 2 - 1), float(1 - pos.y() / height() * 2), 1, 1);
     m_hit = m_editor->world().raycast(m_camera, farPoint.toVector3DAffine() - m_camera);
+    if (m_hit.valid && !m_editor->previewContains(m_hit.x, m_hit.z))
+        m_hit = {};
     update();
     emit cameraChanged();
 }
 void Viewport::changedCamera() {
     m_pitch = std::clamp(m_pitch, -89.f, 89.f);
+    if (m_editor) {
+        auto p = m_camera + forward() * 60;
+        m_editor->setPreviewCenter(int(p.x()), int(p.z()));
+    }
     pick(m_pointer);
     emit cameraChanged();
     update();
@@ -302,9 +329,11 @@ void Viewport::changedCamera() {
 void Viewport::resetCamera() {
     stopInput();
     const auto &w = m_editor->world();
-    m_pivot = {float(w.originX + w.size / 2), float(w.height(w.originX + w.size / 2, w.originZ + w.size / 2)),
-               float(w.originZ + w.size / 2)};
-    m_camera = m_pivot + QVector3D(w.size * .625f, 45, w.size * .78125f);
+    m_pivot = {float(w.originX + w.width / 2),
+               float(w.height(w.originX + w.width / 2, w.originZ + w.depth / 2)),
+               float(w.originZ + w.depth / 2)};
+    const float extent = float(std::min(128, std::max(w.width, w.depth)));
+    m_camera = m_pivot + QVector3D(extent * .625f, 45, extent * .78125f);
     const auto f = (m_pivot - m_camera).normalized();
     m_yaw = qRadiansToDegrees(std::atan2(f.x(), -f.z()));
     m_pitch = qRadiansToDegrees(std::asin(f.y()));
@@ -344,7 +373,12 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_anchorGlobal = e->globalPosition();
         setCursor(QCursor(Qt::BlankCursor));
         beginRawInput();
-    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() >= 0 && !m_editor->assetBusy()) {
+    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() == 6 && m_hit.valid) {
+        m_selecting = true;
+        m_selectionStart = {m_hit.x, m_hit.z};
+        m_editor->setSelection(m_hit.x, m_hit.z, m_hit.x, m_hit.z);
+    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
+               !m_editor->assetBusy()) {
         m_sculpting = true;
         m_editor->beginStroke();
         m_editor->stamp(m_hit, m_reverse);
@@ -354,6 +388,8 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
 }
 void Viewport::mouseReleaseEvent(QMouseEvent *e) {
     m_buttons = e->buttons();
+    if (e->button() == Qt::LeftButton)
+        m_selecting = false;
     if (e->button() == Qt::LeftButton && m_sculpting) {
         if (m_editor)
             m_editor->endStroke();
@@ -380,6 +416,8 @@ void Viewport::mouseMoveEvent(QMouseEvent *e) {
         navigate(float(delta.x()), float(delta.y()));
     } else {
         pick(e->position());
+        if (m_selecting && m_hit.valid && m_editor)
+            m_editor->setSelection(m_selectionStart.x(), m_selectionStart.y(), m_hit.x, m_hit.z);
         if (m_sculpting && m_editor && m_stampClock.elapsed() > 60) {
             m_editor->stamp(m_hit, m_reverse);
             m_stampClock.restart();
@@ -390,7 +428,7 @@ void Viewport::mouseMoveEvent(QMouseEvent *e) {
 void Viewport::wheelEvent(QWheelEvent *e) {
     const float steps = e->angleDelta().y() / 120.f;
     if (m_buttons.testFlag(Qt::RightButton))
-        m_speed = std::clamp(m_speed * std::pow(1.25f, steps), 1.f, 500.f);
+        m_speed = std::clamp(m_speed * std::pow(1.25f, steps), 1.f, 8000.f);
     else
         m_camera += forward() * steps * std::max(1.f, m_speed * .15f);
     changedCamera();
@@ -453,6 +491,7 @@ void Viewport::stopInput() {
     m_keys.clear();
     m_buttons = Qt::NoButton;
     m_altNav = false;
+    m_selecting = false;
     if (m_sculpting && m_editor)
         m_editor->endStroke();
     m_sculpting = false;
@@ -616,5 +655,20 @@ void Viewport::applyCamera(const QJsonObject &a) {
     m_camera = camera;
     m_yaw = yaw;
     m_pitch = pitch;
+    changedCamera();
+}
+
+void Viewport::jumpTo(int x, int z) {
+    if (!m_editor)
+        return;
+    stopInput();
+    const auto &w = m_editor->world();
+    x = std::clamp(x, w.originX, w.originX + w.width - 1);
+    z = std::clamp(z, w.originZ, w.originZ + w.depth - 1);
+    m_pivot = {x + .5f, float(w.height(x, z) + 1), z + .5f};
+    m_camera = m_pivot - QVector3D(-.5f, -.6f, -.65f).normalized() * 75;
+    const auto f = (m_pivot - m_camera).normalized();
+    m_yaw = qRadiansToDegrees(std::atan2(f.x(), -f.z()));
+    m_pitch = qRadiansToDegrees(std::asin(f.y()));
     changedCamera();
 }

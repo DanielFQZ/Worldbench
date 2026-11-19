@@ -33,6 +33,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     QString hitText() const;
     Q_INVOKABLE void resetCamera();
     Q_INVOKABLE void focusTarget();
+    Q_INVOKABLE void jumpTo(int x, int z);
     QMatrix4x4 viewProjection() const;
     QVector3D camera() const { return m_camera; }
     QVector3D orbitPivot() const { return m_pivot; }
@@ -75,6 +76,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     QSet<int> m_keys;
     Qt::MouseButtons m_buttons;
     bool m_sculpting = false, m_altNav = false, m_reverse = false;
+    bool m_selecting = false;
+    QPoint m_selectionStart;
     bool m_rawInput = true, m_rawActive = false;
     double m_sensitivity = .12;
     int m_rawPackets = 0;

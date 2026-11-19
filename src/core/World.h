@@ -37,7 +37,7 @@ struct Hit {
     Block block = Air;
 };
 struct CellChange {
-    uint32_t key;
+    uint64_t key;
     int before, after;
 };
 struct HeightChange {
@@ -49,8 +49,29 @@ struct Command {
     QString label;
 };
 struct WorldOptions {
-    int size = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
+    int width = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
     bool flat = false;
+    int depth = 0;
+};
+// Immutable generated/dense base plus copy-on-write edited columns. Large untouched
+// terrain never allocates a width*depth array; snapshots share the base and edits.
+class HeightField {
+  public:
+    int width = 0, depth = 0, originX = 0, originZ = 0, seed = 0, baseHeight = 0, variation = 0;
+    bool flat = true;
+    std::shared_ptr<const std::vector<int16_t>> dense;
+    void configure(const WorldOptions &o, int x, int z);
+    size_t size() const { return size_t(width) * depth; }
+    int16_t base(int index) const;
+    int16_t operator[](int index) const;
+    void set(int index, int value);
+    void fill(int value);
+    void assign(std::vector<int16_t> values);
+    const std::map<int, int16_t> &changes() const { return *m_edits; }
+    bool operator==(const HeightField &other) const;
+
+  private:
+    std::shared_ptr<std::map<int, int16_t>> m_edits = std::make_shared<std::map<int, int16_t>>();
 };
 struct BrushOptions {
     int shape = 0, falloff = 0, flattenMode = 0;
@@ -60,15 +81,18 @@ struct BrushOptions {
     int minHeight = -63, maxHeight = 318, minSlope = 0, maxSlope = 90;
     int materialFilter = 0;
     QString filterBlock = "minecraft:stone";
+    double decay = 0; // Fraction of the radius occupied by the transition band.
+    bool selectionEnabled = false;
+    int selectionMinX = 0, selectionMaxX = 0, selectionMinZ = 0, selectionMaxZ = 0;
 };
 
 class World {
   public:
     World();
     static constexpr int MinY = -64, MaxY = 320, ChunkSize = 16;
-    int size = 128, originX = -64, originZ = -64, seed = 2026, seaLevel = 12;
-    std::vector<int16_t> heights;
-    std::unordered_map<uint32_t, Block> overrides;
+    int width = 128, depth = 128, originX = -64, originZ = -64, seed = 2026, seaLevel = 12;
+    HeightField heights;
+    std::unordered_map<uint64_t, Block> overrides;
     std::vector<BlockState> palette;
     std::vector<std::shared_ptr<const BlockModel>> models;
     std::shared_ptr<const AssetLibrary> assets;
@@ -82,8 +106,10 @@ class World {
     bool contains(int x, int y, int z) const;
     int column(int x, int z) const;
     int height(int x, int z) const;
-    uint32_t key(int x, int y, int z) const;
-    void decode(uint32_t key, int &x, int &y, int &z) const;
+    uint64_t key(int x, int y, int z) const;
+    void decode(uint64_t key, int &x, int &y, int &z) const;
+    int chunksX() const { return (width + 15) / 16; }
+    int chunksZ() const { return (depth + 15) / 16; }
     Block baseBlock(int x, int y, int z) const;
     Block block(int x, int y, int z) const;
     void setBlock(int x, int y, int z, Block value);
@@ -103,8 +129,9 @@ class Stroke {
     void changeHeight(int index, int height);
     void reshapeSurface(int x, int z, int height, const BrushOptions &options);
     World &world;
-    std::map<uint32_t, int> beforeCells;
+    std::map<uint64_t, int> beforeCells;
     std::map<int, int> beforeHeights;
+    std::map<int, double> m_accumulated;
     int flattenHeight = -9999;
     uint64_t changes = 0;
 };

@@ -49,12 +49,14 @@ Editor::Editor(QObject *parent)
             m_status = "资源载入失败，保留原资源";
             reportAssetProgress(m_assetProgress, "失败：" + result.error);
             emit changed();
+            emit resourceLoadFinished(false);
             return;
         }
         m_world.assets = result.library;
         m_world.resourcePaths = result.library->sources;
         m_world.resourceVersion = result.library->version;
         m_world.models = result.models;
+        restoreBrushProfile();
         if (m_rememberDefault) {
             QSettings().setValue("resources/defaultSources", m_world.resourcePaths);
         }
@@ -78,7 +80,9 @@ Editor::Editor(QObject *parent)
         emit catalogChanged();
         emit sceneChanged();
         emit changed();
+        emit resourceLoadFinished(true);
     });
+    restoreBrushProfile();
     dirtyAll();
 }
 Editor::~Editor() {
@@ -89,28 +93,35 @@ Editor::~Editor() {
 }
 void Editor::setTool(int v) {
     endStroke();
-    m_tool = std::clamp(v, -1, 5);
+    saveBrushProfile();
+    m_tool = std::clamp(v, -1, 6);
+    restoreBrushProfile();
     emit changed();
 }
 void Editor::setRadius(int v) {
     m_radius = std::clamp(v, 1, 16);
+    saveBrushProfile();
     emit changed();
 }
 void Editor::setStrength(int v) {
     m_strength = std::clamp(v, 1, 4);
+    saveBrushProfile();
     emit changed();
 }
 void Editor::setMaterial(int v) {
     m_material = std::clamp(v, 0, int(m_world.palette.size()) - 1);
+    saveBrushProfile();
     emit changed();
 }
 QString Editor::projectName() const {
     return m_path.isEmpty() ? "未命名工程" : QFileInfo(m_path).completeBaseName();
 }
 QString Editor::sceneStats() const {
-    return QString("%1 × %1 方块   ·   %2 区块   ·   %3 万三角形")
-        .arg(m_world.size)
+    return QString("%1 × %2 方块 · 预览 %3 / %4 区块 · %5 万三角形")
+        .arg(m_world.width)
+        .arg(m_world.depth)
         .arg(m_scene->chunks.size())
+        .arg(m_world.chunksX() * m_world.chunksZ())
         .arg(m_scene->vertices / 30000.0, 0, 'f', 1);
 }
 void Editor::beginStroke() {
@@ -120,19 +131,25 @@ void Editor::beginStroke() {
     }
 }
 void Editor::stamp(const wb::Hit &hit, bool reverse) {
-    if (!hit.valid || m_tool < 0 || assetBusy())
+    if (!hit.valid || m_tool < 0 || m_tool > 5 || assetBusy())
         return;
     beginStroke();
-    if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, m_brushOptions))
+    auto options = m_brushOptions;
+    options.selectionEnabled = m_selectionOnly && m_selection.isValid();
+    options.selectionMinX = m_selection.left();
+    options.selectionMaxX = m_selection.right();
+    options.selectionMinZ = m_selection.top();
+    options.selectionMaxZ = m_selection.bottom();
+    if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, options))
         return;
     m_strokeChanged = true;
     ++m_revision;
-    const int n = m_world.size / 16;
+    const int n = m_world.chunksX();
     for (int z = wb::floorDiv(hit.z - m_radius - 2 - m_world.originZ, 16);
          z <= wb::floorDiv(hit.z + m_radius + 2 - m_world.originZ, 16); ++z)
         for (int x = wb::floorDiv(hit.x - m_radius - 2 - m_world.originX, 16);
              x <= wb::floorDiv(hit.x + m_radius + 2 - m_world.originX, 16); ++x)
-            if (x >= 0 && z >= 0 && x < n && z < n)
+            if (x >= 0 && z >= 0 && x < n && z < m_world.chunksZ())
                 m_dirty.insert(z * n + x);
     if (!m_meshTimer.isActive())
         m_meshTimer.start();
@@ -209,24 +226,30 @@ void Editor::resetHistory() {
 void Editor::newWorld() {
     createWorld(128, 2026, 24, 12, 12, false);
 }
-bool Editor::createWorld(int size, int seed, int baseHeight, int variation, int seaLevel, bool flat) {
+bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int seaLevel, bool flat,
+                         int depth) {
     if (exportBusy() || assetBusy())
         return false;
     wb::World next;
     try {
-        next = wb::World::create(wb::WorldOptions{size, seed, seaLevel, baseHeight, variation, flat});
+        next = wb::World::create(wb::WorldOptions{width, seed, seaLevel, baseHeight, variation, flat, depth});
     } catch (const std::exception &e) {
         emit failure(QString::fromUtf8(e.what()));
         return false;
     }
     endStroke();
     m_world = std::move(next);
+    m_previewX = m_world.originX + m_world.width / 2;
+    m_previewZ = m_world.originZ + m_world.depth / 2;
+    m_selection = {};
+    m_selectionOnly = false;
     m_material = wb::Stone;
     m_path.clear();
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
     dirtyAll();
-    m_status = QString("新建 %1 × %1 %2地形").arg(size).arg(flat ? "平坦" : "丘陵");
+    m_status =
+        QString("新建 %1 × %2 %3地形").arg(m_world.width).arg(m_world.depth).arg(flat ? "平坦" : "丘陵");
     emit catalogChanged();
     emit sceneChanged();
     emit worldReset();
@@ -267,6 +290,10 @@ bool Editor::open(const QUrl &url) {
         return false;
     }
     m_world = std::move(next);
+    m_previewX = m_world.originX + m_world.width / 2;
+    m_previewZ = m_world.originZ + m_world.depth / 2;
+    m_selection = {};
+    m_selectionOnly = false;
     m_material = wb::Stone;
     emit catalogChanged();
     m_path = url.toLocalFile();
@@ -294,17 +321,44 @@ QString Editor::meshUpdateSummary() const {
         .arg(m_scene->chunks.size())
         .arg(m_scene->buildMilliseconds);
 }
+std::set<int> Editor::desiredChunks() const {
+    std::set<int> result;
+    const int nx = m_world.chunksX(), nz = m_world.chunksZ();
+    const bool local = m_world.width > 256 || m_world.depth > 256;
+    const int cx = std::clamp((m_previewX - m_world.originX) / 16, 0, nx - 1),
+              cz = std::clamp((m_previewZ - m_world.originZ) / 16, 0, nz - 1);
+    for (int z = local ? std::max(0, cz - 4) : 0; z < (local ? std::min(nz, cz + 5) : nz); ++z)
+        for (int x = local ? std::max(0, cx - 4) : 0; x < (local ? std::min(nx, cx + 5) : nx); ++x)
+            result.insert(z * nx + x);
+    return result;
+}
+bool Editor::previewContains(int x, int z) const {
+    if (!m_world.contains(x, 0, z))
+        return false;
+    const int id = (z - m_world.originZ) / 16 * m_world.chunksX() + (x - m_world.originX) / 16;
+    return std::find(m_scene->chunkIds.begin(), m_scene->chunkIds.end(), id) != m_scene->chunkIds.end();
+}
+void Editor::setPreviewCenter(int x, int z) {
+    const auto before = desiredChunks();
+    m_previewX = std::clamp(x, m_world.originX, m_world.originX + m_world.width - 1);
+    m_previewZ = std::clamp(z, m_world.originZ, m_world.originZ + m_world.depth - 1);
+    auto after = desiredChunks();
+    if (before == after)
+        return;
+    ++m_epoch;
+    m_dirty = std::move(after);
+    m_meshTimer.start();
+    emit changed();
+}
 void Editor::dirtyAll() {
-    const int n = m_world.size / 16;
-    m_dirty.clear();
-    for (int i = 0; i < n * n; ++i)
-        m_dirty.insert(i);
+    m_dirty = desiredChunks();
     m_meshTimer.start();
     emit changed();
 }
 void Editor::startMesh() {
     if (m_meshActive || m_dirty.empty())
         return;
+    const auto wanted = desiredChunks();
     auto dirty = std::move(m_dirty);
     m_dirty.clear();
     auto snapshot = m_world;
@@ -313,18 +367,28 @@ void Editor::startMesh() {
     m_jobEpoch = m_epoch;
     m_meshActive = true;
     m_meshWatcher.setFuture(
-        QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old, serial] {
+        QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old, serial, wanted] {
             QElapsedTimer elapsed;
             elapsed.start();
-            auto next = std::make_shared<wb::MeshScene>(*old);
-            const int n = snapshot.size / 16;
-            next->chunks.resize(n * n);
+            auto next = std::make_shared<wb::MeshScene>();
             next->revision = serial;
             next->assets = snapshot.assets;
-            for (int i : dirty)
-                next->chunks[i] = wb::buildChunkMesh(snapshot, snapshot.originX / 16 + i % n,
-                                                     snapshot.originZ / 16 + i / n, serial);
-            next->updatedChunks = int(dirty.size());
+            std::map<int, wb::MeshPtr> cached;
+            for (size_t i = 0; i < old->chunkIds.size(); ++i)
+                cached[old->chunkIds[i]] = old->chunks[i];
+            int rebuilt = 0;
+            for (int id : wanted) {
+                auto it = cached.find(id);
+                auto mesh = it == cached.end() ? nullptr : it->second;
+                if (!mesh || dirty.contains(id)) {
+                    mesh = wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
+                                              snapshot.originZ / 16 + id / snapshot.chunksX(), serial);
+                    ++rebuilt;
+                }
+                next->chunks.push_back(mesh);
+                next->chunkIds.push_back(id);
+            }
+            next->updatedChunks = rebuilt;
             next->buildMilliseconds = elapsed.elapsed();
             next->vertices = 0;
             for (const auto &c : next->chunks)
@@ -334,10 +398,15 @@ void Editor::startMesh() {
         }));
     emit changed();
 }
-void Editor::exportWorld(const QUrl &parent, const QString &name) {
+void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {
     if (exportBusy() || assetBusy())
         return;
     endStroke();
+    if (selectedArea && !m_selection.isValid()) {
+        emit failure("请先创建选区");
+        return;
+    }
+    const QRect area = selectedArea ? m_selection : QRect{};
     const QString clean = name.trimmed();
     static const QRegularExpression valid("^[A-Za-z0-9_-]{1,64}$");
     if (!parent.isLocalFile() || !QDir(parent.toLocalFile()).exists() || !valid.match(clean).hasMatch()) {
@@ -365,16 +434,19 @@ void Editor::exportWorld(const QUrl &parent, const QString &name) {
     auto snapshot = m_world;
     const auto path = QDir(parent.toLocalFile()).filePath(clean);
     m_exportActive = true;
-    m_exportWatcher.setFuture(QtConcurrent::run([this, snapshot = std::move(snapshot), path] {
-        return wb::exportMinecraft(snapshot, path, &m_cancelExport, [this](int done, int total) {
-            QMetaObject::invokeMethod(
-                this,
-                [this, done, total] {
-                    m_exportProgress = done * 100 / total;
-                    emit changed();
-                },
-                Qt::QueuedConnection);
-        });
+    m_exportWatcher.setFuture(QtConcurrent::run([this, snapshot = std::move(snapshot), path, area] {
+        return wb::exportMinecraft(
+            snapshot, path, &m_cancelExport,
+            [this](int done, int total) {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, done, total] {
+                        m_exportProgress = done * 100 / total;
+                        emit changed();
+                    },
+                    Qt::QueuedConnection);
+            },
+            area);
     }));
     emit changed();
 }

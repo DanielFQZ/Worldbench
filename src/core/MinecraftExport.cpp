@@ -197,7 +197,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
     n.end();
     return n.b;
 }
-QByteArray level(const World &w, const QString &name) {
+QByteArray level(const World &w, const QString &name, QRect area) {
     Nbt n;
     n.compound("");
     n.compound("Data");
@@ -216,7 +216,7 @@ QByteArray level(const World &w, const QString &name) {
     n.byte("initialized", 1);
     n.byte("Difficulty", 1);
     n.byte("DifficultyLocked", 0);
-    int sx = w.originX + w.size / 2, sz = w.originZ + w.size / 2, spawnY = w.height(sx, sz) + 3;
+    int sx = area.center().x(), sz = area.center().y(), spawnY = w.height(sx, sz) + 3;
     for (int y = World::MaxY - 1; y >= World::MinY; --y)
         if (w.block(sx, y, sz) != Air) {
             spawnY = std::min(World::MaxY - 1, y + 3);
@@ -281,7 +281,7 @@ QByteArray level(const World &w, const QString &name) {
 }
 } // namespace
 ExportResult exportMinecraft(const World &w, const QString &directory, std::atomic_bool *cancelled,
-                             std::function<void(int, int)> progress) {
+                             std::function<void(int, int)> progress, QRect area) {
     ExportResult result;
     result.path = QDir::cleanPath(directory);
     QString temp;
@@ -299,43 +299,50 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
             if (!w.assets || w.assets->version != "1.20.1" || !w.assets->validate(w.palette[b], error))
                 throw std::runtime_error(("动态方块需要对应的 1.20.1 客户端资源：" + error).toStdString());
         }
-        if (w.size < 32 || w.size > 256 || w.size % 16 || w.originX % 16 || w.originZ % 16 ||
-            w.heights.size() != size_t(w.size * w.size))
-            throw std::runtime_error("不支持的 P0 世界尺寸或区块对齐");
+        if (w.width < 32 || w.width > 16384 || w.depth < 32 || w.depth > 16384 || w.originX % 16 ||
+            w.originZ % 16 || w.heights.size() != size_t(w.width) * w.depth)
+            throw std::runtime_error("不支持的世界尺寸或区块对齐");
+        const QRect bounds(w.originX, w.originZ, w.width, w.depth);
+        if (area.isNull())
+            area = bounds;
+        else if (!area.isValid() || !bounds.contains(area))
+            throw std::runtime_error("导出选区越界");
         if (QFile::exists(result.path))
             throw std::runtime_error("目标目录已存在，请使用新的存档名称");
         temp = result.path + ".partial-" + QUuid::createUuid().toString(QUuid::Id128);
         if (!QDir().mkpath(temp + "/region"))
             throw std::runtime_error("无法创建导出目录");
-        std::map<std::pair<int, int>, QByteArray> regions;
-        int total = (w.size / 16) * (w.size / 16);
-        for (int cz = w.originZ / 16; cz < (w.originZ + w.size) / 16; ++cz)
-            for (int cx = w.originX / 16; cx < (w.originX + w.size) / 16; ++cx) {
-                if (cancelled && cancelled->load())
-                    throw std::runtime_error("导出已取消");
-                int rx = floorDiv(cx, 32), rz = floorDiv(cz, 32), lx = cx - rx * 32, lz = cz - rz * 32;
-                auto &region = regions[{rx, rz}];
-                if (region.isEmpty())
-                    region.resize(8192, 0);
-                const QByteArray data = qCompress(chunk(w, cx, cz), 6).mid(4);
-                int sectors = (int(data.size()) + 5 + 4095) / 4096;
-                if (sectors > 255)
-                    throw std::runtime_error("区块超过普通 Region 记录容量");
-                int offset = int(region.size()) / 4096, index = lx + lz * 32;
-                qToBigEndian(uint32_t((offset << 8) | sectors), region.data() + index * 4);
-                qToBigEndian(uint32_t(QDateTime::currentSecsSinceEpoch()), region.data() + 4096 + index * 4);
-                QByteArray record(sectors * 4096, 0);
-                qToBigEndian(uint32_t(data.size() + 1), record.data());
-                record[4] = 2;
-                std::copy(data.begin(), data.end(), record.begin() + 5);
-                region += record;
-                ++result.chunks;
-                if (progress)
-                    progress(result.chunks, total);
+        const int minCX = floorDiv(area.left(), 16), maxCX = floorDiv(area.right(), 16);
+        const int minCZ = floorDiv(area.top(), 16), maxCZ = floorDiv(area.bottom(), 16);
+        const int total = (maxCX - minCX + 1) * (maxCZ - minCZ + 1);
+        for (int rz = floorDiv(minCZ, 32); rz <= floorDiv(maxCZ, 32); ++rz)
+            for (int rx = floorDiv(minCX, 32); rx <= floorDiv(maxCX, 32); ++rx) {
+                QByteArray region(8192, 0);
+                for (int cz = std::max(minCZ, rz * 32); cz <= std::min(maxCZ, rz * 32 + 31); ++cz)
+                    for (int cx = std::max(minCX, rx * 32); cx <= std::min(maxCX, rx * 32 + 31); ++cx) {
+                        if (cancelled && cancelled->load())
+                            throw std::runtime_error("导出已取消");
+                        const QByteArray data = qCompress(chunk(w, cx, cz), 6).mid(4);
+                        const int sectors = (int(data.size()) + 5 + 4095) / 4096;
+                        if (sectors > 255)
+                            throw std::runtime_error("区块超过普通 Region 记录容量");
+                        const int offset = int(region.size()) / 4096,
+                                  index = (cx - rx * 32) + (cz - rz * 32) * 32;
+                        qToBigEndian(uint32_t((offset << 8) | sectors), region.data() + index * 4);
+                        qToBigEndian(uint32_t(QDateTime::currentSecsSinceEpoch()),
+                                     region.data() + 4096 + index * 4);
+                        QByteArray record(sectors * 4096, 0);
+                        qToBigEndian(uint32_t(data.size() + 1), record.data());
+                        record[4] = 2;
+                        std::copy(data.begin(), data.end(), record.begin() + 5);
+                        region += record;
+                        ++result.chunks;
+                        if (progress)
+                            progress(result.chunks, total);
+                    }
+                write(temp + QString("/region/r.%1.%2.mca").arg(rx).arg(rz), region);
             }
-        for (const auto &[r, data] : regions)
-            write(temp + QString("/region/r.%1.%2.mca").arg(r.first).arg(r.second), data);
-        write(temp + "/level.dat", level(w, QFileInfo(result.path).fileName()));
+        write(temp + "/level.dat", level(w, QFileInfo(result.path).fileName(), area));
         if (cancelled && cancelled->load())
             throw std::runtime_error("导出已取消");
         if (!QDir().rename(temp, result.path))

@@ -9,15 +9,19 @@
 #include <QtEndian>
 #include <algorithm>
 #include <climits>
+#include <cmath>
 namespace wb {
 bool saveProject(const QString &path, const World &w, QString &error) {
-    QJsonArray heights, cells;
-    for (int h : w.heights)
-        heights.append(h);
-    std::vector<std::pair<uint32_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
+    QJsonArray heights, heightChanges, cells;
+    if (w.heights.dense)
+        for (int h : *w.heights.dense)
+            heights.append(h);
+    for (auto [i, h] : w.heights.changes())
+        heightChanges.append(QJsonArray{i, h});
+    std::vector<std::pair<uint64_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
     std::sort(ordered.begin(), ordered.end());
     for (auto [k, v] : ordered)
-        cells.append(QJsonArray{int(k), int(v)});
+        cells.append(QJsonArray{double(k), int(v)});
     QJsonArray palette, paths;
     for (const auto &state : w.palette) {
         QJsonObject props;
@@ -27,8 +31,13 @@ bool saveProject(const QString &path, const World &w, QString &error) {
     }
     for (const auto &path : w.resourcePaths)
         paths.append(path);
-    QJsonObject root{{"format", 2},
-                     {"size", w.size},
+    QJsonObject root{{"format", 3},
+                     {"width", w.width},
+                     {"depth", w.depth},
+                     {"terrain", QJsonObject{{"baseHeight", w.heights.baseHeight},
+                                             {"variation", w.heights.variation},
+                                             {"flat", w.heights.flat}}},
+                     {"heightChanges", heightChanges},
                      {"originX", w.originX},
                      {"originZ", w.originZ},
                      {"seed", w.seed},
@@ -89,10 +98,16 @@ bool loadProject(const QString &path, World &world, QString &error) {
     auto integer = [&](const QJsonValue &v, int lo, int hi) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
-    if ((o["format"].toInt() != 1 && o["format"].toInt() != 2) || !integer(o["size"], 32, 256) ||
-        o["size"].toInt() % 16)
-        return fail("首版只支持 32–256、16 对齐的工程尺寸");
-    w.size = o["size"].toInt();
+    const int format = o["format"].toInt();
+    if (!integer(o["format"], 1, 3))
+        return fail("不支持的工程版本");
+    const auto widthValue = o[format == 3 ? "width" : "size"];
+    const auto depthValue = format == 3 ? o["depth"] : widthValue;
+    if (!integer(widthValue, 32, format == 3 ? 16384 : 256) ||
+        !integer(depthValue, 32, format == 3 ? 16384 : 256))
+        return fail("工程长宽越界");
+    w.width = widthValue.toInt();
+    w.depth = depthValue.toInt();
     if (!integer(o["originX"], -1000000, 1000000) || !integer(o["originZ"], -1000000, 1000000) ||
         o["originX"].toInt() % 16 || o["originZ"].toInt() % 16 ||
         !integer(o["seaLevel"], World::MinY, World::MaxY - 1) || !integer(o["seed"], -1000000, 1000000))
@@ -101,15 +116,44 @@ bool loadProject(const QString &path, World &world, QString &error) {
     w.originZ = o["originZ"].toInt();
     w.seed = o["seed"].toInt();
     w.seaLevel = o["seaLevel"].toInt();
-    const auto hs = o["heights"].toArray();
-    if (hs.size() != w.size * w.size)
-        return fail("高度数据数量错误");
-    for (auto h : hs) {
-        if (!integer(h, World::MinY + 1, World::MaxY - 2))
-            return fail("高度越界");
-        w.heights.push_back(int16_t(h.toInt()));
+    WorldOptions options{w.width, w.seed, w.seaLevel, 0, 0, true, w.depth};
+    if (format == 3) {
+        const auto t = o["terrain"].toObject();
+        if (!integer(t["baseHeight"], -63, 318) || !integer(t["variation"], 0, 128) || !t["flat"].isBool())
+            return fail("基础地形参数无效");
+        options.baseHeight = t["baseHeight"].toInt();
+        options.variation = t["variation"].toInt();
+        options.flat = t["flat"].toBool();
     }
-    if (o["format"].toInt() == 2) {
+    w.heights.configure(options, w.originX, w.originZ);
+    if (!o["heights"].isArray())
+        return fail("高度基底数据无效");
+    const auto hs = o["heights"].toArray();
+    if (format < 3 || !hs.isEmpty()) {
+        if (hs.size() != w.width * w.depth)
+            return fail("高度数据数量错误");
+        std::vector<int16_t> values;
+        values.reserve(hs.size());
+        for (auto h : hs) {
+            if (!integer(h, World::MinY + 1, World::MaxY - 2))
+                return fail("高度越界");
+            values.push_back(int16_t(h.toInt()));
+        }
+        w.heights.assign(std::move(values));
+    }
+    if (format == 3) {
+        if (!o["heightChanges"].isArray())
+            return fail("缺少高度差量");
+        std::set<int> seen;
+        for (const auto &v : o["heightChanges"].toArray()) {
+            auto a = v.toArray();
+            if (a.size() != 2 || !integer(a[0], 0, w.width * w.depth - 1) || !integer(a[1], -63, 318) ||
+                !seen.insert(a[0].toInt()).second)
+                return fail("高度差量无效");
+            w.heights.set(a[0].toInt(), a[1].toInt());
+        }
+    }
+    if (format >= 2) {
         const auto states = o["palette"].toArray();
         if (states.size() < BlockCount || states.size() > 65536)
             return fail("方块调色板大小错误");
@@ -150,12 +194,15 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return fail("缺少体素差量");
     for (auto v : o["overrides"].toArray()) {
         auto a = v.toArray();
-        if (a.size() != 2 || !integer(a[0], 0, w.size * w.size * (World::MaxY - World::MinY) - 1) ||
+        if (a.size() != 2 ||
+            (!a[0].isDouble() || !std::isfinite(a[0].toDouble()) || a[0].toDouble() < 0 ||
+             a[0].toDouble() != std::floor(a[0].toDouble()) ||
+             a[0].toDouble() >= double(w.width) * w.depth * (World::MaxY - World::MinY)) ||
             !integer(a[1], 0, int(w.palette.size()) - 1))
             return fail("体素差量无效");
-        if (a[0].toInt() < w.size * w.size)
+        if (a[0].toDouble() < double(w.width) * w.depth)
             return fail("基岩保护层不允许包含体素差量");
-        if (!w.overrides.emplace(uint32_t(a[0].toInt()), Block(a[1].toInt())).second)
+        if (!w.overrides.emplace(uint64_t(a[0].toDouble()), Block(a[1].toInt())).second)
             return fail("重复的体素键");
     }
     world = std::move(w);

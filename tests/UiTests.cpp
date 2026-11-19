@@ -325,7 +325,7 @@ int main(int argc, char **argv) {
             houseImage.loadFromData(QByteArray::fromBase64(screenshot["data"].toString().toLatin1()), "PNG"),
             "decode real MCP screenshot");
         QDir().mkpath("test-output");
-        check(houseImage.save("test-output/mcp-house-0.3.0.png"), "capture MCP house");
+        check(houseImage.save("test-output/mcp-house-0.4.0.png"), "capture MCP house");
         const int caveY = editor.world().height(-20, -20);
         result = call("fill_box", {{"min", QJsonArray{-20, caveY - 4, -20}},
                                    {"max", QJsonArray{-20, caveY, -20}},
@@ -349,6 +349,16 @@ int main(int argc, char **argv) {
         check(!result["isError"].toBool() && editor.world().block(-20, caveY - 2, -20) == wb::Stone &&
                   editor.world().isAir(editor.world().block(-20, caveY - 3, -20)),
               "MCP fill depth preserves deeper cavity");
+        check(editor.createWorld(16384, 42, 24, 0, -60, true, 12289), "MCP large rectangular fixture");
+        result =
+            call("set_blocks", {{"blocks", QJsonArray{QJsonObject{{"position", QJsonArray{8000, 200, 6000}},
+                                                                  {"block", "minecraft:glass"}}}},
+                                {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().block(8000, 200, 6000) == wb::Glass,
+              "real MCP bridge edits distant 64-bit voxel coordinates");
+        result = call("undo", {{"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().block(8000, 200, 6000) == wb::Air,
+              "MCP distant edit undo uses full key");
         editor.setMcpEnabled(false);
         check(!editor.mcpEnabled(), "MCP disabled");
         bridge.closeWriteChannel();
@@ -384,6 +394,63 @@ int main(int argc, char **argv) {
               "redo updates one chunk");
         editor.setTool(1);
         editor.setBrushOption("fillHoles", false);
+        editor.setRadius(9);
+        editor.setBrushOption("decay", .75);
+        editor.setTool(0);
+        editor.setRadius(3);
+        editor.setBrushOption("decay", .25);
+        editor.setBrushOption("shape", 1);
+        editor.setTool(1);
+        check(editor.radius() == 9 && editor.brushOptions()["decay"].toDouble() == .75 &&
+                  editor.brushShape() == 0,
+              "brush settings remain independent between tools");
+        {
+            Editor another;
+            another.setTool(1);
+            check(another.radius() == 9 && another.brushOptions()["decay"].toDouble() == .75,
+                  "per-tool settings persist");
+        }
+        editor.setTool(0);
+        editor.setRadius(3);
+        editor.setBrushOption("shape", 0);
+        v->resetCamera();
+        v->forceActiveFocus();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "stationary brush fixture ready");
+        point = v->mapToScene(QPointF(v->width() * .5, v->height() * .6)).toPoint();
+        QTest::mouseMove(win, point);
+        QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, point);
+        const auto anchored = v->hit();
+        QTest::qWait(550);
+        const auto held = v->hit();
+        QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, point);
+        check(anchored.valid && held.x == anchored.x && held.z == anchored.z && held.y > anchored.y,
+              "stationary held brush raises fixed XZ instead of repicking slope");
+        editor.undo();
+        editor.setRadius(12);
+        editor.setBrushOption("decay", .5);
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "brush preview ready");
+        QTest::mouseMove(win, point + QPoint(1, 0));
+        QTest::qWait(120);
+        check(win->grabWindow().save("test-output/brush-decay-0.4.0.png"), "capture both decay rings");
+        const auto beforeSelection = editor.world().heights;
+        const auto selectionRevision = editor.revision();
+        editor.setTool(6);
+        QTest::qWait(60);
+        auto *selectionPanel = win->findChild<QQuickItem *>("selectionSettings");
+        check(selectionPanel && selectionPanel->isVisible() &&
+                  !win->findChild<QQuickItem *>("brushToolControls")->isVisible(),
+              "selection tool opens dedicated left controls");
+        point = v->mapToScene(QPointF(v->width() * .40, v->height() * .55)).toPoint();
+        QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseMove(win, point + QPoint(100, 60), 30);
+        QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, point + QPoint(100, 60));
+        check(editor.selectionRect().width() > 1 && editor.selectionRect().height() > 1 &&
+                  editor.world().heights == beforeSelection && editor.revision() == selectionRevision,
+              "actual mouse drag selects rectangle without changing terrain");
+        QTest::qWait(120);
+        check(win->grabWindow().save("test-output/selection-0.4.0.png"), "capture selection boundary");
+        editor.clearSelection();
+        editor.setTool(1);
         QTest::qWait(30);
         auto *depthControls = win->findChild<QQuickItem *>("fillDepthControls");
         check(depthControls && !depthControls->isVisible(), "fill depth hidden unless enabled");
@@ -428,6 +495,12 @@ int main(int argc, char **argv) {
               "resource progress and live logs");
         check(editor.defaultResourceSources() == QStringList{resource},
               "successful manual import becomes default");
+        check(QTest::qWaitFor(
+                  [&] {
+                      return !win->findChild<QObject *>("editorSettingsDialog")->property("visible").toBool();
+                  },
+                  3000),
+              "automatic resource progress window closes after success and mesh completion");
         const auto cached = editor.world().assets;
         editor.newWorld();
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
@@ -491,6 +564,62 @@ int main(int argc, char **argv) {
         editor.removeResource(0);
         check(!editor.world().assets && editor.modified(), "removing resource marks project modified");
         check(editor.defaultResourceSources().isEmpty(), "removing base clears remembered defaults");
+        check(QTest::qWaitFor([&] { return !win->property("autoCloseResources").toBool(); }, 3000),
+              "resource auto-close drains after rapid repeated loads");
+        auto *manualSettings = win->findChild<QObject *>("editorSettingsDialog");
+        win->setProperty("autoCloseResources", false);
+        QMetaObject::invokeMethod(manualSettings, "open");
+        QTest::qWait(500);
+        check(manualSettings->property("visible").toBool(), "manually opened diagnostics stay open");
+        QMetaObject::invokeMethod(manualSettings, "close");
+        QElapsedTimer largeTimer;
+        largeTimer.start();
+        check(editor.createWorld(16384, 42, 24, 12, -60, false, 12289), "large rectangular creation");
+        const auto creationMs = largeTimer.elapsed();
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
+                  editor.scene()->chunks.size() <= 81,
+              "large preview stays within 81 exact chunks");
+        const auto firstLargePreview = largeTimer.elapsed();
+        v->jumpTo(8000, 6000);
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
+                  editor.previewContains(8000, 6000),
+              "large map jump loads distant edit region");
+        editor.setSelection(7998, 5998, 8002, 6002);
+        editor.setSelectionOnly(true);
+        editor.setTool(0);
+        editor.setRadius(4);
+        const int beforeInside = editor.world().height(8000, 6000),
+                  beforeOutside = editor.world().height(8003, 6000);
+        editor.beginStroke();
+        editor.stamp({true,
+                      8000,
+                      beforeInside,
+                      6000,
+                      {8000.5f, float(beforeInside + 1), 6000.5f},
+                      {0, 1, 0},
+                      wb::Grass},
+                     false);
+        editor.endStroke();
+        check(editor.world().height(8000, 6000) > beforeInside &&
+                  editor.world().height(8003, 6000) == beforeOutside,
+              "GUI brush respects active selection at distant coordinates");
+        QSignalSpy selectedExport(&editor, &Editor::exported);
+        editor.exportWorld(QUrl::fromLocalFile(tmp.path()), "local-test", true);
+        check(QTest::qWaitFor([&] { return !editor.exportBusy(); }, 30000) && selectedExport.size() == 1 &&
+                  QFile::exists(tmp.filePath("local-test/level.dat")),
+              "editor local export completes without baking full 16K world");
+        check(editor.save(QUrl::fromLocalFile(tmp.filePath("large.wbench"))) &&
+                  editor.open(QUrl::fromLocalFile(tmp.filePath("large.wbench"))) &&
+                  editor.world().width == 16384 && editor.world().depth == 12289 &&
+                  editor.world().height(8000, 6000) > beforeInside,
+              "large edited project save and reopen");
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000), "reopened large preview settles");
+        check(!editor.selectionRect().isValid() && !editor.selectionOnly(), "open clears session selection");
+        std::cout << "Large 16384x12289 creation " << creationMs << " ms / first local preview "
+                  << firstLargePreview << " ms / " << editor.scene()->chunks.size() << " chunks\n";
+        QTest::qWait(100);
+        check(win->grabWindow().save("test-output/large-0.4.0.png"), "capture large local preview");
+        editor.createWorld(128, 42, 24, 0, -60, true);
         if (app.arguments().size() > 1) {
             check(editor.open(QUrl::fromLocalFile(app.arguments()[1])), "open real resource preview fixture");
             check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 120000),
@@ -505,25 +634,25 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "final layout mesh settles");
         QTest::qWait(120);
         QDir().mkpath("test-output");
-        check(win->grabWindow().save("test-output/ui-0.3.0.png"), "capture brush and scene layout");
+        check(win->grabWindow().save("test-output/ui-0.4.0.png"), "capture brush and scene layout");
         auto *settings = win->findChild<QObject *>("editorSettingsDialog");
         auto *settingsContent = win->findChild<QObject *>("settingsContent");
         check(settings && settingsContent, "settings pages loaded outside scene outliner");
         settingsContent->setProperty("page", "resources");
         check(QMetaObject::invokeMethod(settings, "open"), "resource settings opens");
         QTest::qWait(80);
-        check(win->grabWindow().save("test-output/resources-0.3.0.png"), "capture resource management");
+        check(win->grabWindow().save("test-output/resources-0.4.0.png"), "capture resource management");
         QMetaObject::invokeMethod(settings, "close");
         auto *fileMenu = win->findChild<QObject *>("fileMenu");
         check(fileMenu && QMetaObject::invokeMethod(fileMenu, "open"), "custom file menu opens");
         fileMenu->setProperty("currentIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/menu-hover-0.3.0.png"), "capture menu highlight contrast");
+        check(win->grabWindow().save("test-output/menu-hover-0.4.0.png"), "capture menu highlight contrast");
         QMetaObject::invokeMethod(fileMenu, "close");
         auto *newWorldDialog = win->findChild<QObject *>("newWorldDialog");
         check(newWorldDialog && QMetaObject::invokeMethod(newWorldDialog, "open"), "creation dialog opens");
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/new-world-0.3.0.png"), "capture creation settings");
+        check(win->grabWindow().save("test-output/new-world-0.4.0.png"), "capture creation settings");
         QMetaObject::invokeMethod(newWorldDialog, "close");
         editor.setTool(1);
         editor.setBrushOption("fillHoles", true);
@@ -533,7 +662,7 @@ int main(int argc, char **argv) {
         check(popup && QMetaObject::invokeMethod(popup, "open"), "flatten options dropdown opens");
         selector->setProperty("highlightedIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/flatten-controls-0.3.0.png"), "capture flatten controls");
+        check(win->grabWindow().save("test-output/flatten-controls-0.4.0.png"), "capture flatten controls");
         QMetaObject::invokeMethod(popup, "close");
         std::cout << "PASS " << checks << " UI integration checks; mesh settle " << elapsed.elapsed()
                   << " ms\n";

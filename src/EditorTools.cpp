@@ -45,7 +45,9 @@ QVariantList Editor::sceneNodes() const {
 }
 QVariantMap Editor::layerDetails() const {
     return {{"name", "基础地形层1"},
-            {"size", m_world.size},
+            {"size", m_world.width},
+            {"width", m_world.width},
+            {"depth", m_world.depth},
             {"originX", m_world.originX},
             {"originZ", m_world.originZ},
             {"minY", wb::World::MinY},
@@ -110,7 +112,8 @@ QVariantList Editor::blockCatalog(const QString &filter) const {
 }
 QVariantMap Editor::brushOptions() const {
     const auto &o = m_brushOptions;
-    return {{"shape", o.shape},
+    return {{"decay", o.decay},
+            {"shape", o.shape},
             {"falloff", o.falloff},
             {"flattenMode", o.flattenMode},
             {"fillHoles", o.fillHoles},
@@ -126,7 +129,9 @@ QVariantMap Editor::brushOptions() const {
 void Editor::setBrushOption(const QString &key, const QVariant &value) {
     endStroke();
     auto &o = m_brushOptions;
-    if (key == "shape")
+    if (key == "decay")
+        o.decay = std::clamp(value.toDouble(), 0.0, 1.0);
+    else if (key == "shape")
         o.shape = std::clamp(value.toInt(), 0, 1);
     else if (key == "falloff")
         o.falloff = std::clamp(value.toInt(), 0, 2);
@@ -154,6 +159,7 @@ void Editor::setBrushOption(const QString &key, const QVariant &value) {
         o.materialFilter = std::clamp(value.toInt(), 0, 2);
     else if (key == "filterBlock")
         o.filterBlock = value.toString();
+    saveBrushProfile();
     emit changed();
 }
 QStringList Editor::defaultResourceSources() const {
@@ -333,10 +339,12 @@ void Editor::copyMcpConfiguration() {
 }
 QJsonObject Editor::worldInfo() const {
     return {{"revision", double(m_revision)},
-            {"size", m_world.size},
+            {"size", m_world.width},
+            {"width", m_world.width},
+            {"depth", m_world.depth},
             {"min", QJsonArray{m_world.originX, wb::World::MinY, m_world.originZ}},
-            {"max", QJsonArray{m_world.originX + m_world.size - 1, wb::World::MaxY - 1,
-                               m_world.originZ + m_world.size - 1}},
+            {"max", QJsonArray{m_world.originX + m_world.width - 1, wb::World::MaxY - 1,
+                               m_world.originZ + m_world.depth - 1}},
             {"protected_y", wb::World::MinY},
             {"modified", modified()},
             {"resource_version", m_world.resourceVersion},
@@ -359,9 +367,9 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         auto a = v.toArray();
         if (a.size() != 3)
             throw std::runtime_error("坐标必须为 [x,y,z]");
-        std::array<int, 3> p{integer(a[0], m_world.originX, m_world.originX + m_world.size - 1),
+        std::array<int, 3> p{integer(a[0], m_world.originX, m_world.originX + m_world.width - 1),
                              integer(a[1], wb::World::MinY + (writable ? 1 : 0), wb::World::MaxY - 1),
-                             integer(a[2], m_world.originZ, m_world.originZ + m_world.size - 1)};
+                             integer(a[2], m_world.originZ, m_world.originZ + m_world.depth - 1)};
         return p;
     };
     if (name == "world_info")
@@ -476,6 +484,12 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         }
         if (args.contains("fill_depth"))
             options.fillDepth = integer(args["fill_depth"], 1, 383);
+        if (args.contains("decay")) {
+            if (!args["decay"].isDouble() || !std::isfinite(args["decay"].toDouble()) ||
+                args["decay"].toDouble() < 0 || args["decay"].toDouble() > 1)
+                throw std::runtime_error("decay 必须为 0…1");
+            options.decay = args["decay"].toDouble();
+        }
         if (args.contains("shape"))
             options.shape = integer(args["shape"], 0, 1);
         if (args.contains("falloff"))
@@ -544,7 +558,7 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         const auto entries = args["blocks"].toArray();
         if (entries.isEmpty() || entries.size() > 65536)
             throw std::runtime_error("blocks 必须包含 1–65536 项");
-        QSet<uint32_t> seen;
+        QSet<uint64_t> seen;
         for (const auto &entry : entries) {
             auto o = entry.toObject();
             auto p = coord(o["position"], true);
@@ -600,4 +614,78 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     auto result = worldInfo();
     result["changed_cells"] = count;
     return result;
+}
+
+void Editor::saveBrushProfile() {
+    if (m_tool < 0 || m_tool > 5)
+        return;
+    QSettings settings;
+    settings.beginGroup(QString("brush/%1").arg(m_tool));
+    settings.setValue("radius", m_radius);
+    settings.setValue("strength", m_strength);
+    settings.setValue("options", brushOptions());
+    const auto &state = m_world.palette[m_material];
+    settings.setValue("block", state.name);
+    QVariantMap properties;
+    for (auto it = state.properties.begin(); it != state.properties.end(); ++it)
+        properties[it.key()] = it.value();
+    settings.setValue("properties", properties);
+}
+void Editor::restoreBrushProfile() {
+    if (m_tool < 0 || m_tool > 5)
+        return;
+    QSettings settings;
+    settings.beginGroup(QString("brush/%1").arg(m_tool));
+    m_radius = std::clamp(settings.value("radius", 4).toInt(), 1, 16);
+    m_strength = std::clamp(settings.value("strength", 4).toInt(), 1, 4);
+    const auto saved = settings.value("options").toMap();
+    auto bounded = [&](const char *key, int fallback, int lo, int hi) {
+        return std::clamp(saved.value(key, fallback).toInt(), lo, hi);
+    };
+    auto &o = m_brushOptions;
+    o = wb::BrushOptions{};
+    o.decay = std::clamp(saved.value("decay", .5).toDouble(), 0.0, 1.0);
+    o.shape = bounded("shape", 0, 0, 1);
+    o.falloff = bounded("falloff", 0, 0, 2);
+    o.flattenMode = bounded("flattenMode", 0, 0, 2);
+    o.fillHoles = saved.value("fillHoles", false).toBool();
+    o.fillDepth = bounded("fillDepth", 8, 1, 383);
+    o.filterEnabled = saved.value("filterEnabled", false).toBool();
+    o.materialFilter = bounded("materialFilter", 0, 0, 2);
+    o.minHeight = bounded("minHeight", -63, -63, 318);
+    o.maxHeight = std::max(o.minHeight, bounded("maxHeight", 318, -63, 318));
+    o.minSlope = bounded("minSlope", 0, 0, 90);
+    o.maxSlope = std::max(o.minSlope, bounded("maxSlope", 90, 0, 90));
+    o.filterBlock = saved.value("filterBlock", "minecraft:stone").toString();
+    wb::BlockState state{settings.value("block", "minecraft:stone").toString(), {}};
+    const auto properties = settings.value("properties").toMap();
+    for (auto it = properties.begin(); it != properties.end(); ++it)
+        state.properties[it.key()] = it.value().toString();
+    m_material = wb::Stone;
+    for (size_t i = 0; i < m_world.palette.size(); ++i)
+        if (m_world.palette[i] == state) {
+            m_material = int(i);
+            return;
+        }
+    QString error;
+    if (m_world.assets && m_world.assets->validate(state, error))
+        m_material = int(m_world.intern(state));
+}
+QVariantMap Editor::selection() const {
+    return {{"valid", m_selection.isValid()}, {"minX", m_selection.left()},   {"minZ", m_selection.top()},
+            {"maxX", m_selection.right()},    {"maxZ", m_selection.bottom()}, {"width", m_selection.width()},
+            {"depth", m_selection.height()}};
+}
+void Editor::setSelection(int x0, int z0, int x1, int z1) {
+    endStroke();
+    m_selection =
+        QRect(QPoint(std::min(x0, x1), std::min(z0, z1)), QPoint(std::max(x0, x1), std::max(z0, z1)))
+            .intersected(QRect(m_world.originX, m_world.originZ, m_world.width, m_world.depth));
+    emit changed();
+}
+void Editor::clearSelection() {
+    endStroke();
+    m_selection = {};
+    m_selectionOnly = false;
+    emit changed();
 }

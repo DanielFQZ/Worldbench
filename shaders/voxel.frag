@@ -5,7 +5,7 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=1) uniform sampler2D atlas;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;} u;
 void main(){
     vec4 sampled=texture(atlas,textureUV)*baseColor;
     if(sampled.a<0.05)discard;
@@ -18,9 +18,15 @@ void main(){
     if(u.params.x>0.5){
         vec3 delta=abs(worldPos-u.brush.xyz);
         float d=u.params.y<1.5?(u.params.z>0.5?max(delta.x,delta.z):length(delta.xz)):(u.params.z>0.5?max(delta.x,max(delta.y,delta.z)):length(delta));
-        float band=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w));
+        float band=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w*u.params.w));
+        float outer=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w));
+        col=mix(col,vec3(0.62,0.87,0.91),outer*0.45);
         col=mix(col,vec3(0.30,0.88,0.98),band*0.95);
         if(d<u.brush.w)col=mix(col,vec3(0.25,0.75,0.85),0.10);
+    }
+    if(u.flags.x>0.5 && worldPos.x>=u.selection.x-.1 && worldPos.x<=u.selection.z+.1 && worldPos.z>=u.selection.y-.1 && worldPos.z<=u.selection.w+.1){
+        float edge=min(min(abs(worldPos.x-u.selection.x),abs(worldPos.x-u.selection.z)),min(abs(worldPos.z-u.selection.y),abs(worldPos.z-u.selection.w)));
+        col=mix(col,vec3(1.0,0.68,0.2),(1.0-smoothstep(.05,.2,edge))*.85);
     }
     float fog=clamp((distance(worldPos,u.camera.xyz)-150.0)/1200.0,0.0,0.5);
     fragColor=vec4(mix(col,vec3(0.125,0.173,0.231),fog),sampled.a);

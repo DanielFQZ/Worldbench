@@ -13,6 +13,7 @@ struct ChunkMesh {
 using MeshPtr = std::shared_ptr<const ChunkMesh>;
 struct MeshScene {
     std::vector<MeshPtr> chunks;
+    std::vector<int> chunkIds;
     uint64_t revision = 0;
     size_t vertices = 0;
     int updatedChunks = 0;

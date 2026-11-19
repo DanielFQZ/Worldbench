@@ -24,8 +24,9 @@ static void check(bool value, const char *message) {
         throw std::runtime_error(message);
 }
 static bool equal(const wb::World &a, const wb::World &b) {
-    return a.size == b.size && a.originX == b.originX && a.originZ == b.originZ && a.seed == b.seed &&
-           a.seaLevel == b.seaLevel && a.heights == b.heights && a.overrides == b.overrides;
+    return a.width == b.width && a.depth == b.depth && a.originX == b.originX && a.originZ == b.originZ &&
+           a.seed == b.seed && a.seaLevel == b.seaLevel && a.heights == b.heights &&
+           a.overrides == b.overrides;
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
@@ -36,8 +37,7 @@ int main(int argc, char **argv) {
         check(floorDiv(-1, 16) == -1 && floorDiv(-16, 16) == -1 && floorDiv(-17, 16) == -2,
               "negative chunk coordinates");
         auto flat = World::create(WorldOptions{32, 17, -60, 10, 12, true});
-        check(flat.overrides.empty() &&
-                  std::all_of(flat.heights.begin(), flat.heights.end(), [](int h) { return h == 10; }),
+        check(flat.overrides.empty() && flat.height(0, 0) == 10 && flat.height(-16, -16) == 10,
               "configured flat world without sample structures");
         auto hills = World::create(WorldOptions{64, 19, 8, 30, 14, false});
         check(hills.heights == World::create(WorldOptions{64, 19, 8, 30, 14, false}).heights,
@@ -46,11 +46,90 @@ int main(int argc, char **argv) {
               "seed changes hills");
         bool rejected = false;
         try {
-            World::create(WorldOptions{33});
+            World::create(WorldOptions{31});
         } catch (const std::invalid_argument &) {
             rejected = true;
         }
         check(rejected, "invalid world configuration rejected");
+        auto rectangle = World::create(WorldOptions{35, 42, -60, 24, 12, false, 51});
+        check(rectangle.width == 35 && rectangle.depth == 51 && rectangle.chunksX() == 3 &&
+                  rectangle.chunksZ() == 4,
+              "non-square non-chunk-aligned dimensions");
+        check(rectangle.contains(rectangle.originX + 34, 0, rectangle.originZ + 50) &&
+                  !rectangle.contains(rectangle.originX + 35, 0, rectangle.originZ + 50),
+              "rectangular bounds");
+        auto large = World::create(WorldOptions{16384, 42, -60, 24, 12, false, 12289});
+        check(!large.heights.dense && large.heights.changes().empty(),
+              "large creation is procedural and sparse");
+        auto snapshot = large;
+        const int farX = large.originX + 16383, farZ = large.originZ + 12288;
+        large.heights.set(large.column(farX, farZ), 80);
+        large.setBlock(farX, 200, farZ, Glass);
+        const auto farKey = large.key(farX, 200, farZ);
+        int decodedX, decodedY, decodedZ;
+        large.decode(farKey, decodedX, decodedY, decodedZ);
+        check(farKey > UINT32_MAX && decodedX == farX && decodedY == 200 && decodedZ == farZ,
+              "64-bit distant voxel key");
+        check(snapshot.height(farX, farZ) != 80 && snapshot.block(farX, 200, farZ) == Air,
+              "snapshot isolates height and cell edits");
+        QString bigError;
+        World bigLoaded;
+        check(saveProject(tmp.filePath("large.wbench"), large, bigError) &&
+                  QFileInfo(tmp.filePath("large.wbench")).size() < 10000 &&
+                  loadProject(tmp.filePath("large.wbench"), bigLoaded, bigError) && equal(large, bigLoaded),
+              "sparse rectangular large project roundtrip");
+        {
+            QFile saved(tmp.filePath("large.wbench"));
+            check(saved.open(QIODevice::ReadOnly), "open v3 validation fixture");
+            const auto valid = QJsonDocument::fromJson(qUncompress(saved.readAll().mid(40))).object();
+            auto rejects = [&](QJsonObject invalid) {
+                const auto json = QJsonDocument(invalid).toJson(QJsonDocument::Compact);
+                QFile file(tmp.filePath("invalid-v3.wbench"));
+                check(file.open(QIODevice::WriteOnly), "write invalid v3 fixture");
+                file.write(QByteArray("WBENCH01", 8) +
+                           QCryptographicHash::hash(json, QCryptographicHash::Sha256) + qCompress(json));
+                file.close();
+                auto preserved = bigLoaded;
+                check(!loadProject(file.fileName(), bigLoaded, bigError) && equal(preserved, bigLoaded),
+                      "invalid v3 rejected without mutating current world");
+            };
+            auto invalid = valid;
+            invalid["heightChanges"] = QJsonArray{QJsonArray{0, 30}, QJsonArray{0, 31}};
+            rejects(invalid);
+            invalid = valid;
+            invalid["overrides"] = QJsonArray{QJsonArray{double(farKey) + .5, int(Glass)}};
+            rejects(invalid);
+            invalid = valid;
+            invalid["heights"] = "invalid";
+            rejects(invalid);
+            invalid = valid;
+            invalid["terrain"] = QJsonObject{{"baseHeight", 400}, {"variation", 12}, {"flat", false}};
+            rejects(invalid);
+        }
+        auto farMesh = buildChunkMesh(bigLoaded, floorDiv(farX, 16), floorDiv(farZ, 16), 1);
+        check(!farMesh->opaque.empty() && !farMesh->transparent.empty(),
+              "partial edge chunk and far glass rendered");
+        auto decayed = World::create(WorldOptions{32, 0, -60, 10, 0, true});
+        BrushOptions decay;
+        decay.decay = 1;
+        decay.falloff = 0;
+        Stroke fading(decayed);
+        Hit decayHit{true, 0, 10, 0, {.5f, 11, .5f}, {0, 1, 0}, Grass};
+        for (int n = 0; n < 4; ++n)
+            fading.stamp(decayHit, 0, 4, 1, Stone, false, decay);
+        check(decayed.height(0, 0) == 14 && decayed.height(3, 0) == 11 && decayed.height(4, 0) == 10,
+              "fractional decay accumulates and outer boundary stays untouched");
+        auto selected = flat;
+        BrushOptions mask;
+        mask.selectionEnabled = true;
+        mask.selectionMinX = 0;
+        mask.selectionMaxX = 1;
+        mask.selectionMinZ = 0;
+        mask.selectionMaxZ = 1;
+        Stroke masked(selected);
+        masked.stamp(decayHit, 0, 4, 4, Stone, false, mask);
+        check(selected.height(0, 0) > 10 && selected.height(-1, 0) == 10 && selected.height(2, 0) == 10,
+              "selection restricts edits");
         auto cave = flat;
         for (int y = 4; y <= 10; ++y)
             cave.setBlock(1, y, 0, Air);
@@ -121,14 +200,16 @@ int main(int argc, char **argv) {
         squareOptions.shape = 1;
         squareOptions.falloff = 1;
         Stroke circular(circle), rectangular(square);
-        circular.stamp(plane, 0, 2, 4, Stone, false);
+        BrushOptions linear;
+        linear.decay = 1;
+        circular.stamp(plane, 0, 2, 4, Stone, false, linear);
         rectangular.stamp(plane, 0, 2, 4, Stone, false, squareOptions);
         check(circle.height(2, 2) == 10 && square.height(2, 2) == 14,
               "round and square footprints differ at corners");
         check(circle.height(2, 0) < circle.height(0, 0) && square.height(2, 0) == square.height(0, 0),
               "linear versus constant strength");
         auto smooth = flat;
-        smooth.heights[smooth.column(0, 0)] = 20;
+        smooth.heights.set(smooth.column(0, 0), 20);
         Stroke smoothing(smooth);
         smoothing.stamp(plane, 5, 2, 4, Stone, false, constant);
         check(smooth.height(0, 0) == 16 && smooth.height(-1, 0) == smooth.height(1, 0),
@@ -177,7 +258,7 @@ int main(int argc, char **argv) {
         auto w = World::create(32);
         w.overrides.clear();
         w.seaLevel = -60;
-        std::fill(w.heights.begin(), w.heights.end(), 8);
+        w.heights.fill(8);
         for (int x : {-16, -1, 0, 15})
             for (int z : {-16, 0, 15})
                 for (int y : {-64, -1, 319}) {
@@ -234,7 +315,7 @@ int main(int argc, char **argv) {
         check(equal(w, before), "paint undo");
         w.setBlock(0, -64, 0, Air);
         check(w.block(0, -64, 0) == Bedrock, "bedrock protected");
-        w.heights[w.column(5, 5)] = 12;
+        w.heights.set(w.column(5, 5), 12);
         h = {true, 5, 12, 5, {5.5f, 13, 5.5f}, {0, 1, 0}, Grass};
         Stroke flatten(w);
         flatten.stamp(h, 1, 3, 4, Stone, false);
@@ -259,6 +340,11 @@ int main(int argc, char **argv) {
             auto bytes = current.readAll();
             auto root = QJsonDocument::fromJson(qUncompress(bytes.mid(40))).object();
             root["format"] = 1;
+            root["size"] = w.width;
+            QJsonArray legacyHeights;
+            for (int i = 0; i < int(w.heights.size()); ++i)
+                legacyHeights.append(w.heights[i]);
+            root["heights"] = legacyHeights;
             root.remove("palette");
             root.remove("resources");
             root.remove("resourceVersion");
@@ -284,7 +370,7 @@ int main(int argc, char **argv) {
         auto fixture = World::create(32);
         fixture.overrides.clear();
         fixture.seaLevel = 4;
-        std::fill(fixture.heights.begin(), fixture.heights.end(), 2);
+        fixture.heights.fill(2);
         fixture.setBlock(-1, 9, -1, Slab);
         fixture.setBlock(0, 10, 0, Glass);
         fixture.setBlock(1, 11, 1, Planks);
@@ -301,6 +387,45 @@ int main(int argc, char **argv) {
               "cancel cleans partial output");
         check(QDir(base).entryList({"*.partial-*"}, QDir::Dirs).isEmpty(),
               "no partial directories after cancellation");
+        auto regionResult =
+            exportMinecraft(large, base + "/selected", nullptr, {}, QRect(farX - 31, farZ - 31, 32, 32));
+        check(regionResult.ok && regionResult.chunks == 6,
+              "large world local export expands partial area to chunks");
+        auto rectResult = exportMinecraft(rectangle, base + "/rectangle");
+        check(rectResult.ok && rectResult.chunks == 12, "rectangular partial edge export");
+        auto comparison = [&](const World &source, const QString &name, QRect area) {
+            QJsonArray chunks, ids;
+            for (int i = 0; i < BlockCount; ++i)
+                ids.append(info(Block(i)).minecraft);
+            for (int cz = floorDiv(area.top(), 16); cz <= floorDiv(area.bottom(), 16); ++cz)
+                for (int cx = floorDiv(area.left(), 16); cx <= floorDiv(area.right(), 16); ++cx) {
+                    QByteArray values;
+                    for (int y = World::MinY; y < World::MaxY; ++y)
+                        for (int z = cz * 16; z < cz * 16 + 16; ++z)
+                            for (int x = cx * 16; x < cx * 16 + 16; ++x)
+                                values.append(char(source.block(x, y, z)));
+                    const auto fileName = QString("expected-%1-%2.bin").arg(cx).arg(cz);
+                    QFile bytes(base + "/" + name + "/" + fileName);
+                    check(bytes.open(QIODevice::WriteOnly) && bytes.write(values) == values.size(),
+                          "rectangular export source blocks");
+                    chunks.append(QJsonObject{{"x", cx}, {"z", cz}, {"file", fileName}});
+                }
+            QFile manifest(base + "/" + name + "/expected.json");
+            check(manifest.open(QIODevice::WriteOnly), "rectangular export manifest");
+            manifest.write(
+                QJsonDocument(
+                    QJsonObject{{"chunks", chunks},
+                                {"ids", ids},
+                                {"area", QJsonArray{area.left(), area.top(), area.right(), area.bottom()}},
+                                {"spawn", QJsonArray{area.center().x(), area.center().y()}},
+                                {"bounds",
+                                 QJsonArray{source.originX, source.originZ, source.originX + source.width - 1,
+                                            source.originZ + source.depth - 1}}})
+                    .toJson());
+        };
+        comparison(large, "selected", QRect(farX - 31, farZ - 31, 32, 32));
+        comparison(rectangle, "rectangle",
+                   QRect(rectangle.originX, rectangle.originZ, rectangle.width, rectangle.depth));
         QByteArray expected;
         for (int y = World::MinY; y < World::MaxY; ++y)
             for (int z = -16; z < 16; ++z)

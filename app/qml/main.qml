@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.3.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.4.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -18,6 +18,7 @@ ApplicationWindow {
     palette.highlight: "#43a9bf"; palette.highlightedText: "#101b24"
     property string pendingAction: ""
     property bool allowClose: false
+    property bool autoCloseResources:false
     function requestAction(action) {
         if (editor.exportBusy || editor.assetBusy) { errorBox.text = "请等待导出完成，或先取消导出。"; errorBox.open(); return }
         pendingAction = action
@@ -80,13 +81,15 @@ ApplicationWindow {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
             Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
+            Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
+            Action { text: "矩形选区"; onTriggered: editor.tool=6 }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
         }
         WorkbenchMenu {
             title: "资源"
             Action { text: "载入客户端 JAR / 基础 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.chooseResources(false) }
             Action { text: "叠加资源包 ZIP…"; enabled: !editor.assetBusy && !editor.exportBusy; onTriggered: win.chooseResources(true) }
-            Action { text: "管理资源来源"; onTriggered: { settingsContent.page = "resources"; settingsDialog.open() } }
+            Action { text: "管理资源来源"; onTriggered: { win.autoCloseResources=false; settingsContent.page = "resources"; settingsDialog.open() } }
         }
         WorkbenchMenu {
             title: "自动化"
@@ -95,7 +98,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.3.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.4.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     RowLayout {
@@ -108,7 +111,7 @@ ApplicationWindow {
             background: Rectangle { color: "#23262d"; border.color: "#343b46" }
             ScrollView {
                 id: brushScroll; anchors.fill: parent; clip: true; contentWidth: availableWidth
-                ToolPanel { width: brushScroll.availableWidth }
+                Column{width:brushScroll.availableWidth;ToolPanel{width:parent.width;visible:editor.tool<=5} SelectionPanel{width:parent.width;visible:editor.tool===6}}
             }
         }
         KDDW.DockingArea {
@@ -122,6 +125,16 @@ ApplicationWindow {
                 addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(310, 0))
             }
         }
+    }
+    Timer{id:resourceCloseTimer;interval:350;onTriggered:{if(!win.autoCloseResources)return;if(editor.assetBusy||editor.meshBusy){restart();return}settingsDialog.close();win.autoCloseResources=false}}
+    Dialog {
+        id:jumpDialog;title:"跳转至坐标";modal:true;anchors.centerIn:parent;width:440;standardButtons:Dialog.Ok|Dialog.Cancel
+        contentItem:ColumnLayout{
+            Label{text:"移动到地图内的指定位置，自动加载附近区块。";wrapMode:Text.WordWrap;Layout.fillWidth:true}
+            RowLayout{Label{text:"X"} SpinBox{id:jumpX;from:editor.layerDetails.originX;to:from+editor.layerDetails.width-1;editable:true;Layout.fillWidth:true}}
+            RowLayout{Label{text:"Z"} SpinBox{id:jumpZ;from:editor.layerDetails.originZ;to:from+editor.layerDetails.depth-1;editable:true;Layout.fillWidth:true}}
+        }
+        onAccepted:if(editor.cameraController)editor.cameraController.jumpTo(jumpX.value,jumpZ.value)
     }
     FileDialog {
         id: resourceDialog; property bool overlay: false
@@ -207,16 +220,19 @@ ApplicationWindow {
                 TextField { id: exportParent; Layout.fillWidth: true; readOnly: true; placeholderText: "选择已有目录…" }
                 Button { text: "浏览"; onClicked: { exportFolder.currentFolder=editor.dialogFolder("exportParent"); exportFolder.open() } }
             }
+            CheckBox{id:exportSelection;text:"仅导出当前选区（扩展到完整区块）";enabled:editor.selection.valid;checked:editor.selection.valid}
+            Label{visible:editor.layerDetails.width>256||editor.layerDetails.depth>256;text:"大地图建议先导出小选区。全图烘焙可能耗时很长，可取消。";color:"#d5ba82";Layout.fillWidth:true;wrapMode:Text.WordWrap}
             Label { text: "新存档名称"; color: "#96a8bc" }
             TextField { id: exportName; text: "Worldbench-001"; Layout.fillWidth: true; selectByMouse: true; maximumLength: 64 }
             Label { text: "使用字母、数字、短横线或下划线。已存在的目录不会被覆盖。\nP0：地形范围外为虚空；光照由游戏重新计算。\n不含实体/方块实体、其他版本或自定义高度。动态方块需 1.20.1 JAR。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12; color: "#9aaabe" }
         }
-        onAccepted: editor.exportWorld(exportParent.text, exportName.text)
+        onAccepted: editor.exportWorld(exportParent.text, exportName.text,exportSelection.checked&&editor.selection.valid)
     }
     Connections {
         target: editor
         function onResourceSetupRequested() { resourceSetup.open() }
-        function onResourceLoadStarted() { settingsContent.page="resources"; settingsDialog.open() }
+        function onResourceLoadStarted() { win.autoCloseResources=true; settingsContent.page="resources"; settingsDialog.open() }
+        function onResourceLoadFinished(success) { if(success) resourceCloseTimer.restart(); else win.autoCloseResources=false }
         function onFailure(message) { errorBox.text = message; errorBox.open() }
         function onExported(path) { errorBox.text = "导出完成：\n" + path + "\n\n请在 Minecraft Java 1.20.1 中测试。"; errorBox.open() }
     }

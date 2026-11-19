@@ -64,19 +64,21 @@ World World::create(int n, int randomSeed) {
     if (n < 32 || n > 256 || n % 32)
         throw std::invalid_argument("P0 world creation requires size 32..256, aligned to 32");
     World w;
-    w.size = n;
+    w.width = w.depth = n;
     w.originX = w.originZ = -n / 2;
     w.seed = randomSeed;
-    w.heights.resize(n * n);
+    w.heights.configure(WorldOptions{n, randomSeed}, w.originX, w.originZ);
+    std::vector<int16_t> legacy(n * n);
     const double phase = (randomSeed % 997) * .009;
     for (int z = 0; z < n; ++z)
         for (int x = 0; x < n; ++x) {
             const double wx = x + w.originX, wz = z + w.originZ;
             const double ridge = 17 * std::exp(-((wx - 12) * (wx - 12) + (wz + 9) * (wz + 9)) / 650.0);
-            w.heights[z * n + x] =
+            legacy[z * n + x] =
                 int16_t(std::lround(13 + ridge + 4 * std::sin(wx * .075 + phase) * std::cos(wz * .06) -
                                     3 * std::cos(wz * .09 + phase)));
         }
+    w.heights.assign(std::move(legacy));
     // Small native-block reference strip exercises partial geometry and alpha passes.
     for (int x = -12; x <= 0; ++x) {
         int y = w.height(x, 4) + 1;
@@ -85,26 +87,19 @@ World World::create(int n, int randomSeed) {
     return w;
 }
 World World::create(const WorldOptions &o) {
-    if (o.size < 32 || o.size > 256 || o.size % 32 || o.seed < -1000000 || o.seed > 1000000 ||
-        o.seaLevel < MinY || o.seaLevel >= MaxY || o.baseHeight < MinY + 1 || o.baseHeight > MaxY - 2 ||
-        o.variation < 0 || o.variation > 128)
+    const int depth = o.depth ? o.depth : o.width;
+    if (o.width < 32 || o.width > 16384 || depth < 32 || depth > 16384 || o.seed < -1000000 ||
+        o.seed > 1000000 || o.seaLevel < MinY || o.seaLevel >= MaxY || o.baseHeight < MinY + 1 ||
+        o.baseHeight > MaxY - 2 || o.variation < 0 || o.variation > 128)
         throw std::invalid_argument("建图参数超出当前支持范围");
     World w;
-    w.size = o.size;
-    w.originX = w.originZ = -o.size / 2;
+    w.width = o.width;
+    w.depth = depth;
+    w.originX = -(w.width / 32) * 16;
+    w.originZ = -(w.depth / 32) * 16;
     w.seed = o.seed;
     w.seaLevel = o.seaLevel;
-    w.heights.resize(o.size * o.size);
-    const double phase = (o.seed % 997) * .009;
-    for (int z = 0; z < o.size; ++z)
-        for (int x = 0; x < o.size; ++x) {
-            const double wx = x + w.originX, wz = z + w.originZ;
-            const double noise = .55 * std::sin(wx * .045 + phase) * std::cos(wz * .05 - phase) +
-                                 .3 * std::cos(wx * .09 + wz * .04 + phase) +
-                                 .15 * std::sin(wz * .13 - phase);
-            w.heights[z * o.size + x] = int16_t(std::clamp(
-                int(std::lround(o.baseHeight + (o.flat ? 0 : o.variation * noise))), MinY + 1, MaxY - 2));
-        }
+    w.heights.configure(o, w.originX, w.originZ);
     return w;
 }
 bool World::isAir(Block b) const {
@@ -117,18 +112,18 @@ bool World::isAir(Block b) const {
 }
 std::set<int> affectedChunks(const World &w, const Command &command) {
     std::set<int> chunks;
-    const int n = w.size / 16;
+    const int n = w.chunksX();
     auto add = [&](int x, int z) {
         // Include adjacent columns for face visibility at chunk boundaries.
         for (int dz = -1; dz <= 1; ++dz)
             for (int dx = -1; dx <= 1; ++dx) {
                 const int cx = floorDiv(x + dx - w.originX, 16), cz = floorDiv(z + dz - w.originZ, 16);
-                if (cx >= 0 && cz >= 0 && cx < n && cz < n)
+                if (cx >= 0 && cz >= 0 && cx < n && cz < w.chunksZ())
                     chunks.insert(cz * n + cx);
             }
     };
     for (const auto &h : command.heights)
-        add(h.index % w.size + w.originX, h.index / w.size + w.originZ);
+        add(h.index % w.width + w.originX, h.index / w.width + w.originZ);
     for (const auto &c : command.cells) {
         int x, y, z;
         w.decode(c.key, x, y, z);
@@ -137,22 +132,23 @@ std::set<int> affectedChunks(const World &w, const Command &command) {
     return chunks;
 }
 bool World::contains(int x, int y, int z) const {
-    return x >= originX && z >= originZ && x < originX + size && z < originZ + size && y >= MinY && y < MaxY;
+    return x >= originX && z >= originZ && x < originX + width && z < originZ + depth && y >= MinY &&
+           y < MaxY;
 }
 int World::column(int x, int z) const {
-    return (z - originZ) * size + x - originX;
+    return (z - originZ) * width + x - originX;
 }
 int World::height(int x, int z) const {
     return contains(x, 0, z) ? heights[column(x, z)] : MinY - 1;
 }
-uint32_t World::key(int x, int y, int z) const {
-    return uint32_t(((y - MinY) * size + (z - originZ)) * size + x - originX);
+uint64_t World::key(int x, int y, int z) const {
+    return (uint64_t(y - MinY) * depth + (z - originZ)) * width + x - originX;
 }
-void World::decode(uint32_t k, int &x, int &y, int &z) const {
-    x = int(k % size) + originX;
-    k /= size;
-    z = int(k % size) + originZ;
-    y = int(k / size) + MinY;
+void World::decode(uint64_t k, int &x, int &y, int &z) const {
+    x = int(k % width) + originX;
+    k /= width;
+    z = int(k % depth) + originZ;
+    y = int(k / depth) + MinY;
 }
 Block World::baseBlock(int x, int y, int z) const {
     if (!contains(x, y, z))
@@ -218,7 +214,7 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     float start = 0;
     QVector3D norm;
     if (!boxIntersect(o, d, {float(originX), float(MinY), float(originZ)},
-                      {float(originX + size), float(MaxY), float(originZ + size)}, start, norm) ||
+                      {float(originX + width), float(MaxY), float(originZ + depth)}, start, norm) ||
         start > maxDistance)
         return {};
     QVector3D p = o + d * (start + .0001f);
@@ -272,7 +268,7 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
 }
 void World::apply(const Command &cmd, bool forward) {
     for (auto c : cmd.heights)
-        heights[c.index] = int16_t(forward ? c.after : c.before);
+        heights.set(c.index, forward ? c.after : c.before);
     for (auto c : cmd.cells) {
         const int v = forward ? c.after : c.before;
         if (v < 0)
@@ -297,7 +293,7 @@ void Stroke::changeHeight(int i, int h) {
     if (h == world.heights[i])
         return;
     beforeHeights.try_emplace(i, world.heights[i]);
-    world.heights[i] = int16_t(h);
+    world.heights.set(i, h);
     ++changes;
 }
 void Stroke::reshapeSurface(int x, int z, int target, const BrushOptions &o) {
@@ -340,12 +336,15 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
     strength = std::clamp(strength, 1, 4);
     const auto heights = world.heights; // Stable slopes and smooth kernel, independent of iteration order.
     auto height = [&](int x, int z) {
-        x = std::clamp(x, world.originX, world.originX + world.size - 1);
-        z = std::clamp(z, world.originZ, world.originZ + world.size - 1);
+        x = std::clamp(x, world.originX, world.originX + world.width - 1);
+        z = std::clamp(z, world.originZ, world.originZ + world.depth - 1);
         return int(heights[world.column(x, z)]);
     };
     auto allows = [&](int x, int y, int z) {
         if (!world.contains(x, y, z))
+            return false;
+        if (o.selectionEnabled &&
+            (x < o.selectionMinX || x > o.selectionMaxX || z < o.selectionMinZ || z > o.selectionMaxZ))
             return false;
         if (!o.filterEnabled)
             return true;
@@ -372,12 +371,21 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
                 const int i = world.column(x, z), h = heights[i];
                 if (!allows(x, h, z))
                     continue;
-                float weight = 1 - distance / (radius + 1);
+                const double inner = radius * (1.0 - std::clamp(o.decay, 0.0, 1.0));
+                double weight =
+                    distance <= inner || o.decay <= 0
+                        ? 1.0
+                        : std::clamp((radius - distance) / std::max(.001, radius - inner), 0.0, 1.0);
                 if (o.falloff == 1)
                     weight = 1;
                 if (o.falloff == 2)
                     weight = weight * weight * (3 - 2 * weight);
-                const int amount = std::max(1, int(std::ceil(strength * weight)));
+                if (weight <= 0)
+                    continue;
+                double &accumulated = m_accumulated[i];
+                accumulated += strength * weight;
+                const int amount = int(std::floor(accumulated + 1e-9));
+                accumulated -= amount;
                 if (tool == 0)
                     changeHeight(i, h + (reverse ? -amount : amount));
                 else {

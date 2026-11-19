@@ -36,7 +36,7 @@ Pane {
     Label{text:"详细信息";font.bold:true;Layout.margins:12;color:"#c9d2df"}
     Label{text:parent.selectedLayer.name;font.pixelSize:17;Layout.leftMargin:12}
     Label{text:"类型   基础地形层";color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"尺寸   "+parent.selectedLayer.size+" × "+parent.selectedLayer.size+" 方块";color:"#a6b4c5";Layout.leftMargin:12}
+    Label{text:"尺寸   "+parent.selectedLayer.width+" × "+parent.selectedLayer.depth+" 方块";color:"#a6b4c5";Layout.leftMargin:12}
     Label{text:"原点   X "+parent.selectedLayer.originX+" / Z "+parent.selectedLayer.originZ;color:"#a6b4c5";Layout.leftMargin:12}
     Label{text:"高度   Y "+parent.selectedLayer.minY+" … "+parent.selectedLayer.maxY;color:"#a6b4c5";Layout.leftMargin:12}
     Label{text:"海平面   "+parent.selectedLayer.seaLevel; color:"#a6b4c5";Layout.leftMargin:12}

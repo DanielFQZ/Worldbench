@@ -35,6 +35,8 @@ class Editor : public QObject {
     Q_PROPERTY(QStringList defaultResourceSources READ defaultResourceSources NOTIFY changed)
     Q_PROPERTY(QVariantMap brushOptions READ brushOptions NOTIFY changed)
     Q_PROPERTY(QString meshUpdateSummary READ meshUpdateSummary NOTIFY changed)
+    Q_PROPERTY(QVariantMap selection READ selection NOTIFY changed)
+    Q_PROPERTY(bool selectionOnly READ selectionOnly WRITE setSelectionOnly NOTIFY changed)
     Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
     Q_PROPERTY(QString resourceDiagnostics READ resourceDiagnostics NOTIFY changed)
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
@@ -65,6 +67,19 @@ class Editor : public QObject {
     QStringList defaultResourceSources() const;
     QVariantMap brushOptions() const;
     int brushShape() const { return m_brushOptions.shape; }
+    double brushDecay() const { return m_brushOptions.falloff == 1 ? 0 : m_brushOptions.decay; }
+    QVariantMap selection() const;
+    bool selectionOnly() const { return m_selectionOnly; }
+    void setSelectionOnly(bool value) {
+        endStroke();
+        m_selectionOnly = value;
+        emit changed();
+    }
+    Q_INVOKABLE void setSelection(int minX, int minZ, int maxX, int maxZ);
+    Q_INVOKABLE void clearSelection();
+    QRect selectionRect() const { return m_selection; }
+    void setPreviewCenter(int x, int z);
+    bool previewContains(int x, int z) const;
     QString meshUpdateSummary() const;
     Q_INVOKABLE void setBrushOption(const QString &name, const QVariant &value);
     Q_INVOKABLE void initializeResources();
@@ -124,10 +139,11 @@ class Editor : public QObject {
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void newWorld();
-    Q_INVOKABLE bool createWorld(int size, int seed, int baseHeight, int variation, int seaLevel, bool flat);
+    Q_INVOKABLE bool createWorld(int width, int seed, int baseHeight, int variation, int seaLevel, bool flat,
+                                 int depth = 0);
     Q_INVOKABLE bool save(const QUrl &url = QUrl());
     Q_INVOKABLE bool open(const QUrl &url);
-    Q_INVOKABLE void exportWorld(const QUrl &parent, const QString &name);
+    Q_INVOKABLE void exportWorld(const QUrl &parent, const QString &name, bool selectedArea = false);
     Q_INVOKABLE void cancelExport();
   signals:
     void changed();
@@ -138,6 +154,7 @@ class Editor : public QObject {
     void catalogChanged();
     void assetProgressChanged();
     void resourceLoadStarted();
+    void resourceLoadFinished(bool success);
     void resourceSetupRequested();
 
   private:
@@ -149,6 +166,9 @@ class Editor : public QObject {
     void loadResources(const QStringList &paths, bool restoring = false, bool rememberDefault = false);
     void reportAssetProgress(int progress, const QString &message);
     static QString resourceFingerprint(const QStringList &paths);
+    void saveBrushProfile();
+    void restoreBrushProfile();
+    std::set<int> desiredChunks() const;
     wb::BrushOptions m_brushOptions;
     wb::World m_world;
     std::shared_ptr<const wb::MeshScene> m_scene;
@@ -163,6 +183,9 @@ class Editor : public QObject {
     bool m_strokeChanged = false;
     QString m_path, m_status = "正在构建初始体素网格…";
     std::set<int> m_dirty;
+    int m_previewX = 0, m_previewZ = 0;
+    QRect m_selection;
+    bool m_selectionOnly = false;
     QTimer m_meshTimer;
     QFutureWatcher<std::shared_ptr<wb::MeshScene>> m_meshWatcher;
     QFutureWatcher<wb::ExportResult> m_exportWatcher;

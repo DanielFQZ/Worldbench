@@ -75,6 +75,7 @@ QJsonArray toolList() {
          {"material_id", integer},
          {"reverse", boolean},
          {"fill_holes", boolean},
+         {"decay", QJsonObject{{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
          {"fill_depth", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 383}}},
          {"shape", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 1}}},
          {"falloff", QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 2}}},
