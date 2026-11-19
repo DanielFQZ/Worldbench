@@ -1,10 +1,10 @@
 # Worldbench 开发文档
 
-> 文档版本：0.4
+> 文档版本：0.5
 >
 > 最后更新：2026-11-19（Asia/Hong_Kong）
 >
-> 项目阶段：规划；尚未开始产品实现
+> 项目阶段：规划审计完成，等待项目发起人正式下达开发指令；尚未开始产品实现
 >
 > 文档性质：项目规划与后续开发的唯一开发文档
 
@@ -51,7 +51,7 @@
 | 仓库 | https://github.com/DanielFQZ/Worldbench | 已创建，私有 |
 | 产品类型 | WorldPainter 的上位替代：从二维绘制/三维预览升级为全三维地形雕刻与实时预览 | 已确认目标 |
 | 主要交互 | 直接在 3D 视图中编辑与预览；始终体素/方块显示，不采用平滑地形预览 | 已确认 |
-| 功能范围 | 从基础到进阶对齐 WorldPainter；其复刻优先于路网、自动洞穴识别等增量 | 已确认优先级；功能级静态清单见 5.5–5.9 |
+| 功能范围 | 从基础到进阶对齐 WorldPainter；其复刻优先于路网、专用洞穴资产流程等增量 | 已确认优先级；功能级静态清单见 5.5–5.9 |
 | 技术基准 | C++20 核心、Qt 6 Quick/QML UI、独立原生体素渲染 | 本轮选型结论；尚未集成与实测，见 9.6 |
 | 常见地图规模 | 优先面向 8K × 8K、16K × 16K；128K × 128K 为极端目标 | 已确认优先级；精确 K 定义沿用分析假设 |
 | 首轮测试版本 | 暂定 1.20.1，沿用当前 Java Edition 分析范围 | 版本已确认；其他版本列表待决策 |
@@ -93,18 +93,21 @@
 - 自动连接创作者指定的节点，生成地表路网。
 - 自动连接的算法、道路横断面、交叉口、桥梁和隧道的范围待规划。
 
-### R-04：建筑结构导入
+### R-04：结构资产导入、标记与放置
 
-- 导入 schematic 类文件。
-- 在地图中快捷放置建筑和其他结构。
-- 支持哪些具体格式与版本、实体数据处理和实例变换规则待规划。
+- 导入 schematic 类文件，在地图中快捷放置建筑、树木和其他结构。
+- 提供专门的资产编辑/配置窗口，独立观察资产并保存人工语义标记。
+- 树木可标记树根枢轴；建筑可标记底座位置并配置与地面的混合方式。
+- 标记辅助的工作流已确认；底座接触区域、具体混合模式、元数据格式、实体数据和实例变换规则按 7.3 细化并验证。
 
 ### R-05：高度可自定义的洞穴
 
 - 提供高度可自定义的洞穴创作能力。
 - 支持导入 schematic 格式的洞穴结构并放入地下。
-- 希望自动区分内部、外部和出口。
-- 自动识别的可保证边界、人工校正方式和额外元数据方案待决策与验证。
+- 在专用资产窗口人工标记洞穴入口，再由程序检查封闭性、区分内部/外部，并排除不应写入的空气方块。
+- 以“人工语义标记 + 程序校验与分类 + 可视化校正”为主流程，保存确认结果以便重复放入地下。
+- 空气排除必须区分需要挖空的洞内空间与不应写入的洞外区域；临时封口、蒙版、连通与异常处理等候选实现见 7.4。
+- 完全自动推测入口/语义降为可选辅助，不再是基础洞穴资产工作流的前提或必达承诺。
 
 ### R-06：持续扩展
 
@@ -127,7 +130,7 @@
 ### R-09：WorldPainter 全功能复刻与优化
 
 - 从基础编辑到高级图层、维度、导入导出、存档合并、脚本与扩展工作流，逐项纳入长期对齐范围。
-- 优先形成可实际替代 WorldPainter 的全 3D 创作流程；基础/高级 WP 功能和可用导出提前，节点路网、自动洞穴资产识别等新增能力放在其后。8K/16K 的可用体验优先于 128K 极限展示。
+- 优先形成可实际替代 WorldPainter 的全 3D 创作流程；基础/高级 WP 功能和可用导出提前，节点路网、专用洞穴资产流程等新增能力放在其后；基础资产窗口、枢轴和地基配置随 WP 对象工作流推进。8K/16K 的可用体验优先于 128K 极限展示。
 - 功能按稳定编号与父子关系维护在本文；现有可用功能、条件功能、Alpha 与未接入代码必须区分，见 5.5–5.9。
 - 可用 3D 操作与新架构优化旧工作流，不要求逐像素复刻 Swing 界面或复制历史技术限制。
 - 原型和里程碑可以分期，但不能以早期最小功能替代完整范围；当前仍只做规划，尚未开始实现。
@@ -192,13 +195,7 @@ Region 数量仅表示单个维度完整覆盖该水平范围的区域数量，�
 
 ### 5.1 已观察到的能力
 
-- `Tile` 以 128 × 128 水平块组织高度、地形、水位和图层数据。
-- 存在高度图变换和组合能力，包括平移、旋转、缩放与求和。
-- 存在 `.schematic` 及 Sponge `.schem` 解析，后者包含格式版本 1、2、3 的分支。
-- 存在自定义洞穴层及洞底、洞顶、洞壁、噪波和挖掘流程。
-- 存在 3D 预览；所检查的 `ThreeDeeView` / `Tile3DRenderer` 以 Tile 图像渲染和组合为基础。
-- 导出流程包含 Region 并行生成、跨区域修正、后处理和光照处理。
-- 存在 master/detail 组合等机制；不能将其简单概括成完全没有分级或分块能力。
+WorldPainter 以 128×128 的 Tile 保存高度、地形、水位及图层，具备 Master/Detail、洞穴、结构对象、多版本导出与 Region 后处理等能力；详细范围、条件和证据统一见 5.7。它的主 3D 预览是 Tile 图像组合的轴测视图，不是自由三维雕刻器。
 
 ### 5.2 对 Worldbench 的启示【建议】
 
@@ -212,22 +209,13 @@ Region 数量仅表示单个维度完整覆盖该水平范围的区域数量，�
 - WorldPainter 使用 GPLv3。具体代码复用时保留版权和许可证声明、记录修改、提供对应源码，并核对依赖与所用文件的许可。非营利不意味着免除许可义务。
 - 若采用 WorldPainter 代码，建议评估 GPL-3.0-or-later 作为 Worldbench 的项目许可；这尚未成为用户确认的最终 SPDX 选择，也尚未添加 LICENSE 文件。
 - 私有仓库仅决定访问权限；当前保持私有，正式发布时再按用户指示公开。
-- 独立进程或语言改写不能被当作许可证兼容性的自动结论。若选择 UE，还需复核其与 GPL 组件的组合许可，见 9.2。
+- 独立进程或语言改写不能被当作许可证兼容性的自动结论；各依赖、代码文件与素材仍分别核对。
 - 完整 GUI 的构建文档涉及商业 JIDE 依赖，采用完整分叉路线需要额外处理。
 - 当前没有复制任何 WorldPainter 产品源码到 Worldbench，也没有为 Worldbench 选定许可证。
 
 ### 5.4 固定版本的源码入口
 
-- [项目说明与许可证](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/README.md)
-- [构建说明](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/BUILDING.md)
-- [Tile 数据结构](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/Tile.java)
-- [高度图变换](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/heightMaps/TransformingHeightMap.java)
-- [3D Tile 预览](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPGUI/src/main/java/org/pepsoft/worldpainter/threedeeview/Tile3DRenderer.java)
-- [Schem 导入](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/layers/bo2/Schem.java)
-- [洞穴层](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/layers/tunnel/TunnelLayer.java)
-- [世界导出](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/exporting/AbstractWorldExporter.java)
-- [Region 文件处理](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/minecraft/RegionFile.java)
-- [Sponge Schematic v3 格式](https://github.com/SpongePowered/Schematic-Specification/blob/master/versions/schematic-3.md)：外部规范链接未固定提交，实现前应重新核对并固定版本。
+具体功能的源码链接集中在 5.7 及本文引用定义；构建/隔离证据见 9.8–9.9，避免维护重复来源清单。基础入口：[项目说明与许可证](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/README.md)、[构建说明](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/BUILDING.md)、[Sponge Schematic v3 规范][sponge-spec-v3]。规范也已固定提交；格式版本与 Minecraft DataVersion 分开处理。
 
 ### 5.5 功能审计基准与范围【2026-11-19 静态审计】
 
@@ -262,7 +250,7 @@ A/C/E 功能全部进入长期对齐范围。C 的条件不能省略，E 必须�
 
 其中明确标为“参考”的原作者捐赠、周边等品牌入口仅用于完整记账，不作为地图编辑功能交付项；不影响创作、兼容与维护能力的全量对齐要求。
 
-兼容 WorldPainter 的 `.world`、`.layer`、`.terrain` 资产与复制其 Java 序列化实现是不同事项：交换/迁移需求纳入规划，但是否直接读取旧二进制、通过转换器迁移或复用其模块，要另行设计与验证。不能仅完成 Worldbench 自有保存格式就标记旧文件互通完成。
+兼容 WorldPainter 的 `.world`、`.layer`、`.terrain` 资产与复制其 Java 序列化实现是不同事项：交换/迁移需求纳入规划，但直接读取、转换器迁移或模块复用仍需验证。不能仅完成自有格式就标记旧文件互通完成；原生 C++ 插件/脚本接口也不默认二进制兼容 WP 的 Java 插件。
 
 ### 5.7 WorldPainter 功能父子清单
 
@@ -567,29 +555,30 @@ A/C/E 功能全部进入长期对齐范围。C 的条件不能省略，E 必须�
 
 #### WP-18 对象、建筑与 schematic 工作流
 
-源码：[DefaultCustomObjectProvider.java][wp-src-defaultcustomobjectprovider-java]、[Bo2LayerEditor.java][wp-src-bo2layereditor-java]、[EditObjectAttributes.java][wp-src-editobjectattributes-java]、[OffsetEditor.java][wp-src-offseteditor-java]、[Schem.java][wp-src-schem-java]、[Bo2LayerExporter.java][wp-src-bo2layerexporter-java]。
+源码：[DefaultCustomObjectProvider.java][wp-src-defaultcustomobjectprovider-java]、[Bo2LayerEditor.java][wp-src-bo2layereditor-java]、[EditObjectAttributes.java][wp-src-editobjectattributes-java]、[OffsetEditor.java][wp-src-offseteditor-java]、[Schem.java][wp-src-schem-java]、[Schematic.java][wp-src-schematic-java]、[Structure.java][wp-src-structure-java]、[WPObject.java][wp-src-wpobject-java]、[Bo2LayerExporter.java][wp-src-bo2layerexporter-java]、[WPObjectExporter.java][wp-src-wpobjectexporter-java]、[WPObjectUtils.java][wp-src-wpobjectutils-java]。
 
 | 子功能 ID | 功能与源码行为 | 状态 | Worldbench 处理 |
 | --- | --- | --- | --- |
 | WP-18.01 | 导入 MCEdit `.schematic`、Sponge `.schem`、Minecraft 结构 `.nbt`、`.bo2`、`.bo3` | C | 复刻：每种格式单独建立兼容样本 |
-| WP-18.02 | `.schem` 版本 1/2/3 解析分支，方块状态及适用实体数据 | C | 适配：不能把文件可读当成所有实体完全无损 |
+| WP-18.02 | `.schem` 版本 1/2/3 的方块状态与适用实体解析分支；未发现把规范中的 Biomes 应用到对象导出的路径或完整 DataVersion 升级链 | C | 适配：格式可读、方块/实体版本转换、群系保真分别声明，不能宣称规范字段全部无损 |
 | WP-18.03 | BO2/BO3 的受限属性支持；不是完整 TerrainControl 分支/对象组生成器 | C | 复刻：支持与忽略字段需明示 |
 | WP-18.04 | 对象层包含多个对象，新增、移除、重载、属性编辑 | A | 优化：资源库和变更检测 |
 | WP-18.05 | 对象相对出现频率、图层密度、网格布局及位置扰动 | A | 复刻：可重复的实例分布 |
-| WP-18.06 | X/Y/Z 偏移、自动基底/归零基点、预览对象边界 | A | 优化：3D Gizmo 与数值编辑 |
+| WP-18.06 | 三轴偏移、自动估算/归零基点、预览对象边界；估算取最低有效层水平包围盒中心 | A | 优化：人工树根枢轴/底座标记与 3D 操纵；自动估算不是树根语义识别 |
 | WP-18.07 | 随机旋转、镜像 | A | 复刻：方块朝向与方块实体同步变换 |
 | WP-18.08 | 固定/相对地形高度、垂直随机偏移 | A | 复刻 |
 | WP-18.09 | 在陆地、空中、水、岩浆、流体下生成的条件 | A | 复刻 |
-| WP-18.10 | 碰撞/覆盖策略、地下替换与指定方块转空气 | A | 优化：覆盖差异可预览 |
-| WP-18.11 | 地基延伸到地面、与地表碰撞/依附规则 | A | 复刻 |
+| WP-18.10 | 放置前碰撞检测、地下写入策略、指定材料在输出时转空气；拒绝放置与允许覆盖是不同步骤 | A | 优化：分别显示拒绝原因、挖空与覆盖差异；以实际 exporter 条件为准，不照搬与实现不完全一致的“仅空气”注释 |
+| WP-18.11 | 对象局部最低层 `dz==0` 的有效实体材料可向下延伸地基；另有地面依附与漂浮时的碰撞条件 | A | 优化：保留旧模式，另提供人工底座/接触区域；不能误称已具备任意基底识别或地形羽化 |
 | WP-18.12 | 树叶腐烂属性逐对象及批量设置 | C | 复刻 |
 | WP-18.13 | 可含水方块与 waterlogged 放置处理 | C | 复刻：随版本能力校验 |
 | WP-18.14 | 跨 Tile/Chunk/Region 的对象放置与后续修正 | I | 优化：邻区依赖、确定性与重复放置检查 |
-| WP-18.15 | 对象可包含空气/流体并位于地下，用于人工洞穴等用途 | C | 复刻：不等于自动洞穴语义识别 |
+| WP-18.15 | 对象有效掩码内可写流体/挖空；传统 `.schematic` 忽略 ID 0，`.schem` 过滤 `Material.AIR` 与空调色板值，`.nbt` 结构默认忽略 AIR；可用指定材料转空气表达洞内挖掘 | C | 适配：不能将不同格式合并成“全部空气都会写入”；原始空气与放置掩码分别保留 |
+| WP-18.16 | 传统数字 ID 对象可推测并修复栅栏、玻璃板、铁栏杆等的水平连接属性；仅在启用标志及命名方块目标下执行，说明明确不覆盖石墙 | C | 复刻：保存已有朝向，邻接修复与跨区边界单独验收 |
 
 WorldPainter 内置格式提供者未列出 `.litematic`；如以后加入，应登记为增量。它的对象层主要是按绘制区域生成/散布；Worldbench 的逐实例直接选取、移动、旋转和持久化编辑归 WB-04，不能冒称旧项目已经有相同交互。
 
-#### WP-19 自定义洞穴/隧道与可编辑洞底洞顶
+#### WP-19 自定义洞穴/隧道、洞顶参数与可编辑洞底
 
 源码：[TunnelLayerDialog.java][wp-src-tunnellayerdialog-java]、[TunnelLayer.java][wp-src-tunnellayer-java]、[TunnelLayerExporter.java][wp-src-tunnellayerexporter-java]、[FloorDimensionSettingsDialog.java][wp-src-floordimensionsettingsdialog-java]。
 
@@ -716,7 +705,7 @@ WorldPainter 内置格式提供者未列出 `.litematic`；如以后加入，应
 | WP-25.02 | 合并生成的地形与原区块 | C | 优化：合并预览与差异报告 |
 | WP-25.03 | 完整替换区块 | C | 复刻：破坏范围与备份明确 |
 | WP-25.04 | 仅替换生态群系 | C | 复刻 |
-| WP-25.05 | 地表替换厚度，地表/地下合并策略 | C | 复刻 |
+| WP-25.05 | 地表替换厚度；地表/地下的方块合并和生态群系合并分别配置 | C | 复刻：四类控制独立验证 |
 | WP-25.06 | 清理树木、巨型蘑菇、植被、农作物 | C | 复刻：保留分类误判告警 |
 | WP-25.07 | 清理地表人工结构与地下人工结构 | C | 优化：木材等启发式分类需可检查 |
 | WP-25.08 | 清理原地下资源和洞穴等内容 | C | 复刻 |
@@ -780,7 +769,7 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 
 #### WP-29 偏好设置、恢复、帮助与发行体验
 
-源码：[PreferencesDialog.java][wp-src-preferencesdialog-java]、[Main.java][wp-src-main-java]、[ErrorDialog.java][wp-src-errordialog-java]、[AboutDialog.java][wp-src-aboutdialog-java]、[App.java:4393][wp-src-app-java-l4393]。
+源码：[PreferencesDialog.java][wp-src-preferencesdialog-java]、[Main.java][wp-src-main-java]、[ErrorDialog.java][wp-src-errordialog-java]、[AboutDialog.java][wp-src-aboutdialog-java]、[App.java:4393][wp-src-app-java-l4393]、[Configuration.java][wp-src-configuration-java]。
 
 | 子功能 ID | 功能与源码行为 | 状态 | Worldbench 处理 |
 | --- | --- | --- | --- |
@@ -796,7 +785,7 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 | WP-29.10 | 更新检查、使用数据选择设置 | A | 适配：Worldbench 自己的发布与隐私策略待决策 |
 | WP-29.11 | 文档、FAQ、故障排查、上下文 F1 帮助、关于/版本/致谢 | A | 适配：Worldbench 自己的文档与依赖声明 |
 | WP-29.12 | 捐赠和周边商品入口/提醒 | A | 参考：记录源功能，不复制作者品牌、收款或推广；Worldbench 是否需要另定 |
-| WP-29.13 | 简化界面模式及高级入口隐藏规则 | C | 适配：入门/高级呈现可重设计，但不隐藏实际缺失能力 |
+| WP-29.13 | 保留简化界面条件分支，但 `Configuration.isEasyMode()` 固定返回 false，切换菜单/写入方法被注释 | D | 参考：不是可用模式，不计入现有可用功能复刻验收；保留原 ID 记录更正 |
 
 #### WP-30 未接入、占位与实验代码边界
 
@@ -827,27 +816,27 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 | WB-01 | 始终体素的 3D 主编辑器【已确认，第一优先级】 | 直接 3D 雕刻与实时反馈；近景方块精度；形状优先的远景策略；DH 仅为对照。拾取、剖切、地下隔离、透明及非整立方方块规则待设计 | 从首条链路重建 WP-04/05/06/07 的交互基础，不等复刻结束才加 3D |
 | WB-02 | 非破坏高度图地貌实例【已确认】 | 可重调位置、混合、侵蚀、噪波；候选旋转/缩放/蒙版/修改器顺序/种子/缓存；侵蚀可后台精算 | 超出一次性高度图导入、笔刷和内部 HeightMap 类 |
 | WB-03 | 节点路网【已确认】 | 地表节点、指定连接自动生成；道路截面、坡度约束、交叉口、桥隧范围待规划 | Pencil 直线或未接入 River/Garden 代码都不是此功能 |
-| WB-04 | 可直接操纵的建筑/结构实例【已确认方向】 | schematic 导入与快捷放置；候选实例选择、Gizmo、吸附、覆盖预览、跨块变换和共享资产 | 保留 WP 对象分布并新增逐实例编辑 |
-| WB-05 | 洞穴资产语义识别【已确认方向】 | 自动区分内部/外部/出口并填入地下；人工校正、入口标记、体素密封与连接验证为建议 | WP 含空气对象和 Tunnel 层不足以完成自动识别 |
+| WB-04 | 结构/植被资产窗口、标记与实例【已确认方向】 | schematic 导入与快捷放置；树根枢轴、建筑底座与地面混合配置；子项 WB-04.01–08 见 7.3 | 保留 WP 对象分布/偏移/地基，新增人工语义标记与逐实例编辑 |
+| WB-05 | 人工标记驱动的洞穴资产【已确认方向】 | 人工标洞口 → 虚拟封口/封闭检查 → 内外分类 → 空气语义确认 → 地下试放；子项 WB-05.01–07 见 7.4 | WP 的含空气对象与 Tunnel 层是参考；完全自动猜测仅为可选辅助 |
 | WB-06 | 极大地图与完整烘焙【已确认】 | 8K/16K 常见规模；128K 极端；预算内流式显示/编辑；最终全质量求值；断点、确定性和恢复机制为建议 | 需要超越整世界驻内存式假设，不只是增加显示距离 |
 | WB-07 | 多版本与超高实验配置【已确认】 | 首测 1.20.1；后续版本选择；几千格高；原版/数据包/模组边界分别验证 | 对齐 WP 平台选择并扩展独立工程高度能力 |
-| WB-08 | 全功能 parity 与更可靠操作【已确认范围与优先级，方案建议】 | A/C/E 全量纳入计划并优先于新增路网/自动识别等；导出/合并、迁移、资产依赖可诊断；每项绑定样本与验收 | 先成为可用的 WP 上位替代，再扩展增量；不删除高级能力 |
+| WB-08 | 全功能 parity 与更可靠操作【已确认范围与优先级，方案建议】 | A/C/E 全量纳入计划并优先于路网/专用洞穴资产流程等；导出/合并、迁移、资产依赖可诊断；每项绑定样本与验收 | 先成为可用的 WP 上位替代，再扩展增量；不删除高级能力 |
 
 “体素预览”不意味着只渲染完整立方体：台阶、楼梯、植物、流体和透明方块需要明确精确预览规则；可分阶段实现，但不能宣称全部方块保真。高度场、SDF、距离场或平滑数学函数仍可作为内部数据/计算表示，最后离散为目标方块；不提供平滑曲面地形预览模式。
 
 ### 5.9 覆盖核对与遗留验证
 
-本轮目录包含 **30 个一级功能域、334 个子条目**，其中 A=174、C=126、E=8、D=11、I=15；另列 8 项 Worldbench 增量/优化方向。计数是本轮条目划分结果，不是 WorldPainter 官方功能数量。
+本轮目录包含 **30 个一级功能域、335 个子条目**，其中 A=174、C=126、E=8、D=12、I=15；另列 8 项 Worldbench 增量/优化方向，其中资产新增细分为 15 个子项（7.3–7.4），不混入 WP 数量。计数是本轮条目划分结果，不是 WorldPainter 官方功能数量。
 
-已从下列入口向实现回溯，表单仅用于检查参数覆盖，不能单凭表单存在判定可用。表单覆盖统计为 WPGUI 69 个、WPCore 1 个，总计 70 个；重复类名按目录区分。
+本轮重新核对全部三个 Maven 模块的源码目录与功能入口：WPCore 476、WPGUI 254、WPDynmapPreviewer 14 个 Java 文件，共 744 个（含 23 个测试目录文件）。这是目录盘点与全功能范围的静态复核，不表示逐行证明这 744 个文件正确，也未执行已有测试。已从下列入口向实现回溯，表单仅用于检查参数覆盖，不能单凭表单存在判定可用。表单覆盖统计为 WPGUI 69 个、WPCore 1 个，总计 70 个；重复类名按目录区分。
 
 | 审计面 | 对应功能域 | 证据范围与注意事项 |
 | --- | --- | --- |
-| File / Edit / View / Tools / Help | WP-01–05、21–29 | App 菜单及 action；包含高级/简化模式、条件禁用和被注释入口 |
+| File / Edit / View / Tools / Help | WP-01–05、21–29 | App 菜单及 action；追查配置返回值、条件禁用和被注释入口，修正不可达的简化模式 |
 | 工具注册与动态 options | WP-06–09 | painting/terrain/selection 注册、反向操作、数位笔和工具内选项 |
 | 默认图层/平台注册 | WP-12/14/23 | DefaultPlugin；额外核对 App 中 Populate、Read Only、Biome、Annotations、流体入口 |
 | 自定义层创建/上下文菜单 | WP-13、15–20 | CustomLayerController；含插件菜单、Find、Apply、copy、export、编辑子维度 |
-| 对象格式提供者与解析器 | WP-18 | 扩展名、Schem 版本分支、BO2/BO3 限制、对象导出属性 |
+| 对象格式提供者与解析器 | WP-18 | 扩展名、Schem 版本分支、有效掩码/空气、偏移、属性、实际写入与邻接修复 |
 | 导入/合并/导出实现 | WP-21–26 | JavaMapImporter、JavaWorldMerger、平台设置、生成阶段与后处理 |
 | 预览与内部 API | WP-05/27/28/30 | ThreeDee、Dynmap、脚本、插件、独立工具及占位检查 |
 
@@ -868,6 +857,19 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 | 设置、帮助及进度（7） | PreferencesDialog、ErrorDialog、AboutDialog、DonationDialog、MerchDialog、MultiProgressDialog、browser/SimpleBrowser | WP-24/29；浏览器为帮助支撑 |
 | 未接入/独立工具（2） | ExportPartDialog、tools/HeightMapEditor | WP-30 |
 
+本轮补漏与纠偏：
+
+| 复核发现 | 文档处理 |
+| --- | --- |
+| 连接方块修复未单列；简化界面被误归为条件可用 | 追加 WP-18.16；WP-29.13 改 D，原有 ID 保持 |
+| 自动 offset、局部最低层地基延伸与树根/底座语义标记不同 | 收紧 WP-18.06/11；新资产标记明确归 WB-04/05 |
+| Schematic/Schem/Structure 的 AIR 掩码规则不同；WPObject 属性注释与 exporter 部分覆盖条件不同 | 按实际解析/写入路径修正 WP-18.10/15，保留原始数据与操作掩码，不能照抄“过滤全部空气” |
+| `.schem` 分支存在不等于完整规范兼容 | WP-18.02 明示群系/DataVersion 缺口；尺寸读为有符号 short、数组乘积和 VarInt 处理需重新校验，不能盲目移植为健壮解析器 |
+| “可编辑洞底洞顶”标题扩大了源码能力 | 修正 WP-19 标题；洞顶参数可用、自定义洞顶维度未接入的区别保留 |
+| 完全自动洞穴识别的旧要求与用户最新流程不符 | 统一 R-05、WB-05、7.4、路线图及风险；人工标记为主，自动猜测降为可选 |
+
+对已经盘点的菜单、注册项、70 个表单及 30 个功能域，未再发现需要新增一级域的未归属工作流；这不是“任意插件和所有运行行为均无遗漏”的保证。格式、异常路径、性能、版本游戏加载、UI 实际可达性仍须按下面规则动态验收。其他参考项目仅复核与本项目选型相关的代码路径/API/许可，范围与新增证据见 9.9，未声称完成第三方仓库逐行或安全审计。
+
 完整对齐的后续验收规则：
 
 1. 每个 A/C/E 子功能至少有一个可重现样本，记录目标版本、输入、关键参数、预期结果和已知差异；不以按钮存在或类名相同验收。
@@ -881,8 +883,15 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 官方交叉资料（访问于 2026-11-19，页面可能继续更新）：[Manual](https://www.worldpainter.net/trac/wiki/Manual)、[Controls](https://www.worldpainter.net/trac/wiki/Controls)、[KeyboardShortcuts](https://www.worldpainter.net/trac/wiki/KeyboardShortcuts)、[CustomBrushes](https://www.worldpainter.net/trac/wiki/CustomBrushes)、[CustomObjects](https://www.worldpainter.net/trac/wiki/CustomObjects)、[CavesAndTunnels](https://www.worldpainter.net/trac/wiki/CavesAndTunnels)、[Populate](https://www.worldpainter.net/trac/wiki/Populate)、[Scripting/API](https://www.worldpainter.net/trac/wiki/Scripting/API)、[Plugins](https://www.worldpainter.net/trac/wiki/Plugins)、[SafeMode](https://www.worldpainter.net/trac/wiki/SafeMode)。功能证据优先使用上方固定提交链接，Wiki 的过时示例不是新实现的验收规范。
 
 
-
 <!-- 固定提交源码链接定义；属于本文，不是独立文档。 -->
+
+[sponge-spec-v3]: https://github.com/SpongePowered/Schematic-Specification/blob/8e6be2d980d3bd794bc29df5fdca5921129fac5d/versions/schematic-3.md
+[wp-src-wpobject-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/objects/WPObject.java
+[wp-src-wpobjectexporter-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/layers/exporters/WPObjectExporter.java
+[wp-src-wpobjectutils-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/util/WPObjectUtils.java
+[wp-src-schematic-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/layers/bo2/Schematic.java
+[wp-src-structure-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/layers/bo2/Structure.java
+[wp-src-configuration-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/Configuration.java
 
 [wp-src-app-java-l928]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPGUI/src/main/java/org/pepsoft/worldpainter/App.java#L928
 [wp-src-worldio-java]: https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/WorldIO.java
@@ -1029,7 +1038,7 @@ GUI 合并功能实际存在；同名脚本 `mergeWorld()` 不代表这一能力
 | 地表主体 | 分块高度场及材质、生态群系数据 | 大范围地形与地表绘制 |
 | 地貌实例 | 资源引用、变换、蒙版、混合与修改器 | 可调整的山体等地形组合 |
 | 洞穴与悬挑 | 局部体积、挖掘规则或稀疏方块差量 | 表达同一水平位置的多层空间 |
-| 建筑结构 | 共享资源与实例变换 | 高效重复放置 |
+| 结构/植被/洞穴资产 | 原始资源、版本化语义标记与实例变换/覆盖规则 | 枢轴、底座、入口、放置/挖空/忽略蒙版复用，见 7.3–7.4 |
 | 道路 | 节点连接关系、曲线和横断面参数 | 可编辑路网与地形整形 |
 | 手工精修 | 局部差量或可重放编辑记录 | 保留创作者的直接修改 |
 
@@ -1068,9 +1077,17 @@ Minecraft 存档是导出产物，不应成为参数化编辑工程的唯一权�
 
 ### 6.5 存储与撤销
 
-建议使用增量保存、局部差量、操作记录和检查点，避免每次保存或撤销都复制整个世界。
+建议使用增量保存、局部差量、操作记录和检查点，避免每次保存或撤销都复制整个世界。资产标记和实例参数也进入同一撤销/保存事务；缓存不能是语义标记的唯一存放处。
 
 需要验证崩溃恢复、缺失资源、生成器升级和缓存失效时的行为。工程资源是否打包、自包含或使用外部路径引用，尚待决策。
+
+### 6.6 求值、覆盖与坐标契约
+
+- 统一工程坐标采用 Minecraft 习惯的 X/Z 水平、Y 竖直作为建议基准；WP 的部分对象 API 以 Z 为高度，必须由适配层转换。负坐标分块使用明确的向下取整，验证轴向、旋转、镜像与边界。
+- 地形源、层、实例、挖空和局部手工修改建立明确的有序求值关系；不能只写“解决覆盖关系”而不定义谁覆盖谁。具体顺序在 P0/P2 以同一契约逐步固定，保留 WP pass 语义。
+- 资产操作至少区分“不写入”“放置指定方块”“挖空为目标空气”。保护/只读范围优先检查，冲突可报告；已确认的手工结果不能因后台重算被悄然覆盖。
+- 随机分布种子与稳定对象/区域身份绑定，任务完成先后不能改变结果；跨区实体、地基和洞口由明确所有者写入，重复恢复不能重复生成。
+- 预览、烘焙与兼容工作进程共享这些语义；缓存键包含资源/标记/生成器版本。重新标记或重载资产时，一并使受影响实例、旧新范围及派生 LOD 失效。
 
 ## 7. 各功能的候选实现路径
 
@@ -1090,28 +1107,62 @@ Minecraft 存档是导出产物，不应成为参数化编辑工程的唯一权�
 
 避免道路从自己修改后的地形不断重新选线造成循环依赖：选线读取明确的基础地形阶段，再生成道路施工影响。
 
-### 7.3 建筑实例
+### 7.3 专用资产窗口、树根与建筑底座
 
-建议采用共享资源与独立实例，支持按范围查询、实例变换及局部覆盖规则。优先评估 Sponge `.schem`，再补传统 `.schematic`。
+**人工标记的工作流已确认；下表的数据结构与操作细节为建议。** 窗口可独立/停靠显示资产的精确方块模型，提供剖切、透明/隔离显示和分类着色。目标是配置可复用的放置语义，不把本轮需求扩大为完整通用体素建模软件。与 WP 对应的偏移、散布、碰撞和地基行为仍按 WP-18 复刻。
 
-需要处理方块状态、方块实体、普通实体、数据版本、空气覆盖规则和跨块放置。首版可考虑仅支持 90° 倍数旋转；任意角度旋转需要方块重采样，可能损坏细节，不能默认无损支持。
-
-### 7.4 洞穴资产与自动识别
-
-普通 schematic 保存的方块布局不足以保证无歧义识别任意洞穴。存在出口时，内部空气与外部空气相通，单纯从边界进行空气连通搜索会把二者合并。
-
-建议用 schematic 配合额外元数据形成洞穴资产：
-
-| 语义 | 放置行为 |
+| 子项 ID（父 WB-04） | 功能与处理规则 |
 | --- | --- |
-| 洞壁与装饰 | 放置指定方块 |
-| 内部空腔 | 挖空原地形 |
-| 外部区域 | 保留原地形 |
-| 出入口 | 连接地表或其他洞穴 |
+| WB-04.01 | 资产导入与检查：识别格式版本、Minecraft DataVersion、尺寸、坐标原点、方块状态、实体/方块实体与可用群系；报告未知/丢失内容，保留源文件 |
+| WB-04.02 | 专用窗口与资产身份：共享源资产 + 已确认标记 + 独立实例；提交标记修改前列出受影响实例，明确应用新版本或保留旧版本，实例可有显式覆盖 |
+| WB-04.03 | 树根枢轴：直接点选或输入局部坐标，标注与地表的接触高度；可选根部范围/埋深。自动基点只提供初值，偏斜树、宽根和带底座资产由用户确认 |
+| WB-04.04 | 建筑底座：标记基准平面/高度及接触区域，区分实体结构、支撑区域与受影响地形边缘；基座不必等于包围盒最低层 |
+| WB-04.05 | 地面混合：提供可预览的策略；候选为仅定位/保持地形、局部切土、局部填土、整平台地、指定地基向下延伸、限定边缘羽化。设置作用掩码、最大切填深度与材质；建筑主体默认保持刚性，不随每列地面弯曲 |
+| WB-04.06 | 直接放置/变换与原有散布并存：共享枢轴、底座、碰撞和替换规则。先评估 90° 旋转/镜像与整数平移；方块朝向、实体、标记同步变换，复制实例时避免实体 UUID 冲突并处理引用；任意角旋转/缩放需重采样且不承诺无损 |
+| WB-04.07 | 空气与特殊单元规则：保存源方块与有效区域；显式 air/cave_air/void_air、未提供/忽略位置、structure_void 与占位材料不混同。建筑内部空气是否清除地形也须明确选择，不能全局过滤后丢失室内空间 |
+| WB-04.08 | 持久化与试放：保存源内容标识/版本、枢轴、底座、蒙版、覆盖规则与生成版本；展示将放置/挖空/忽略的差异，支持撤销/重做、保存/重开。源文件尺寸/内容改变后标记为待复核，不无提示复用过期标记 |
 
-导入流程可自动提出候选区域与出口，再允许用户标记内部种子、圈定出口或修补漏口。必要时对候选出口临时封口后分析内部，但这仍是需要验证的识别策略，不保证适用于任意输入。
+候选混合策略是地形生成操作，不是把方块材质当像素做 Alpha 混合。地基遇到洞穴、悬崖或水体时必须受深度、保护区域与碰撞规则约束，不能无界填满地下；“保持空气/挖空”与“是否放置建筑实体”分开控制。底座可在起伏/斜坡试放场景中校验，直接编辑与最终烘焙使用相同结果。
 
-最终确认的蒙版与出口信息应保存并复用。最小覆土厚度、与地表融合、洞穴连接、地下水及材质过渡待进一步规划。
+源 schematic 与 Worldbench 资产元数据分离，最终载体（工程内部记录、资源包或伴随文件）待实现设计；这不改变规划仓库只能存在本开发文档的约束。优先验证 Sponge `.schem` 与传统 `.schematic`，长期格式对齐按 WP-18.01；标记不依赖改写第三方标准。
+
+### 7.4 洞穴：人工标洞口、程序检查与内外分类
+
+普通 schematic 不能单靠空气连通性无歧义表达所有洞穴；开放洞口会连通内部与外部。用户给出的人工标记路线作为默认流程，程序承担可解释的检查与分类，创作者确认最终语义。**入口标记应能圈定开口的面/区域，而不只保存一个点。**
+
+| 子项 ID（父 WB-05） | 功能与处理规则 |
+| --- | --- |
+| WB-05.01 | 标入口：允许多个洞口，记录洞口区域及朝向/连接意图；支持不规则开口，不默认单平面圆洞。可选内部种子、手绘保留/挖空范围 |
+| WB-05.02 | 分析用虚拟封口：对标记开口建立临时封口掩码，检查其是否覆盖开口、是否与壳体连接；虚拟封口只参与分析，不写回源资产或作为实体导出 |
+| WB-05.03 | 封闭/泄漏检查：在带外围余量的分析域中从边界搜索外部，再识别剩余空腔；内部种子若仍连到边界则显示泄漏路径/疑似缺口。没有候选洞腔或内部不明确时要求补种子/蒙版，不能因为“已标洞口”就判定封闭 |
+| WB-05.04 | 内外分类与人工确认：高亮外部区域、候选洞腔、独立腔室和壳体；未与任何已标入口关联的腔室不自动全部挖空，允许逐腔确认。检查失败可保存草稿或手工补全操作蒙版，但不能宣称已通过封闭检查；自动地下放置前必须明确确认语义 |
+| WB-05.05 | 输出语义蒙版：至少区分 Place（洞壁/装饰/明确流体）、Carve（洞内挖空）、Ignore（外部/不写入）。Portal 是连接/分析标签，可叠加在相应操作区域，不与三类写入操作混为一类 |
+| WB-05.06 | 地下试放与开口连通：按蒙版挖掘/放置，去掉分析用封口影响；单独检查放置后的入口是否被地形堵住、覆土/水体/保护范围及跨区冲突。通向地表的连接段或其他洞穴连接必须显式确认，不能从入口方向无限挖掘 |
+| WB-05.07 | 保存与再验证：保留用户标记、分类策略、已确认腔室及蒙版；变换后同步更新入口与掩码，源数据改变后重新校验。可选自动候选提示只能辅助，不能覆盖人工标记或作为必备识别前提 |
+
+算法候选顺序：标入口/种子 → 定义阻挡与连通规则 → 虚拟封口 → 外部洪泛与空腔连通分量 → 泄漏/歧义报告 → 人工确认蒙版 → 在真实地形中试放。单独的资产壳体检查与放置后世界连通检查是两道检查，前者通过不保证后者正确。
+
+必须显式定义的边界：
+
+- 起步可用体素单元的六邻接做离散分类，但邻接与阻挡策略要记录并测试；角/边接触、斜缝不能被误称为连续几何或游戏碰撞意义下的严格密封。
+- 透明不等于可穿过，非空气也不等于全封闭。玻璃、楼梯、半砖、门/活板门、栅栏、流体分别处理；不支持的部分方块密封语义要求显式阻挡/忽略蒙版，不凭颜色或简单 solid 标志自动认定。玩家可通行与流体密封属于不同规则。
+- 带外围余量只能提供外部种子，不能把被截断在源包围盒上的洞壁伪装为已封闭。无壳体、多个漏口、空资产、未知方块、互相重叠的封口和复杂多腔结构应有可定位诊断。
+- Ignore 是保留目标世界；Carve 是显式写入适配器定义的空气。不能从洞穴里删除所有空气，也不能把外部空气铺到整个包围盒。structure_void 等特殊标记由格式适配器转换成明确语义，绝不默认成为封闭洞壁。
+- 稠密洪泛的成本随包围盒体积增长。超大资产需要体积分配上限、分块/稀疏分析、进度与取消；验证失败不静默降成错误分类。
+
+### 7.5 资产工作流的验收样本【待实现】
+
+| 样本 | 必须观察的结果 |
+| --- | --- |
+| 偏心树根、斜树、多根/底座树 | 人工枢轴控制落点，根部/地基不会无界延伸；旋转镜像与重开一致 |
+| 斜坡建筑、空心建筑、台地/悬崖/水边 | 底座与影响范围可见；切填/地基策略可预测，主体刚性和室内空气规则正确 |
+| 单洞口、双洞口、分叉与孤立腔室 | 标记封口后能分类；孤立腔室由用户选择，最终洞口保持开放 |
+| 人为漏一格、截断壳体、错误封口 | 显示泄漏/歧义，不能自动判为可安全烘焙的洞穴 |
+| 玻璃、半砖、门、栅栏、水及不同空气/忽略标记 | 阻挡规则可解释；内部挖空与外部保留正确，未支持状态显式报告 |
+| 负坐标、Chunk/Region 边界、多个重叠实例 | 预览/烘焙一致，无重复实体/漏写；撤销与失败重跑结果稳定 |
+| 源资产更新、缺失资源、超大/畸形输入 | 标记失效和迁移可见；尺寸乘积/解压/NBT 深度/调色板/VarInt/坐标范围受控，不以颜色近似替代未知状态 |
+
+解析、标记、试放和烘焙分别验收。一个文件能打开或预览得像原物体，不代表方块状态、实体、空气语义和版本兼容已经通过。
 
 ## 8. Minecraft 导出与实验高度
 
@@ -1127,7 +1178,7 @@ Minecraft 存档是导出产物，不应成为参数化编辑工程的唯一权�
 
 导出期间使用固定工程快照和生成配置，防止正在编辑的内容让同一份存档前后不一致。
 
-候选完整烘焙流程：求值地貌与修改器 → 生成道路、洞穴和结构 → 解决覆盖关系并生成方块 → 应用目标版本映射 → 校验高度与元数据 → 完成所需光照及后处理 → 写出并校验存档。具体操作顺序与跨区依赖需要在原型中确认。
+候选完整烘焙流程：求值地貌与修改器 → 生成道路、洞穴和结构 → 解决覆盖关系并生成方块 → 应用目标版本映射 → 校验高度与元数据 → 完成所需光照及后处理 → 写出并校验存档。具体操作顺序与跨区依赖按 6.6 在原型中确认；资产的 Place/Carve/Ignore 蒙版与已验证状态必须进入同一流程。
 
 ### 8.2 大规模导出
 
@@ -1202,15 +1253,15 @@ Minecraft 存档是导出产物，不应成为参数化编辑工程的唯一权�
 | Distant Horizons | LGPLv3，另有独立素材许可 | Minecraft 远景组织、数据与缓存架构 | 仅作为对照/参考，形状保留不满足目标时应更换方案；不设为默认 LOD 依赖 |
 | BlueMap | MIT | 从 Minecraft 存档生成三维表面地图并在浏览器查看 | 可参考存档渲染与预览流程；读取存档和生成展示地图的流程需要改造才能服务交互创作 |
 | prismarine-viewer | MIT | Web/Three.js Minecraft 查看器，文档列出 1.20.1 支持及独立内存世界示例 | 适合小规模预览/交互概念验证；未证明适合 16K 高细节或 128K 主编辑视口 |
-| vengi | 主体代码 MIT；资源及第三方组件另查 | 体素资产编辑、缩略图和格式转换，源码有 Minecraft/Schematic 格式模块 | 候选资产工具链或局部编辑参考；格式可读不等于无损保留所有 Minecraft 方块状态与实体 |
-| OpenVDB / NanoVDB 所在仓库 | 当前主分支 Apache-2.0 | 稀疏体积与体积处理基础 | 适合评估洞穴/体积运算；不是完整地形编辑器或 Minecraft 渲染器，动态更新与 GPU 路径仍需验证 |
+| vengi | 主体代码 MIT；资源及第三方组件另查 | 体素资产编辑、缩略图与格式 UI 参考 | `SchematicFormat::saveGroups` 按体素颜色映射 Minecraft 预设方块，不作为权威资产中间格式或无损方块/实体转换器；标记窗口可借鉴交互 |
+| OpenVDB / NanoVDB 所在仓库 | 调查提交 Apache-2.0 | 稀疏体积与体积处理基础 | 适合评估洞穴/体积运算；不是完整地形编辑器或 Minecraft 渲染器，动态更新与 GPU 路径仍需验证 |
 | Chunky | GPLv3 | Minecraft 路径追踪渲染 | 可参考最终静态效果预览；不作为流畅主编辑视口的首选 |
 | WorldPainter | GPLv3，具体文件声明另查 | Minecraft 导出、对象导入、材料语义与生成流程 | 功能对齐优先；先验证 WPCore 兼容工作进程/局部模块复用，受世界模型与规模边界限制 |
 | meshoptimizer | MIT | 无损布局优化、meshlet、属性感知简化、clusterlod | 原生网格工具首选候选；库不是完整渲染器，通用简化不自动保持体素形状 |
 | Binary Greedy Meshing | MIT | 位掩码剔面与共面 quad 合并 | 作为立方体精确网格算法参考；需要补齐 Minecraft 材质、光照、模型和世界流式管理 |
 | KDDockWidgets | GPL-2.0 或 GPL-3.0 | QtQuick/QtWidgets 可停靠工作区 | 优先集成 QtQuick 前端；版本与窗口集成验证后锁定 |
 
-NAADF 使用带计算着色器支持的 MonoGame 分支，当前说明仅支持 Windows 10/11，采用自己的 `.cvox` 数据格式；其资源导入列出 `.vox`、`.vl32` 等。它能证明这类渲染方向有可运行研究实现，但尚未证明 Minecraft 存档、任意方块模型、完整资源包和跨平台能力可直接复用。
+NAADF 使用带计算着色器支持的 MonoGame 分支，当前说明仅支持 Windows 10/11，采用自己的 `.cvox` 数据格式；其资源导入列出 `.vox`、`.vl32` 等。复核 `WorldData`/`EditingHandler` 还发现按世界 chunkCount 分配的索引数组及专用 CPU/GPU 缓冲，不能默认其内存随可见区域而非总范围增长。它能证明这类渲染方向有可运行研究实现，但尚未证明 Minecraft 存档、任意方块模型、完整资源包和跨平台能力可直接复用。
 
 需要排除的“源码可见即可开源复用”误判：
 
@@ -1218,15 +1269,15 @@ NAADF 使用带计算着色器支持的 MonoGame 分支，当前说明仅支持 
 - Voxy 本次检查的 `dev` 分支许可证声明保留所有权利并禁止再分发，不列入可直接合入的开源候选。
 - VoxelPluginFreeLegacy 可读取源码，但本次未从检查的根文件取得明确开源授权；UE 路线与 GPL 组件的组合许可也尚待复核。暂不将它标记为 MIT 或 GPL 兼容组件。
 
-### 9.2 LOD、距离场与 UE 的适用边界
+### 9.2 LOD 与距离场的适用边界
 
 - LOD 减少远处显示细节；分块与流式加载控制工作集；可见面剔除、网格合并和实例化降低渲染成本。它们需要共同配合，不能相互替代。
 - 距离场可以表示几何、支持体积运算或加速光线遍历；它自身不自动解决版本导出、编辑撤销和整个世界的数据管理。
 - Epic 的 Mesh Distance Fields 文档描述的是静态网格的离线生成表示，主要用于光照、阴影、碰撞等；其生成不能直接在运行时完成。Global Distance Field 的局部合成更新与“任意新地形的距离场生成”不是同一操作。
 - NAADF 的可更新体素/AADF 数据结构是另一条路径，不能把它与 UE 的 Mesh Distance Fields 当成同一种现成组件。
-- UE 在此首先作为硬件与体验参考，而非已选引擎。如果选用 UE，必须核对当前引擎许可与拟复用 GPL 组件的组合兼容性，不能根据非营利或源码可见直接推定可组合发行。本次官方 EULA 页面返回 HTTP 403，未完成最新条文复核；此项保留为待验证，不把已确认的 Epic 渲染文档当作许可依据。
+- UE 仅为硬件与体验参考，不属于当前依赖或并行引擎路线。
 
-来源：[Epic Mesh Distance Fields](https://dev.epicgames.com/documentation/en-us/unreal-engine/mesh-distance-fields-in-unreal-engine)、[UE EULA](https://www.unrealengine.com/eula/unreal)。上述是选型约束，不代表已选择某种法律结构或批准引入任何依赖。
+来源：[Epic Mesh Distance Fields](https://dev.epicgames.com/documentation/en-us/unreal-engine/mesh-distance-fields-in-unreal-engine)。
 
 ### 9.3 当前执行路线与验证门槛
 
@@ -1237,7 +1288,7 @@ NAADF 使用带计算着色器支持的 MonoGame 分支，当前说明仅支持 
 3. 立即验证 WPCore 可隔离程度、输入输出数据契约及局部预览/最终导出一致性；如失败按模块重写，不以“决定使用 C++”为由默认把全部成熟逻辑从零重做。
 4. Qt 视口桥接、设备能力、核心工具反馈或普通 8K/16K 场景达不到约定门槛时，再评估独立渲染后端或 Godot 回退；不能在无结果前同时建设两套 UI/引擎。
 
-当前只完成文档选型，未获得开始产品实现的任务；所有原型门槛尚未执行。具体错误阈值、工作区半径和硬件指标需下一步细化，但不再把语言/UI 选择列为空白。
+上述是正式开工后的验证顺序，当前不执行原型；待定阈值与启动边界集中在第 12 节。
 
 ### 9.4 硬件与交互测试基线【方向已确认，数值为建议】
 
@@ -1298,17 +1349,12 @@ CPU 档位和 NVMe 为 Worldbench 的测试建议，不是 Epic 原文的要求�
 - 界面默认设计方向为克制的深色专业工作区，另提供浅色/高对比方案；统一色彩、间距、字体、图标、焦点态和数值控件，保留紧凑密度。优先保证长时间创作和清晰状态反馈，不用重动画装饰拖慢操作。
 - 世界核心尽量不依赖 QML 或具体 GPU API；界面通过命令和摘要模型访问它。只把选中对象、属性、图层等必要信息暴露给 Qt 模型，避免把数千万方块展开成 UI 对象。
 
-| 对照路线 | 本轮判断 |
-| --- | --- |
-| C++ + Qt Quick + 专用渲染 | 采用。适合独立桌面创作工具及自控数据/渲染，但必须承担渲染基础与跨版本集成成本 |
-| Godot 4 + C++/Voxel Tools | 保留回退候选。能借用完整引擎能力；本轮不再作为首选，避免把方块 LOD、自定义编辑 UI 和工程模型与引擎深度耦合。并非认定其做不出漂亮或高速编辑器 |
-| 直接分叉 WorldPainter Java/Swing GUI | 适合快速保留原功能，但把现有二维交互/预览改成主 3D 编辑器仍有较大结构工作；不作为最终 UI 路线 |
-| Rust/C#/Web UI 等其他组合 | 不作为当前并行主线；本轮没有证据证明换语言本身比当前组合更适合完整功能优先的目标 |
+Godot 4 + C++/Voxel Tools 保留为验证失败后的回退；完整 Java/Swing 分叉及其他语言/UI 组合不作为并行主线。回退须由实际门槛失败证据触发，不能因新候选出现就重启选型。
 
 必须正视的集成条件：
 
-1. `QQuickRhiItem` 从 Qt 6.7 提供；`QRhi` 家族的源码/二进制兼容性保证有限，官方要求使用 `Qt::GuiPrivate`。须封装在薄后端中，固定一个经过验证的 Qt 稳定小版本，升级时重编译并回归；本轮查到的在线文档标为 Qt 6.12，但文档版本不等于已经选择发行包/补丁版本。
-2. 视口默认渲染到 Qt 管理的 GPU 纹理再合成。避免 CPU 图像回读、逐帧全缓冲复制和跨设备搬运；纹理合成本身有成本，必须测量，不称为“零开销”。GUI、渲染和生成线程用明确同步点及不可变结果交换。
+1. `QQuickRhiItem` 从 Qt 6.7 提供；`QRhi` 家族的源码/二进制兼容性保证有限，官方要求使用 `Qt::GuiPrivate`。须封装在薄后端中，固定一个经过验证的 Qt 稳定小版本，升级时重编译并回归，不以滚动在线文档的版本标记代替已验证发行包。
+2. 视口默认渲染到 Qt 管理的 GPU 纹理再合成。避免 CPU 图像回读、逐帧全缓冲复制和跨设备搬运；纹理合成本身有成本，必须测量，不称为“零开销”。GUI、渲染和生成线程用明确同步点及不可变结果交换。浮动停靠使视口切换 QQuickWindow 时，GPU 资源必须跟随所属 QRhi/设备重建；KDDockWidgets 示例不构成这条组合路径的验证。
 3. Qt 的软件场景图后端不能运行该视口；图形设备能力、驱动失败和设备重建需给出可理解诊断。QRhi 不自动提供任意高级 GPU 功能，mesh shader/间接多绘制等应逐项核验；基础渲染不得依赖尚未确认的能力。
 4. Qt Quick 3D 是另一套场景/材质组件，不与 Qt Quick UI 混为一谈。本轮不把它或 Godot 再叠加为第二个主场景图；必要的相机、拾取、材质和调试视图要在 P0 明确成本。
 5. Qt 开源许可按模块核查；KDDockWidgets 本轮根许可为 GPL-2.0 或 GPL-3.0，拟走 GPL-3.0 选项；meshoptimizer 和 Binary Greedy 参考库为 MIT。项目最终 SPDX 及各文件/资源义务仍按 5.3 管理，不把“非营利”当作免除条件。
@@ -1327,11 +1373,11 @@ DH 不再是默认算法或必须采用的依赖，只保留远景组织、缓�
 | 顶点缓存/索引顺序、顶点读取布局、无损网格编码 | 所选无损操作不改变几何 | 第一优先级。选用 meshoptimizer 的适用功能；透明面的绘制次序不能被普通不透明优化随意重排；量化误差另算，整数方块位置要可准确表示 |
 | 视锥/遮挡剔除、分簇、实例化和流式上传 | 对正确可见性判断不改变几何 | 分阶段引入。meshlet 是工作组织单位，本身不是降细节，也不要求一定用硬件 mesh shader；动态遮挡数据和簇边界需要更新 |
 | 自适应体素层级/块状 HLOD | 有损，但可保持块状几何风格 | 远景主研究方向。对复杂区域保留更细层级；高误差、洞口、薄结构等拒绝过度合并。它是需要工程化验证的策略，不是已经找到可直接接入的完整成品 |
-| meshoptimizer 属性感知简化、锁边界、`clusterlod.h` 连续分簇 LOD | 有损，通用三角形简化不保证体素外观或拓扑 | 作为几何简化对照/局部可用组件。若削掉台阶或产生不符合体素要求的斜面，默认路径不得采用；锁得越严可能越难简化 |
+| meshoptimizer 属性感知简化、锁边界、`demo/clusterlod.h` 连续分簇 LOD 示例 | 有损，通用三角形简化不保证体素外观或拓扑 | 作为几何简化对照/局部可用组件。若削掉台阶或产生不符合体素要求的斜面，默认路径不得采用；锁得越严可能越难简化 |
 | NAADF/AADF 光线遍历 | 可直接遍历高精度体素，不能据此保证任意场景无损视觉/低成本 | 重要研究对照。作者演示无 LOD 的大场景；其自定义数据、计算着色器、编辑同步、方块模型和流式规模仍需适配与实测 |
 | Distant Horizons | 粗化可能改变远景形状 | 对照/参考，不预设优于上述路线，也不把其轮廓损失当成产品必须接受的限制 |
 
-Binary Greedy 参考实现针对有限大小的局部块，公开 demo 的耗时、紧凑 quad 编码、单 draw call 或裂缝掩盖策略都是其特定数据/渲染条件，不直接作为 Worldbench 指标。世界流式组织仍由本项目设计；不把单块速度当成 16K/128K 动态编辑性能。
+固定 Binary Greedy 源码的有效局部边长是 62（另有邻边 padding），输入为 `uint8_t` 体素类型，不能直接当作 Minecraft 任意方块状态注册表或项目分块尺寸。它的 demo 耗时、紧凑 quad 编码、单 draw call 与裂缝掩盖策略均非 Worldbench 指标；世界流式与材质相容合并仍需设计。meshoptimizer 的 `clusterlod.h` 位于 `demo/`，应作为需独立适配、构建和维护的示例层，不误认为稳定成品 LOD 系统。
 
 meshoptimizer 的锁边界和属性权重可降低某些简化损失，但不能自动保证方块轮廓、洞口连通或重要薄结构不消失。默认不启用会清除小独立组件的激进策略；保护标签和误差阈值也要通过样本验证。普通 QEM/三角形简化即便保持平面着色，仍可能把台阶连成斜面，不能以“没有平滑法线”为由宣称符合体素几何基准。
 
@@ -1355,9 +1401,9 @@ meshoptimizer 的锁边界和属性权重可降低某些简化损失，但不能
 候选适配规则：
 
 - 主工程数据和撤销历史由 C++ 核心持有；Java 只接收有边界、可取消/可追踪的任务，不形成第二套悄然分叉的权威工程。
-- 少量配置/状态走控制消息；大块高度、材料、方块数据用版本化二进制任务文件或批量缓冲，具体协议待原型选择，不逐方块 JSON/RPC。
+- 少量配置/状态走控制消息；大块高度、材料、方块数据用版本化二进制任务文件或批量缓冲，具体协议待原型选择，不逐方块 JSON/RPC。原始 AIR 与语义掩码要在旧解析器过滤之前保留；若其 WPObject 接口无法表达新语义，就绕过/扩展该路径，不能先丢数据再做洞穴分析。
 - 将 `.world/.layer/.terrain` 迁移、对象解析、生成层、导出、合并分开验证。预览与最终烘焙必须使用一致的规则或共享实现，不能因“导出能复用”而忽略预览结果不同。
-- 验证任务能否按区域求值、跨区域依赖、共享静态材料注册表、取消/失败恢复、重复运行确定性和峰值内存。不能为了复用而常驻 128K 全量 `World2`。
+- 验证任务能否按区域求值、跨区域依赖、共享静态材料注册表、取消/失败恢复、重复运行确定性和峰值内存；`Bo2LayerExporter` 明示非线程安全，不能把同一实例直接跨任务共享。不能为了复用而常驻 128K 全量 `World2`。
 - 若某一模块无法隔离或破坏规模目标，则对该模块原生重写/移植；保留来源与测试样本，不因此放弃对应 WP 功能，也不让兼容进程决定 UI 技术栈。
 
 ### 9.9 本轮补充调研来源与适用范围
@@ -1375,25 +1421,35 @@ meshoptimizer 的锁边界和属性权重可降低某些简化损失，但不能
 | Sodium 渲染结构示例 | [ChunkBuilderMeshingTask](https://github.com/CaffeineMC/sodium/blob/1d8b33dc01bfa365b0574eae082f15ac5b9be5b4/common/src/main/java/net/caffeinemc/mods/sodium/client/render/chunk/compile/tasks/ChunkBuilderMeshingTask.java)、[ChunkMeshBufferBuilder](https://github.com/CaffeineMC/sodium/blob/1d8b33dc01bfa365b0574eae082f15ac5b9be5b4/common/src/main/java/net/caffeinemc/mods/sodium/client/render/chunk/vertex/builder/ChunkMeshBufferBuilder.java) | 仅说明 Minecraft 渲染可采用分区网格；不代表已选依赖，也不冒充 Mojang 原版实现 |
 | WPCore 适配边界 | [父 POM](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/pom.xml)、[WPCore POM](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/pom.xml)、[Export CLI](https://github.com/Captain-Chaos/WorldPainter/blob/8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b/WorldPainter/WPCore/src/main/java/org/pepsoft/worldpainter/tools/Export.java) | Java 17 编译目标、依赖及完整 World2 载入流程；尚未实际构建 |
 
-NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点继续见 9.5；它们的许可和不同用途没有因本轮换主路线而自动改变。
+本轮对关键候选追加源码复核，仍未集成、编译或跑分：
+
+| 源码证据 | 复核范围与结论 |
+| --- | --- |
+| [meshoptimizer API](https://github.com/zeux/meshoptimizer/blob/f0a684f11ead064e176775c9b796f82a55910e92/src/meshoptimizer.h)、[clusterlod 示例](https://github.com/zeux/meshoptimizer/blob/f0a684f11ead064e176775c9b796f82a55910e92/demo/clusterlod.h) | 核对锁定/保护/误差参数、宽松和 sloppy 回退；没有体素阶梯与洞口必保保证，示例不等于完整流式渲染器 |
+| [Binary Greedy mesher](https://github.com/cgerikj/binary-greedy-meshing/blob/af8c688ed3af63e98f9631c05774f30e1350a021/src/mesher.h) | 核对 62 有效边长、邻域 padding、8 位类型、面掩码及按类型合并；需要适配方块状态与模型 |
+| [KDDockWidgets QtQuick 说明](https://github.com/KDAB/KDDockWidgets/blob/66e66fa5d8a824488538558e274023822ac13952/README-QtQuick.md)、[C++/QML 示例](https://github.com/KDAB/KDDockWidgets/tree/66e66fa5d8a824488538558e274023822ac13952/examples/qtquick/cpp) | 有 QtQuick 原生 dock 与保存/恢复入口，文档列有跨窗口限制；QQuickRhiItem 重挂载及 GPU 资源生命周期仍需专项验证 |
+| [vengi SchematicFormat](https://github.com/vengi-voxel/vengi/blob/0b126f37b9ea28451b8b5b17f501dd59f383d7ce/src/modules/voxelformat/private/minecraft/SchematicFormat.cpp) | 检查加载分支和保存颜色→方块映射，定位为交互参考，不能拿格式列表作为无损兼容证据 |
+| [NAADF WorldData](https://github.com/cg-tuwien/NAADF/blob/3ea3bb6a836aa4a30277c055f812d65a9d7d6766/NAADF/World/Data/WorldData.cs)、[EditingHandler](https://github.com/cg-tuwien/NAADF/blob/3ea3bb6a836aa4a30277c055f812d65a9d7d6766/NAADF/World/Data/EditingHandler.cs)、[ChangeHandler](https://github.com/cg-tuwien/NAADF/blob/3ea3bb6a836aa4a30277c055f812d65a9d7d6766/NAADF/World/Data/ChangeHandler.cs) | 检查世界索引、块去重与编辑增量同步；未证明可见工作集受控、128K 或 Minecraft 全语义支持 |
+
+其他候选的固定锚点与已完成调查范围沿用 9.1/9.5；没有因本轮复核关键文件就宣称全部第三方代码完成审计。
 
 ## 10. 推进顺序：WorldPainter 上位替代优先
 
-**优先级已由项目发起人确认：先完成 WorldPainter 功能的 3D 化替代，再扩展新增创作能力。** 下面是按依赖安排的阶段建议，不是日期/人力承诺；当前任务仍为规划。30 个功能域和 334 个子条目保持原编号与来源状态，不因调整阶段删减。
+**优先级已由项目发起人确认：先完成 WorldPainter 功能的 3D 化替代，再扩展新增创作能力。** 下面是按依赖安排的阶段建议，不是日期/人力承诺；当前任务仍为规划。30 个功能域和 335 个子条目保持原编号与来源状态，不因调整阶段删减。
 
 | 阶段 | 优先范围 | 通过条件 |
 | --- | --- | --- |
 | P0：最小技术闭环 | C++/Qt 视口与停靠、精确网格、3D 地表笔刷与局部体素挖掘、撤销/保存、1.20.1 小区域导出；WPCore 适配验证 | 可从斜向/侧面拾取并编辑实际地形，结果及时显示；重开工程和游戏加载正确；不是二维画布附带三维预览 |
 | P1：WorldPainter 基础替代 | WP-01/02/04/05/06–14/21/24/26 的基础流程：建图、笔刷、过滤、选区、主题/材质、群系、流体、基础层、高度图/蒙版、变换与导出 | 在 8K/16K 代表工程中完成实际制图流程；共享生成语义，核心参数、撤销和保存可用；全程以 3D 视口操作为主 |
-| P2：WorldPainter 高级替代 | WP-03/15–20/22/23/25/27–29：高级图层、对象、洞穴、Master/Detail、ceiling、浮空、存档导入/合并、多版本适配、脚本/插件与维护功能 | 对应子条目逐项验收；实验项单独标识；版本支持依实际样本推进，不能只展示功能菜单 |
+| P2：WorldPainter 高级替代 | WP-03/15–20/22/23/25/27–29：高级图层、对象、洞穴、Master/Detail、ceiling、浮空、存档导入/合并、多版本、脚本/插件及维护；随 WP-18 建立资产窗口、枢轴/底座、地基配置与元数据基础 | 对应子条目逐项验收；实验项单独标识；版本支持依实际样本推进，不能只展示功能菜单 |
 | P3：完整对齐与发布质量 | 收齐 A/C/E 条目、旧资产迁移与边界案例；修复性能/兼容性/恢复缺口 | 完成状态有证据，未支持版本和 Alpha 边界可见；真实工作流可用，先满足“WP 上位替代”定位 |
-| P4：Worldbench 增量 | 非破坏高度图实例及复杂侵蚀、逐实例高级操纵、节点路网、洞穴资产自动语义识别 | 在稳定的 WP 基础/高级功能上扩展；不借此重新绕开尚缺的 WP 能力 |
+| P4：Worldbench 增量 | 非破坏高度图实例及复杂侵蚀、逐实例高级操纵/复杂地形混合、节点路网、人工入口标记驱动的洞穴分类与地下连接；自动猜测仅为可选辅助 | 在稳定的 WP 基础/高级功能上扩展；不借此重新绕开尚缺的 WP 能力 |
 | P5：极端规模与超高深化 | 128K 极限场景、几千格高配置及必要环境适配、更先进渲染路线的取舍 | 对工作集、形状保真、动态更新、可恢复烘焙和实际游戏环境给出完整测量 |
 | 贯穿各阶段 | 分块/坐标/版本模型、8K/16K 性能、可取消任务、预览与导出一致性、持续原型比较 | 架构从开始就保留 128K/超高可扩展性，但极限效果展示不抢占功能替代优先级 |
 
 具体排期不能机械按功能域整体搬运：P1 的基础保存/图层/版本接口要先建立，P2/P3 补齐高级变体与全部兼容边界。P1 就需要可用 1.20.1 导出；P2 才开始专项多版本扩展不代表之前可以把版本字段硬编码到各工具。WP-30 的 D/I 项按原状态处理，用户已明确要求的侵蚀等仍在 WB 增量中保留。
 
-优先级映射：WB-01 的全 3D 交互和 WB-08 的 WP 对齐属于 P0–P3 主线；WB-02/03/05 的新增程序化实例、路网和自动识别主要安排在 P4。WP-18 的对象导入/散布、WP-19 的传统洞穴控制不随新增能力后移。WB-06/07 的流式/高度/版本基础从 P0 设计，128K/超高最终目标与高级算法集中深化，但不降低 8K/16K 的早期可用性。
+优先级映射：WB-01 与 WB-08 属于 P0–P3 主线；WB-04 的基础窗口、枢轴/底座及 WP 等效放置规则随 P2 对象功能推进，额外复杂混合/高级实例能力再分期。WB-02/03/05 的程序化实例、路网和专用洞穴资产流程主要安排在 P4；WB-05 可先用受控样本验证标记/蒙版契约，但不以自动猜测阻塞交付。WP-18 的对象导入/散布、WP-19 的传统洞穴控制不后移。WB-06/07 的流式/高度/版本基础从 P0 设计，128K/超高最终目标与高级算法集中深化，但不降低 8K/16K 的早期可用性。
 
 若基本视口在工作场景中超预算，优化工作应当提前作为功能的前置任务；这不等于把 NAADF、clustered LOD 或所有可能渲染技术全部试完才开始复刻。人员、工期和预算仍未估算，不据此给出未经验证的交付日期。
 
@@ -1412,6 +1468,7 @@ NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点�
 - 记录轮廓偏差、洞口/薄桥等重要结构、接缝、LOD 跳变及脏区更新延迟；不以平均 FPS 掩盖形状损失。
 - Qt 视口纹理合成、GUI/渲染线程同步、浮动面板/多视口、输入法/数位笔及高 DPI 独立验收。
 - WPCore 适配记录数据转换、进程通信、共享状态与峰值内存；实际证明可隔离后才把候选标为可复用。
+- 资产窗口按 7.5 验收：树根/底座、入口封口、泄漏与独立腔室、特殊方块、源数据变化、掩码持久化和跨区烘焙；检查耗时/峰值内存与交互响应分开记录。
 - WP 清单按 5.9 验收：区分源码已接入、条件、Alpha、未接入与内部能力；所有实现完成状态须由测试证据支撑。
 
 ### 11.2 风险清单
@@ -1426,7 +1483,9 @@ NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点�
 | 远景正确但局部内容成本过高 | 独立建立复杂建筑和洞穴的局部测试场景 |
 | 多级细节与洞口、悬挑不兼容 | 验证转换边界与重要几何保留策略 |
 | 地块接缝、侵蚀或道路依赖错误 | 明确运算邻域、阶段顺序及跨块验证 |
-| 自动洞穴识别错误 | 保留人工校正与显式语义蒙版 |
+| 人工标记不完整、壳体泄漏或空气分类错误 | 区域式入口标记、虚拟封口、泄漏诊断、逐腔确认和显式 Place/Carve/Ignore；资产检查与世界试放分开 |
+| 旧解析器丢失空气/版本语义，或颜色体素转换损坏资产 | 在过滤前保留原始数据；格式/DataVersion/实体与蒙版独立校验；不经有损中间格式 |
+| 资产更新后标记错位、地基切填破坏其他内容 | 源内容版本与标记绑定、变化后复核、影响掩码/限深/保护范围、事务化撤销 |
 | 预览与导出不一致 | 共享精确生成语义并进行结果比对 |
 | Minecraft 版本兼容成本增长 | 先锁定一个版本并建立实际加载验证 |
 | 超高工程超出目标游戏的坐标或存档边界 | 明确导出配置、数据包/模组依赖及实际加载验证 |
@@ -1435,12 +1494,14 @@ NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点�
 | 历史方案误导后续 LLM | 唯一文档、明确状态、更新当前正文、Git 留档 |
 | 源码可见但无开源授权，或引擎与 GPL 许可不兼容 | 固定许可明确的提交并核对依赖与组合方式 |
 
-## 12. 下一轮规划的优先决策
+## 12. 启动边界与正式开发后的首批验证
 
-语言/UI 默认路线已确定为 C++20 + Qt 6 Quick/QML，DH 已降为参考，WP 功能优先级已提前；下一轮不重复从零讨论这些选择，先把验证任务具体化。
+**当前停留在规划阶段，等待项目发起人的明确“开始开发”指令。** 本次只审计和更新本文，不创建产品源码、原型、构建配置、依赖清单、样例工程或新开发文档。正式授权后，从 P0 开始，不能把“审计完成”当作技术门槛已通过。
+
+既定基准不重复开题：C++20 + Qt 6 Quick/QML；始终体素、形状优先、DH 仅参考；WP 基础到高级对齐优先；人工资产标记为主。以下未决细节在正式开工时按依赖解决，不代表还需自动开启另一轮规划：
 
 1. 明确 P0 的可运行切片、Qt 稳定小版本与 KDDockWidgets 版本、设备后端、数据/命令/渲染接口及验收样本。
-2. 给 30 个 WP 功能域细化前置依赖和复用边界，尤其 WPCore 兼容工作进程、旧资产迁移、图层预览和完整烘焙；保持原条目 ID。
+2. 给 WP 子条目确定当期依赖与复用边界，尤其 WPCore 隔离、旧资产迁移、图层预览和烘焙；保持原 ID。确认资产元数据/掩码、坐标、地面混合、洞口密封策略与受控样本。
 3. 确定精确工作区半径、保形样本、LOD 屏幕/结构误差门槛与预算；在无损网格基线上比较体素层级、meshoptimizer 对照和 NAADF，不预定胜者。
 4. 确认 9.4 的测试硬件、视口/交互阈值和首发系统；区分当前 Windows 开发环境与正式平台承诺。
 5. 选择首批额外导出版本、旧版降级规则及项目 SPDX；Qt/WP/第三方组件的具体发行组合分别核对。
@@ -1452,14 +1513,16 @@ NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点�
 | --- | --- |
 | 项目命名 | 已确认：Worldbench |
 | 单一开发文档约束 | 已确认，并在本文件中建立规则 |
-| 需求与可行性分析 | 已更新：WorldPainter 上位替代优先、全 3D 雕刻/实时反馈、形状优先渲染、DH 仅参考；保留多版本、超高、8K/16K 与 128K 目标 |
-| WorldPainter 功能审计 | 固定提交的功能级静态审计已落盘：30 个功能域、334 个子条目及 70 个表单归属；未运行 GUI 或逐项功能验证 |
+| 需求与可行性分析 | 已纳入人工资产标记；既定 3D/体素、WP 优先、多版本、超高、8K/16K 与 128K 基准保持 |
+| WorldPainter 功能审计 | 全功能范围静态复核落盘：30 个域、335 个子项、70 个表单；补连接修复，纠正简化模式及资产语义；未编译/运行或逐项动态验收 |
+| 资产专用窗口与标记流程 | 需求和 15 个 WB 子项已记录；人工树根/底座/入口标记、内外空气与试放规则已纳入规划，尚未实现 |
+| 文档清理 | 删除重复来源入口、失效的自动识别主线和不执行的选型分支/调查过程残留；保留稳定 ID、证据、风险与待验证边界 |
 | 开源与复用方向 | 已确认正式开源、不以盈利为目的、接受合规 GPL 复用 |
 | 技术选型 | 本轮收敛：C++20 + Qt 6 Quick/QML + 原生渲染；QQuickRhiItem/QRhi 与停靠集成待验证；尚未开始实现 |
 | 渲染优化 | 无损优化优先，远景按保形/动态编辑指标比较；meshoptimizer/Binary Greedy 为新参考，NAADF 保留对照；没有跑分结论 |
 | WP 复用 | 优先验证 Java WPCore 兼容工作进程；仅完成入口/依赖静态检查，尚未构建或隔离成功 |
 | 1.20.1 高度边界 | 已核验官方服务端维度配置与字节码校验；尚未进行实际游戏加载验证 |
-| 产品代码、原型与性能测试 | 尚未开始 |
+| 产品代码、原型与性能测试 | 尚未开始；等待正式开发指令 |
 | GitHub 私有仓库 | 已创建：`DanielFQZ/Worldbench`；私有；默认分支 `main` |
 | 本地文件 | `E:\AppProject\Worldbench\DEVELOPMENT.md` |
 
@@ -1471,3 +1534,4 @@ NAADF、Voxel Tools、vengi、OpenVDB、Terrain3D 和 DH 的既有固定锚点�
 | 2026-11-19 | 0.2 | 更新测试版本、多版本与实验高度需求、常见规模和烘焙定义；确认开源方向；加入开源组件调研、许可核查、建议硬件与 1.20.1 高度静态核验。 |
 | 2026-11-19 | 0.3 | 确认体素显示与全功能对齐基准；加入固定提交的 WorldPainter 功能父子目录、源码状态、覆盖账及验收规则；修正平滑预览候选和路线图，保持唯一开发文档。 |
 | 2026-11-19 | 0.4 | 将 WP 上位替代及全 3D 雕刻提前为主线；DH 降为对照、采用形状优先的优化路线；收敛 C++20/Qt Quick 技术基准，加入渲染/停靠/兼容进程边界、补充来源与新版阶段顺序。 |
+| 2026-11-19 | 0.5 | 纳入专用资产窗口与人工语义标记；复核全部 WP 功能域及关键参考路径，补连接属性修复、纠正简化模式/空气/基点/地基边界，固定格式规范；清理重复及失效内容，明确等待正式开发指令。 |
