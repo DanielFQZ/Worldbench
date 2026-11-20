@@ -10,6 +10,7 @@ ColumnLayout {
  function refresh(){catalog=editor.blockCatalog(search.text)}
  Component.onCompleted:refresh()
  Connections{target:editor;function onCatalogChanged(){panel.refresh()}}
+ Label{text:"雕刻层："+editor.layerDetails.activeName;Layout.fillWidth:true;Layout.margins:12;color:"#85cad6"}
  Label{text:"笔刷设置";font.pixelSize:16;Layout.leftMargin:12;Layout.topMargin:14}
  Label{text:editor.tool<0?"选择模式 · 左键不修改地形":["抬升 / 降低","整平地表","体积挖除","体积填充","材质涂绘","平滑地形","矩形选区"][editor.tool];color:"#79c2c8";Layout.leftMargin:12}
  RowLayout{

@@ -3,8 +3,11 @@
 <file alias="ToolRail.qml">qml/ToolRail.qml</file>
 <file alias="SettingsPanel.qml">qml/SettingsPanel.qml</file>
 <file alias="ToolPanel.qml">qml/ToolPanel.qml</file>
+<file alias="Arithmetic.js">qml/Arithmetic.js</file>
 <file alias="WorkbenchSpinBox.qml">qml/WorkbenchSpinBox.qml</file>
 <file alias="SelectionPanel.qml">qml/SelectionPanel.qml</file>
+<file alias="GizmoOverlay.qml">qml/GizmoOverlay.qml</file>
+<file alias="AxisTriplet.qml">qml/AxisTriplet.qml</file>
 <file alias="TerrainPanel.qml">qml/TerrainPanel.qml</file>
 <file alias="WorldPanel.qml">qml/WorldPanel.qml</file>
 <file alias="ViewportPane.qml">qml/ViewportPane.qml</file>

@@ -15,11 +15,17 @@ int Editor::selectedTerrainIndex() const {
 void Editor::setSelectedNode(const QString &id) {
     if (id == m_selectedNode)
         return;
-    if (id != "terrain-base-1" &&
+    if (m_world.heights.layerIndex(id) < 0 &&
         std::none_of(m_world.heights.instances.begin(), m_world.heights.instances.end(),
                      [&](const auto &i) { return i.id == id; }))
         return;
+    endTerrainEdit();
+    endStroke();
     m_selectedNode = id;
+    if (m_world.heights.layerIndex(id) >= 0 && m_world.heights.activeLayer != id) {
+        m_world.heights.activeLayer = id;
+        ++m_revision; // A pending implicit-layer MCP sculpt must not silently change its target.
+    }
     emit changed();
 }
 QVariantMap Editor::terrainDetails() const {
@@ -34,6 +40,15 @@ QVariantMap Editor::terrainDetails() const {
             {"mask", i.maskName},
             {"pixelsX", i.image->width},
             {"pixelsZ", i.image->depth},
+            {"y", i.y},
+            {"rotationX", i.rotationX},
+            {"rotationY", i.rotationY},
+            {"rotationZ", i.rotationZ},
+            {"scaleX", i.scaleX},
+            {"scaleY", i.scaleY},
+            {"scaleZ", i.scaleZ},
+            {"centerX", i.x + (i.width - 1) / 2},
+            {"centerZ", i.z + (i.depth - 1) / 2},
             {"x", i.x},
             {"z", i.z},
             {"width", i.width},
@@ -66,7 +81,8 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     m_world.apply(command, true);
     ++m_revision;
     dirtyCommand(command);
-    pushCommand(std::move(command));
+    if (!m_terrainStart)
+        pushCommand(std::move(command));
     m_status = label + " · Ctrl+Z 撤销";
     emit changed();
 }
@@ -105,8 +121,9 @@ void Editor::initializeTerrainImporter() {
             i.depth = std::min(m_world.depth, result.image->depth);
             i.x = m_world.originX + (m_world.width - i.width) / 2;
             i.z = m_world.originZ + (m_world.depth - i.depth) / 2;
-            i.low = m_world.height(i.x + i.width / 2, i.z + i.depth / 2);
-            i.high = std::min(318, i.low + 64);
+            i.low = 0;
+            i.high = 64;
+            i.blend = 1;
             selected = i.id;
             next.push_back(std::move(i));
         }
@@ -130,6 +147,7 @@ void Editor::importHeightmap(const QUrl &url, bool mask) {
         emit failure(mask ? "请先选择一个高度图实例" : "请选择本地灰度 PNG");
         return;
     }
+    endTerrainEdit();
     endStroke();
     m_heightmapLoading = true;
     m_status = mask ? "正在后台读取地貌蒙版…" : "正在后台读取高度图…";
@@ -145,43 +163,163 @@ void Editor::importHeightmap(const QUrl &url, bool mask) {
     emit changed();
 }
 void Editor::setTerrainOption(const QString &key, const QVariant &value) {
+    setTerrainOptions({{key, value}});
+}
+void Editor::setTerrainOptions(const QVariantMap &values) {
     const int index = selectedTerrainIndex();
     if (index < 0 || assetBusy())
         return;
     auto next = m_world.heights.instances;
     auto &i = next[index];
-    if (key == "enabled")
-        i.enabled = value.toBool();
-    else if (key == "name")
-        i.name = value.toString().trimmed();
-    else {
-        bool ok = false;
-        const double number = value.toDouble(&ok);
-        if (!ok || !std::isfinite(number) || std::floor(number) != number || std::abs(number) > 2000000)
-            return;
-        const int n = int(number);
-        if (key == "x")
-            i.x = n;
-        else if (key == "z")
-            i.z = n;
-        else if (key == "width")
-            i.width = n;
-        else if (key == "depth")
-            i.depth = n;
-        else if (key == "low")
-            i.low = n;
-        else if (key == "high")
-            i.high = n;
-        else if (key == "blend")
-            i.blend = n;
-        else if (key == "opacity")
-            i.opacity = n;
-        else if (key == "feather")
-            i.feather = n;
-        else
-            return;
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        const auto key = it.key();
+        const auto value = it.value();
+        if (key == "enabled")
+            i.enabled = value.toBool();
+        else if (key == "name")
+            i.name = value.toString().trimmed();
+        else {
+            bool ok = false;
+            double number = value.toDouble(&ok);
+            if (!ok || !std::isfinite(number) || number != std::floor(number) || std::abs(number) > 2000000)
+                return;
+            int n = int(number);
+            if (key == "x")
+                i.x = n;
+            else if (key == "z")
+                i.z = n;
+            else if (key == "centerX")
+                i.x = n - (i.width - 1) / 2;
+            else if (key == "centerZ")
+                i.z = n - (i.depth - 1) / 2;
+            else if (key == "y")
+                i.y = n;
+            else if (key == "width")
+                i.width = n;
+            else if (key == "depth")
+                i.depth = n;
+            else if (key == "low")
+                i.low = n;
+            else if (key == "high")
+                i.high = n;
+            else if (key == "blend")
+                i.blend = n;
+            else if (key == "opacity")
+                i.opacity = n;
+            else if (key == "feather")
+                i.feather = n;
+            else if (key == "rotationX")
+                i.rotationX = n;
+            else if (key == "rotationY")
+                i.rotationY = n;
+            else if (key == "rotationZ")
+                i.rotationZ = n;
+            else if (key == "scaleX")
+                i.scaleX = n;
+            else if (key == "scaleY")
+                i.scaleY = n;
+            else if (key == "scaleZ")
+                i.scaleZ = n;
+            else
+                return;
+        }
     }
     commitTerrain(std::move(next), "已调整地貌实例");
+}
+void Editor::beginTerrainEdit() {
+    if (m_terrainStart || assetBusy() || selectedTerrainIndex() < 0)
+        return;
+    endStroke();
+    m_terrainStart = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
+}
+void Editor::endTerrainEdit(bool cancel) {
+    if (!m_terrainStart)
+        return;
+    wb::Command c;
+    c.label = "地貌变换";
+    c.terrainBefore = m_terrainStart;
+    c.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
+    m_terrainStart.reset();
+    if (*c.terrainBefore == *c.terrainAfter) {
+        emit changed();
+        return;
+    }
+    if (cancel) {
+        m_world.apply(c, false);
+        ++m_revision;
+        dirtyCommand(c);
+        emit changed();
+    } else
+        pushCommand(std::move(c));
+}
+void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &label) {
+    if (assetBusy())
+        return;
+    endTerrainEdit();
+    endStroke();
+    wb::Command c;
+    c.label = label;
+    c.layersBefore = std::make_shared<const std::vector<wb::SculptLayer>>(m_world.heights.layers);
+    c.layersAfter = std::make_shared<const std::vector<wb::SculptLayer>>(std::move(next));
+    if (*c.layersBefore == *c.layersAfter)
+        return;
+    m_world.apply(c, true);
+    ++m_revision;
+    dirtyCommand(c);
+    pushCommand(std::move(c));
+}
+void Editor::setNodeVisible(const QString &id, bool visible) {
+    if (assetBusy())
+        return;
+    endTerrainEdit();
+    auto next = m_world.heights.instances;
+    for (auto &i : next)
+        if (i.id == id) {
+            i.enabled = visible;
+            commitTerrain(std::move(next), "切换地貌可见性");
+            return;
+        }
+    auto layers = m_world.heights.layers;
+    for (auto &l : layers)
+        if (l.id == id) {
+            l.enabled = visible;
+            commitLayers(std::move(layers), "切换地形层");
+            return;
+        }
+}
+void Editor::addSculptLayer() {
+    if (m_world.heights.layers.size() >= 32) {
+        emit failure("本版最多32个雕刻层");
+        return;
+    }
+    auto layers = m_world.heights.layers;
+    wb::SculptLayer l;
+    l.id = "sculpt-" + QUuid::createUuid().toString(QUuid::Id128);
+    l.name = "地形层" + QString::number(layers.size() + 1);
+    layers.push_back(l);
+    commitLayers(std::move(layers), "新增地形层");
+    setSelectedNode(l.id);
+}
+void Editor::removeSculptLayer() {
+    int n = m_world.heights.layerIndex(m_selectedNode);
+    if (n <= 0)
+        return;
+    auto layers = m_world.heights.layers;
+    layers.erase(layers.begin() + n);
+    commitLayers(std::move(layers), "移除地形层");
+}
+void Editor::renameSculptLayer(const QString &name) {
+    int n = m_world.heights.layerIndex(m_selectedNode);
+    auto trimmed = name.trimmed();
+    if (n < 0 || trimmed.isEmpty() || trimmed.size() > 128)
+        return;
+    auto layers = m_world.heights.layers;
+    layers[n].name = trimmed;
+    commitLayers(std::move(layers), "重命名地形层");
+}
+void Editor::setActiveSculptLayer(const QString &id) {
+    if (m_world.heights.layerIndex(id) >= 0)
+        setSelectedNode(id);
 }
 void Editor::removeTerrain() {
     const int index = selectedTerrainIndex();

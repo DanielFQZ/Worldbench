@@ -98,6 +98,15 @@ class Editor : public QObject {
     Q_INVOKABLE void moveTerrain(int direction);
     Q_INVOKABLE void clearTerrainMask();
     Q_INVOKABLE void focusTerrain();
+    Q_INVOKABLE void setTerrainOptions(const QVariantMap &values);
+    Q_INVOKABLE void beginTerrainEdit();
+    Q_INVOKABLE void endTerrainEdit(bool cancel = false);
+    Q_INVOKABLE void setNodeVisible(const QString &id, bool visible);
+    Q_INVOKABLE void addSculptLayer();
+    Q_INVOKABLE void removeSculptLayer();
+    Q_INVOKABLE void renameSculptLayer(const QString &name);
+    Q_INVOKABLE void setActiveSculptLayer(const QString &id);
+    bool terrainEditing() const { return bool(m_terrainStart); }
     QString materialLabel() const;
     QVariantList materialProperties() const;
     QStringList resourceSources() const { return m_world.resourcePaths; }
@@ -113,7 +122,7 @@ class Editor : public QObject {
         emit changed();
     }
     uint64_t revision() const { return m_revision; }
-    bool commandBusy() const { return bool(m_stroke) || assetBusy(); }
+    bool commandBusy() const { return bool(m_stroke) || bool(m_terrainStart) || assetBusy(); }
     QJsonObject worldInfo() const;
     QJsonObject executeTool(const QString &name, const QJsonObject &args);
     Q_INVOKABLE QVariantList blockCatalog(const QString &filter = QString()) const;
@@ -123,7 +132,8 @@ class Editor : public QObject {
     Q_INVOKABLE void removeResource(int index);
     Q_INVOKABLE void copyMcpConfiguration();
     bool modified() const {
-        return m_strokeChanged || m_state != m_savedState || m_resourceRevision != m_savedResourceRevision;
+        return m_strokeChanged || bool(m_terrainStart) || m_state != m_savedState ||
+               m_resourceRevision != m_savedResourceRevision;
     }
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
@@ -174,6 +184,8 @@ class Editor : public QObject {
     void initializeTerrainImporter();
     int selectedTerrainIndex() const;
     void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
+    void commitLayers(std::vector<wb::SculptLayer> next, const QString &label);
+    std::shared_ptr<const std::vector<wb::TerrainInstance>> m_terrainStart;
     std::set<int> desiredChunks() const;
     wb::BrushOptions m_brushOptions;
     wb::World m_world;

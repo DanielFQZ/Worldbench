@@ -168,6 +168,20 @@ Block World::block(int x, int y, int z) const {
     const auto it = overrides.find(key(x, y, z));
     return it == overrides.end() ? baseBlock(x, y, z) : it->second;
 }
+Block World::blockAtHeight(int x, int y, int z, int h) const {
+    if (!contains(x, y, z))
+        return Air;
+    auto it = overrides.find(key(x, y, z));
+    if (it != overrides.end())
+        return it->second;
+    if (y == MinY)
+        return Bedrock;
+    if (y > h)
+        return y <= seaLevel ? Water : Air;
+    if (y == h)
+        return h <= seaLevel + 1 ? Sand : Grass;
+    return y >= h - 3 ? (h <= seaLevel + 1 ? Sand : Dirt) : Stone;
+}
 void World::setBlock(int x, int y, int z, Block b) {
     if (!contains(x, y, z) || y == MinY || b >= palette.size())
         return;
@@ -269,8 +283,14 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
 void World::apply(const Command &cmd, bool forward) {
     if (cmd.terrainBefore && cmd.terrainAfter)
         heights.instances = *(forward ? cmd.terrainAfter : cmd.terrainBefore);
+    if (cmd.layersBefore && cmd.layersAfter) {
+        heights.layers = *(forward ? cmd.layersAfter : cmd.layersBefore);
+        if (heights.layerIndex(heights.activeLayer) < 0)
+            heights.activeLayer = heights.layers.front().id;
+    }
     for (auto c : cmd.heights)
-        heights.restore(c.index, forward ? c.after : c.before, forward ? c.afterOverride : c.beforeOverride);
+        heights.restoreDelta(cmd.heightLayer.isEmpty() ? heights.activeLayer : cmd.heightLayer, c.index,
+                             forward ? c.after : c.before);
     for (auto c : cmd.cells) {
         const int v = forward ? c.after : c.before;
         if (v < 0)
@@ -294,8 +314,7 @@ void Stroke::changeHeight(int i, int h) {
     h = std::clamp(h, World::MinY + 1, World::MaxY - 2);
     if (h == world.heights[i])
         return;
-    beforeHeights.try_emplace(i, world.heights[i]);
-    beforeHeightOverrides.try_emplace(i, world.heights.changes().contains(i));
+    beforeHeights.try_emplace(i, world.heights.delta(i));
     world.heights.set(i, h);
     ++changes;
 }
@@ -330,7 +349,9 @@ void Stroke::reshapeSurface(int x, int z, int target, const BrushOptions &o) {
 }
 bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat, bool reverse,
                    const BrushOptions &o) {
-    if (!hit.valid || tool < 0 || tool > 5)
+    if (!hit.valid || tool < 0 || tool > 5 ||
+        (tool == 0 || tool == 1 || tool == 5) &&
+            !world.heights.layers.at(world.heights.layerIndex(layer)).enabled)
         return false;
     const auto serial = changes;
     if (flattenHeight == -9999)
@@ -436,10 +457,10 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
 Command Stroke::finish(const QString &label) {
     Command c;
     c.label = label;
+    c.heightLayer = layer;
     for (auto [i, b] : beforeHeights)
-        if (b != world.heights[i] || beforeHeightOverrides[i] != world.heights.changes().contains(i))
-            c.heights.push_back(
-                {i, b, world.heights[i], beforeHeightOverrides[i], world.heights.changes().contains(i)});
+        if (b != world.heights.delta(i))
+            c.heights.push_back({i, b, world.heights.delta(i)});
     for (auto [k, b] : beforeCells) {
         auto it = world.overrides.find(k);
         int a = it == world.overrides.end() ? -1 : int(it->second);

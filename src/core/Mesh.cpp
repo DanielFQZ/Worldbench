@@ -13,19 +13,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
         for (int x = 0; x < 18; ++x)
             heights[z][x] = w.height(cx * 16 + x - 1, cz * 16 + z - 1);
     auto blockAt = [&](int x, int y, int z) -> Block {
-        if (!w.contains(x, y, z))
-            return Air;
-        auto it = w.overrides.find(w.key(x, y, z));
-        if (it != w.overrides.end())
-            return it->second;
-        if (y == World::MinY)
-            return Bedrock;
         const int h = heights[z - cz * 16 + 1][x - cx * 16 + 1];
-        if (y > h)
-            return y <= w.seaLevel ? Water : Air;
-        if (y == h)
-            return h <= w.seaLevel + 1 ? Sand : Grass;
-        return y >= h - 3 ? (h <= w.seaLevel + 1 ? Sand : Dirt) : Stone;
+        return w.blockAtHeight(x, y, z, h);
     };
     int maxY = std::max(40, w.seaLevel + 1);
     for (auto [k, v] : w.overrides) {
@@ -36,7 +25,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     }
     for (int z = cz * 16; z < cz * 16 + 16; ++z)
         for (int x = cx * 16; x < cx * 16 + 16; ++x)
-            maxY = std::max(maxY, w.height(x, z) + 1);
+            maxY = std::max(maxY, heights[z - cz * 16 + 1][x - cx * 16 + 1] + 1);
     for (int y = World::MinY; y < std::min(World::MaxY, maxY); ++y)
         for (int z = cz * 16; z < cz * 16 + 16; ++z)
             for (int x = cx * 16; x < cx * 16 + 16; ++x) {

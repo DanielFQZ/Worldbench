@@ -3,6 +3,7 @@
 #include "core/Project.h"
 #include "core/World.h"
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QImage>
@@ -101,7 +102,8 @@ int main(int argc, char **argv) {
         check(snapshot.height(0, 0) == 30 && world.height(0, 0) == 40, "snapshot isolates transforms");
         world.heights.set(world.column(0, 0), 55);
         world.heights.instances[0].enabled = false;
-        check(world.height(0, 0) == 55, "manual height overrides remain after instance change");
+        check(world.height(0, 0) == 25,
+              "relative sculpt survives while removed instance contribution disappears");
         wb::Command command;
         command.terrainBefore =
             std::make_shared<const std::vector<wb::TerrainInstance>>(world.heights.instances);
@@ -111,7 +113,7 @@ int main(int argc, char **argv) {
         world.apply(command, true);
         check(world.heights.instances.empty(), "instance removal command");
         world.apply(command, false);
-        check(world.heights.instances.size() == 2 && world.height(0, 0) == 55,
+        check(world.heights.instances.size() == 2 && world.height(0, 0) == 25,
               "instance undo preserves manual edits");
         world.heights.instances[0].mask = decoded;
         world.heights.instances[0].maskName = "precision.png";
@@ -133,8 +135,104 @@ int main(int argc, char **argv) {
         auto change = stroke.finish("raise");
         loaded.apply(change, false);
         loaded.heights.instances[0].high = 60;
-        check(loaded.height(0, 0) == 40,
-              "save and undo preserve manual override even when equal to composed base");
+        check(loaded.height(0, 0) == 70, "save and undo preserve relative sculpt after instance remapping");
+        auto layered = wb::World::create(wb::WorldOptions{32, 42, -60, 10, 0, true});
+        auto addA = a;
+        addA.blend = 1;
+        addA.low = 0;
+        addA.high = 20;
+        auto addB = addA;
+        addB.id = "second";
+        addB.high = 30;
+        layered.heights.instances = {addA, addB};
+        wb::Stroke raise(layered);
+        raise.stamp({true, 0, 60, 0, {.5f, 61, .5f}, {0, 1, 0}, wb::Grass}, 0, 1, 4, wb::Stone, false);
+        auto raised = raise.finish("relative");
+        check(layered.height(0, 0) == 64, "two additive instances plus sculpt");
+        layered.heights.instances[0].enabled = false;
+        layered.heights.instances[1].enabled = false;
+        check(layered.height(0, 0) == 14, "disabling both instances keeps only plus four sculpt");
+        wb::SculptLayer second;
+        second.id = "layer2";
+        second.name = "第二层";
+        layered.heights.layers.push_back(second);
+        layered.heights.activeLayer = second.id;
+        layered.heights.set(layered.column(0, 0), 21);
+        auto layerSnapshot = layered;
+        layered.heights.layers[0].enabled = false;
+        check(layered.height(0, 0) == 17 && layerSnapshot.height(0, 0) == 21,
+              "independent layer visibility and snapshot");
+        layered.apply(raised, false);
+        layered.heights.layers[0].enabled = true;
+        check(layered.height(0, 0) == 17, "undo targets original layer after active layer changes");
+        check(wb::saveProject(base + "/layers.wbench", layered, error) &&
+                  wb::loadProject(base + "/layers.wbench", loaded, error) &&
+                  loaded.heights.layers == layered.heights.layers && loaded.heights.activeLayer == second.id,
+              "layer persistence");
+        {
+            auto legacy = wb::World::create(wb::WorldOptions{32, 42, -60, 10, 0, true});
+            legacy.heights.instances = {a};
+            check(wb::saveProject(base + "/legacy.wbench", legacy, error), "legacy fixture source");
+            QFile source(base + "/legacy.wbench");
+            source.open(QIODevice::ReadOnly);
+            auto root = QJsonDocument::fromJson(qUncompress(source.readAll().mid(40))).object();
+            source.close();
+            root["format"] = 4;
+            root.remove("sculptLayers");
+            root.remove("activeLayer");
+            root["heightChanges"] = QJsonArray{QJsonValue(QJsonArray{legacy.column(0, 0), 35})};
+            auto data = QJsonDocument(root).toJson(QJsonDocument::Compact);
+            source.open(QIODevice::WriteOnly);
+            source.write(QByteArray("WBENCH01", 8) +
+                         QCryptographicHash::hash(data, QCryptographicHash::Sha256) + qCompress(data));
+            source.close();
+            const bool migrated = wb::loadProject(source.fileName(), loaded, error);
+            if (!migrated)
+                throw std::runtime_error(error.toStdString());
+            check(loaded.height(0, 0) == 35, "v4 migration preserves visible heights");
+            loaded.heights.instances[0].enabled = false;
+            check(loaded.height(0, 0) == 15, "v4 migrated sculpt becomes relative to instances");
+        }
+        auto rotated = a;
+        rotated.image = black;
+        rotated.low = 10;
+        rotated.high = 10;
+        rotated.rotationX = 30;
+        check(std::abs(rotated.apply(0, 0, 4) - (10 - 4 / std::sqrt(3.))) < 1e-4,
+              "X rotation plane intersection");
+        rotated.rotationX = 0;
+        rotated.rotationZ = 30;
+        check(std::abs(rotated.apply(0, 4, 0) - (10 + 4 / std::sqrt(3.))) < 1e-4,
+              "Z rotation plane intersection");
+        rotated.rotationZ = 0;
+        rotated.rotationY = 90;
+        rotated.width = 5;
+        rotated.depth = 17;
+        rotated.x = -2;
+        check(rotated.apply(-5, 6, 0) == 10 && rotated.apply(-5, 0, 6) == -5,
+              "Y rotation changes rectangular footprint");
+        rotated.rotationY = 0;
+        rotated.scaleX = 400;
+        rotated.y = 7;
+        check(rotated.apply(-5, 6, 0) == 17, "horizontal scaling and vertical translation");
+        auto curved = std::make_shared<wb::HeightmapData>();
+        curved->width = curved->depth = 17;
+        for (int z = 0; z < 17; ++z)
+            for (int x = 0; x < 17; ++x)
+                curved->values.push_back(uint16_t((x * x + z * 17) * 70));
+        auto accelerated = std::make_shared<wb::HeightmapData>(*curved);
+        accelerated->buildBounds();
+        rotated = a;
+        rotated.image = curved;
+        rotated.rotationX = 23;
+        rotated.rotationY = 31;
+        rotated.rotationZ = -17;
+        auto fast = rotated;
+        fast.image = accelerated;
+        for (int z = -14; z <= 14; ++z)
+            for (int x = -14; x <= 14; ++x)
+                check(std::abs(fast.apply(-50, x, z) - rotated.apply(-50, x, z)) < 1e-7,
+                      "hierarchy matches uncached bilinear ray intersection");
         auto json = wb::saveTerrain(world.heights.instances);
         auto entries = json["instances"].toArray();
         auto invalid = entries[0].toObject();
@@ -158,6 +256,11 @@ int main(int argc, char **argv) {
         check(hit.valid && hit.y == 30, "raycast uses composed height");
         auto mesh = wb::buildChunkMesh(world, 0, 0, 1);
         check(!mesh->opaque.empty(), "composed instance mesh builds");
+        world.heights.instances[0].rotationX = 15;
+        world.heights.instances[0].rotationY = 25;
+        world.heights.instances[0].y = 4;
+        world.heights.instances[0].scaleY = 120;
+        world.heights.set(world.column(0, 0), world.height(0, 0) + 7);
         auto result = wb::exportMinecraft(world, base + "/terrain");
         check(result.ok && result.chunks == 4, "instance export");
         QJsonArray chunks, ids;

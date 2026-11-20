@@ -84,10 +84,17 @@ QJsonArray toolList() {
         {"position", "tool", "radius", "strength", "expected_revision"}, false);
     add("terrain_instance",
         "Atomically adjust an existing heightmap instance. Inspect world_info.terrain_instances first. "
-        "changes may contain x,z,width,depth,low,high,blend (0 replace,1 add,2 max,3 min),opacity (0..100),"
+        "changes may contain x,y,z,rotationX/Y/Z (-180..180),scaleX/Y/Z (1..1600 "
+        "percent),width,depth,low,high,blend (0 replace,1 add,2 max,3 min),opacity (0..100),"
         "feather (0..50),enabled,name. Embedded image data is unchanged. One shared undo step.",
         {{"id", str}, {"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"id", "changes", "expected_revision"}, false);
+    add("sculpt_layer",
+        "Manage additive sculpt layers. action: add/select/visible/rename/remove. Existing layers need id. "
+        "visible needs enabled, rename needs name. Base cannot be removed. Inspect world_info.sculpt_layers. "
+        "Sculpt changes relative height on active layer.",
+        {{"action", str}, {"id", str}, {"name", str}, {"enabled", boolean}, {"expected_revision", revision}},
+        {"action", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",
         {{"expected_revision", revision}}, {"expected_revision"}, false);
     add("redo", "Redo the latest undone shared command.", {{"expected_revision", revision}},

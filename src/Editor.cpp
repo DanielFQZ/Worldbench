@@ -166,7 +166,7 @@ void Editor::endStroke() {
     pushCommand(std::move(c));
 }
 void Editor::pushCommand(wb::Command c) {
-    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter) {
+    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -175,15 +175,22 @@ void Editor::pushCommand(wb::Command c) {
         auto bytes = [&] {
             size_t b = 0;
             std::set<const wb::HeightmapData *> images;
+            std::set<const std::map<int, int> *> layerMaps;
             for (const auto &e : m_history) {
                 b += e.command.cells.size() * sizeof(wb::CellChange) +
                      e.command.heights.size() * sizeof(wb::HeightChange);
+                for (const auto &list : {e.command.layersBefore, e.command.layersAfter})
+                    if (list)
+                        for (const auto &l : *list)
+                            if (layerMaps.insert(l.deltas.get()).second)
+                                b += l.deltas->size() * 48;
                 for (const auto &list : {e.command.terrainBefore, e.command.terrainAfter})
                     if (list)
                         for (const auto &instance : *list)
                             for (const auto &image : {instance.image, instance.mask})
                                 if (image && images.insert(image.get()).second)
-                                    b += image->values.size() * 2;
+                                    b += image->values.size() * 2 +
+                                         image->bounds.size() * sizeof(wb::HeightmapData::Bounds);
             }
             return b;
         };
@@ -197,6 +204,7 @@ void Editor::pushCommand(wb::Command c) {
 void Editor::undo() {
     if (assetBusy())
         return;
+    endTerrainEdit();
     endStroke();
     if (!canUndo())
         return;
@@ -211,6 +219,7 @@ void Editor::undo() {
 void Editor::redo() {
     if (assetBusy())
         return;
+    endTerrainEdit();
     endStroke();
     if (!canRedo())
         return;
@@ -223,7 +232,8 @@ void Editor::redo() {
     emit changed();
 }
 void Editor::resetHistory() {
-    m_selectedNode = "terrain-base-1";
+    m_selectedNode = m_world.heights.activeLayer;
+    m_terrainStart.reset();
     m_stroke.reset();
     m_strokeChanged = false;
     m_history.clear();
@@ -272,6 +282,7 @@ bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int
 bool Editor::save(const QUrl &url) {
     if (assetBusy())
         return false;
+    endTerrainEdit();
     endStroke();
     QString path = url.isEmpty() ? m_path : url.toLocalFile();
     if (path.isEmpty())
@@ -293,6 +304,7 @@ bool Editor::save(const QUrl &url) {
 bool Editor::open(const QUrl &url) {
     if (exportBusy() || assetBusy())
         return false;
+    endTerrainEdit();
     endStroke();
     wb::World next;
     QString error;
@@ -321,10 +333,9 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
-    if (command.terrainAfter) {
-        if (selectedTerrainIndex() < 0)
+    if (command.terrainAfter || command.layersAfter) {
+        if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0)
             m_selectedNode = "terrain-base-1";
-        ++m_epoch;
         dirtyAll();
         return;
     }
@@ -370,7 +381,8 @@ void Editor::setPreviewCenter(int x, int z) {
 }
 void Editor::dirtyAll() {
     m_dirty = desiredChunks();
-    m_meshTimer.start();
+    if (!m_meshTimer.isActive())
+        m_meshTimer.start();
     emit changed();
 }
 void Editor::startMesh() {
@@ -419,6 +431,7 @@ void Editor::startMesh() {
 void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {
     if (exportBusy() || assetBusy())
         return;
+    endTerrainEdit();
     endStroke();
     if (selectedArea && !m_selection.isValid()) {
         emit failure("请先创建选区");

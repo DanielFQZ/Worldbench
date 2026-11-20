@@ -43,23 +43,40 @@ QString Editor::resourceDiagnostics() const {
 QVariantList Editor::sceneNodes() const {
     QVariantList nodes;
     for (auto it = m_world.heights.instances.rbegin(); it != m_world.heights.instances.rend(); ++it)
-        nodes << QVariantMap{
-            {"id", it->id}, {"name", it->name + (it->enabled ? "" : "（隐藏）")}, {"kind", "heightmap"}};
-    nodes << QVariantMap{{"id", "terrain-base-1"}, {"name", "基础地形层1"}, {"kind", "terrain"}};
+        nodes << QVariantMap{{"id", it->id},
+                             {"name", it->name + (it->enabled ? "" : "（隐藏）")},
+                             {"kind", "heightmap"},
+                             {"visible", it->enabled}};
+    for (auto it = m_world.heights.layers.rbegin(); it != m_world.heights.layers.rend(); ++it)
+        nodes << QVariantMap{{"id", it->id},
+                             {"name", it->name},
+                             {"kind", "terrain"},
+                             {"visible", it->enabled},
+                             {"active", it->id == m_world.heights.activeLayer}};
     return nodes;
 }
 QVariantMap Editor::layerDetails() const {
-    return {{"name", "基础地形层1"},
-            {"size", m_world.width},
-            {"width", m_world.width},
-            {"depth", m_world.depth},
-            {"originX", m_world.originX},
-            {"originZ", m_world.originZ},
-            {"minY", wb::World::MinY},
-            {"maxY", wb::World::MaxY - 1},
-            {"seaLevel", m_world.seaLevel},
-            {"seed", double(m_world.seed)},
-            {"overrideCells", int(m_world.overrides.size())}};
+    int n = m_world.heights.layerIndex(m_selectedNode);
+    if (n < 0)
+        n = m_world.heights.layerIndex(m_world.heights.activeLayer);
+    const auto &l = m_world.heights.layers[n];
+    return {
+        {"name", l.name},
+        {"id", l.id},
+        {"enabled", l.enabled},
+        {"removable", n > 0},
+        {"activeName", m_world.heights.layers[m_world.heights.layerIndex(m_world.heights.activeLayer)].name},
+        {"editedColumns", int(l.deltas->size())},
+        {"size", m_world.width},
+        {"width", m_world.width},
+        {"depth", m_world.depth},
+        {"originX", m_world.originX},
+        {"originZ", m_world.originZ},
+        {"minY", wb::World::MinY},
+        {"maxY", wb::World::MaxY - 1},
+        {"seaLevel", m_world.seaLevel},
+        {"seed", double(m_world.seed)},
+        {"overrideCells", int(m_world.overrides.size())}};
 }
 QString Editor::materialLabel() const {
     return m_world.palette[m_material].label();
@@ -349,6 +366,13 @@ QJsonObject Editor::worldInfo() const {
                                    {"name", i.name},
                                    {"x", i.x},
                                    {"z", i.z},
+                                   {"y", i.y},
+                                   {"rotationX", i.rotationX},
+                                   {"rotationY", i.rotationY},
+                                   {"rotationZ", i.rotationZ},
+                                   {"scaleX", i.scaleX},
+                                   {"scaleY", i.scaleY},
+                                   {"scaleZ", i.scaleZ},
                                    {"width", i.width},
                                    {"depth", i.depth},
                                    {"low", i.low},
@@ -359,7 +383,13 @@ QJsonObject Editor::worldInfo() const {
                                    {"enabled", i.enabled},
                                    {"source", i.sourceName},
                                    {"mask", i.maskName}});
+    QJsonArray sculptLayers;
+    for (const auto &l : m_world.heights.layers)
+        sculptLayers.append(QJsonObject{
+            {"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"columns", int(l.deltas->size())}});
     return {{"revision", double(m_revision)},
+            {"sculpt_layers", sculptLayers},
+            {"active_sculpt_layer", m_world.heights.activeLayer},
             {"terrain_instances", terrain},
             {"size", m_world.width},
             {"width", m_world.width},
@@ -479,6 +509,38 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         undo();
         return worldInfo();
     }
+    if (name == "sculpt_layer") {
+        const auto action = args["action"].toString(), id = args["id"].toString();
+        const int n = m_world.heights.layerIndex(id);
+        if (action == "add") {
+            if (m_world.heights.layers.size() >= 32)
+                throw std::runtime_error("最多32个雕刻层");
+            addSculptLayer();
+        } else {
+            if (n < 0)
+                throw std::runtime_error("雕刻层不存在");
+            if (action == "select")
+                setActiveSculptLayer(id);
+            else if (action == "visible") {
+                if (!args["enabled"].isBool())
+                    throw std::runtime_error("enabled必须是布尔值");
+                setNodeVisible(id, args["enabled"].toBool());
+            } else if (action == "remove") {
+                if (n == 0)
+                    throw std::runtime_error("基础层不能移除");
+                setSelectedNode(id);
+                removeSculptLayer();
+            } else if (action == "rename") {
+                auto name = args["name"].toString().trimmed();
+                if (name.isEmpty() || name.size() > 128)
+                    throw std::runtime_error("层名无效");
+                setSelectedNode(id);
+                renameSculptLayer(name);
+            } else
+                throw std::runtime_error("未知雕刻层操作");
+        }
+        return worldInfo();
+    }
     if (name == "terrain_instance") {
         auto next = m_world.heights.instances;
         auto it = std::find_if(next.begin(), next.end(),
@@ -502,6 +564,20 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
                     it->x = n;
                 else if (key == "z")
                     it->z = n;
+                else if (key == "y")
+                    it->y = n;
+                else if (key == "rotationX")
+                    it->rotationX = n;
+                else if (key == "rotationY")
+                    it->rotationY = n;
+                else if (key == "rotationZ")
+                    it->rotationZ = n;
+                else if (key == "scaleX")
+                    it->scaleX = n;
+                else if (key == "scaleY")
+                    it->scaleY = n;
+                else if (key == "scaleZ")
+                    it->scaleZ = n;
                 else if (key == "width")
                     it->width = n;
                 else if (key == "depth")
@@ -531,6 +607,8 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         return worldInfo();
     }
     if (name == "sculpt") {
+        if (!m_world.heights.layers[m_world.heights.layerIndex(m_world.heights.activeLayer)].enabled)
+            throw std::runtime_error("当前雕刻层隐藏，请先启用或选择其他层");
         auto p = coord(args["position"], true);
         int tool = integer(args["tool"], 0, 5), radius = integer(args["radius"], 1, 16),
             strength = integer(args["strength"], 1, 4);

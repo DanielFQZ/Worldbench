@@ -94,7 +94,11 @@ int main(int argc, char **argv) {
                       "invalid v3 rejected without mutating current world");
             };
             auto invalid = valid;
-            invalid["heightChanges"] = QJsonArray{QJsonArray{0, 30}, QJsonArray{0, 31}};
+            auto invalidLayers = valid["sculptLayers"].toArray();
+            auto invalidLayer = invalidLayers[0].toObject();
+            invalidLayer["deltas"] = QJsonArray{QJsonArray{0, 30}, QJsonArray{0, 31}};
+            invalidLayers[0] = invalidLayer;
+            invalid["sculptLayers"] = invalidLayers;
             rejects(invalid);
             invalid = valid;
             invalid["overrides"] = QJsonArray{QJsonArray{double(farKey) + .5, int(Glass)}};

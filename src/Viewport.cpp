@@ -259,7 +259,10 @@ void Viewport::setEditor(Editor *e) {
     if (e) {
         e->setCameraController(this);
         connect(e, &Editor::sceneChanged, this, [this] { update(); });
-        connect(e, &Editor::changed, this, [this] { update(); });
+        connect(e, &Editor::changed, this, [this] {
+            update();
+            emit cameraChanged();
+        });
         connect(e, &Editor::worldReset, this, &Viewport::resetCamera);
     }
     emit editorChanged();
@@ -342,12 +345,21 @@ void Viewport::resetCamera() {
     changedCamera();
 }
 void Viewport::focusTarget() {
+    m_velocity = {};
+    if (m_editor && m_editor->terrainDetails()["valid"].toBool()) {
+        m_editor->focusTerrain();
+        return;
+    }
     m_pivot = m_hit.valid ? m_hit.position : QVector3D(0, 20, 0);
     m_camera = m_pivot - forward() * (m_hit.valid ? 24.f : 150.f);
     changedCamera();
 }
 void Viewport::mousePressEvent(QMouseEvent *e) {
     forceActiveFocus();
+    if (e->buttons() == Qt::LeftButton && e->modifiers() == Qt::NoModifier && pressGizmo(e->position())) {
+        e->accept();
+        return;
+    }
     const bool wasNavigating =
         m_altNav || m_buttons.testFlag(Qt::RightButton) || m_buttons.testFlag(Qt::MiddleButton);
     m_buttons = e->buttons();
@@ -388,6 +400,11 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
     e->accept();
 }
 void Viewport::mouseReleaseEvent(QMouseEvent *e) {
+    if (m_gizmoDragging && e->button() == Qt::LeftButton) {
+        finishGizmo();
+        e->accept();
+        return;
+    }
     m_buttons = e->buttons();
     if (e->button() == Qt::LeftButton)
         m_selecting = false;
@@ -406,6 +423,11 @@ void Viewport::mouseReleaseEvent(QMouseEvent *e) {
     e->accept();
 }
 void Viewport::mouseMoveEvent(QMouseEvent *e) {
+    if (m_gizmoDragging) {
+        moveGizmo(e->position());
+        e->accept();
+        return;
+    }
     m_reverse = e->modifiers().testFlag(Qt::ShiftModifier);
     const bool nav = m_altNav || m_buttons.testFlag(Qt::RightButton) || m_buttons.testFlag(Qt::MiddleButton);
     if (nav) {
@@ -453,6 +475,8 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         return;
     }
     if (e->key() == Qt::Key_Escape) {
+        if (m_gizmoDragging)
+            finishGizmo(true);
         stopInput();
         e->accept();
         return;
@@ -477,6 +501,13 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
+    if (!e->modifiers() && (e->key() == Qt::Key_W || e->key() == Qt::Key_E || e->key() == Qt::Key_R) &&
+        m_editor->terrainDetails()["valid"].toBool()) {
+        setGizmoMode(e->key() == Qt::Key_W ? 0 : e->key() == Qt::Key_E ? 1 : 2);
+        m_editor->setTool(-1);
+        e->accept();
+        return;
+    }
     if (e->key() == Qt::Key_Shift)
         m_reverse = true;
     e->ignore();
@@ -489,6 +520,7 @@ void Viewport::keyReleaseEvent(QKeyEvent *e) {
     e->accept();
 }
 void Viewport::stopInput() {
+    finishGizmo();
     m_velocity = {};
     endRawInput();
     m_keys.clear();

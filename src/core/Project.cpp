@@ -12,12 +12,10 @@
 #include <cmath>
 namespace wb {
 bool saveProject(const QString &path, const World &w, QString &error) {
-    QJsonArray heights, heightChanges, cells;
+    QJsonArray heights, cells;
     if (w.heights.dense)
         for (int h : *w.heights.dense)
             heights.append(h);
-    for (auto [i, h] : w.heights.changes())
-        heightChanges.append(QJsonArray{i, h});
     std::vector<std::pair<uint64_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
     std::sort(ordered.begin(), ordered.end());
     for (auto [k, v] : ordered)
@@ -31,14 +29,22 @@ bool saveProject(const QString &path, const World &w, QString &error) {
     }
     for (const auto &path : w.resourcePaths)
         paths.append(path);
-    QJsonObject root{{"format", 4},
+    QJsonArray layers;
+    for (const auto &l : w.heights.layers) {
+        QJsonArray edits;
+        for (auto [i, h] : *l.deltas)
+            edits.append(QJsonArray{i, h});
+        layers.append(QJsonObject{{"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"deltas", edits}});
+    }
+    QJsonObject root{{"format", 5},
+                     {"sculptLayers", layers},
+                     {"activeLayer", w.heights.activeLayer},
                      {"width", w.width},
                      {"depth", w.depth},
                      {"terrain", QJsonObject{{"baseHeight", w.heights.baseHeight},
                                              {"variation", w.heights.variation},
                                              {"flat", w.heights.flat}}},
                      {"terrainInstances", saveTerrain(w.heights.instances)},
-                     {"heightChanges", heightChanges},
                      {"originX", w.originX},
                      {"originZ", w.originZ},
                      {"seed", w.seed},
@@ -100,7 +106,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 4))
+    if (!integer(o["format"], 1, 5))
         return fail("不支持的工程版本");
     const auto widthValue = o[format >= 3 ? "width" : "size"];
     const auto depthValue = format >= 3 ? o["depth"] : widthValue;
@@ -144,7 +150,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
     }
     if (format >= 4 && !loadTerrain(o["terrainInstances"].toObject(), w.heights.instances, error))
         return false;
-    if (format >= 3) {
+    if (format == 3 || format == 4) {
         if (!o["heightChanges"].isArray())
             return fail("缺少高度差量");
         std::set<int> seen;
@@ -155,6 +161,40 @@ bool loadProject(const QString &path, World &world, QString &error) {
                 return fail("高度差量无效");
             w.heights.restore(a[0].toInt(), a[1].toInt(), true);
         }
+    }
+    if (format >= 5) {
+        if (!o["sculptLayers"].isArray() || o["sculptLayers"].toArray().isEmpty() ||
+            o["sculptLayers"].toArray().size() > 32)
+            return fail("地形层列表无效");
+        std::set<QString> ids;
+        w.heights.layers.clear();
+        for (auto value : o["sculptLayers"].toArray()) {
+            auto l = value.toObject();
+            SculptLayer layer;
+            layer.id = l["id"].toString();
+            layer.name = l["name"].toString();
+            layer.enabled = l["enabled"].toBool();
+            if (layer.id.isEmpty() || layer.id.size() > 80 || layer.name.isEmpty() ||
+                layer.name.size() > 128 || !ids.insert(layer.id).second || !l["enabled"].isBool() ||
+                !l["deltas"].isArray())
+                return fail("地形层参数无效");
+            for (const auto &instance : w.heights.instances)
+                if (instance.id == layer.id)
+                    return fail("场景标识重复");
+            for (auto edit : l["deltas"].toArray()) {
+                auto a = edit.toArray();
+                if (a.size() != 2 || !integer(a[0], 0, w.width * w.depth - 1) ||
+                    !integer(a[1], -1000000, 1000000) ||
+                    !layer.deltas->emplace(a[0].toInt(), a[1].toInt()).second)
+                    return fail("地形层差量无效");
+            }
+            w.heights.layers.push_back(std::move(layer));
+        }
+        if (w.heights.layers.front().id != "terrain-base-1")
+            return fail("缺少基础地形层");
+        w.heights.activeLayer = o["activeLayer"].toString();
+        if (w.heights.layerIndex(w.heights.activeLayer) < 0)
+            return fail("活动地形层无效");
     }
     if (format >= 2) {
         const auto states = o["palette"].toArray();

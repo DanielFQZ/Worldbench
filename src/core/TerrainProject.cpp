@@ -32,6 +32,13 @@ QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances) {
                                    {"mask", index(i.mask)},
                                    {"x", i.x},
                                    {"z", i.z},
+                                   {"y", i.y},
+                                   {"rotationX", i.rotationX},
+                                   {"rotationY", i.rotationY},
+                                   {"rotationZ", i.rotationZ},
+                                   {"scaleX", i.scaleX},
+                                   {"scaleY", i.scaleY},
+                                   {"scaleZ", i.scaleZ},
                                    {"width", i.width},
                                    {"depth", i.depth},
                                    {"low", i.low},
@@ -74,6 +81,7 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
         image->values.resize(count);
         for (size_t i = 0; i < count; ++i)
             image->values[i] = qFromLittleEndian<uint16_t>(bytes.decoded.constData() + i * 2);
+        image->buildBounds();
         images.push_back(std::move(image));
     }
     std::vector<TerrainInstance> next;
@@ -105,6 +113,16 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
         i.opacity = a["opacity"].toInt();
         i.feather = a["feather"].toInt();
         i.enabled = a["enabled"].toBool();
+        for (const auto &key : {"y", "rotationX", "rotationY", "rotationZ", "scaleX", "scaleY", "scaleZ"})
+            if (a.contains(key) && !integer(a[key], -10000, 10000))
+                return fail();
+        i.y = a["y"].toInt();
+        i.rotationX = a["rotationX"].toInt();
+        i.rotationY = a["rotationY"].toInt();
+        i.rotationZ = a["rotationZ"].toInt();
+        i.scaleX = a["scaleX"].toInt(100);
+        i.scaleY = a["scaleY"].toInt(100);
+        i.scaleZ = a["scaleZ"].toInt(100);
         next.push_back(std::move(i));
     }
     if (!validateTerrain(next, error))

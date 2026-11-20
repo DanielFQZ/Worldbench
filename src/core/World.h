@@ -3,6 +3,7 @@
 #include "Heightmap.h"
 #include <QString>
 #include <QVector3D>
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <set>
@@ -41,13 +42,22 @@ struct CellChange {
     uint64_t key;
     int before, after;
 };
+struct SculptLayer {
+    QString id = "terrain-base-1", name = "基础地形层1";
+    bool enabled = true;
+    std::shared_ptr<std::map<int, int>> deltas = std::make_shared<std::map<int, int>>();
+    bool operator==(const SculptLayer &o) const {
+        return id == o.id && name == o.name && enabled == o.enabled && *deltas == *o.deltas;
+    }
+};
 struct HeightChange {
     int index, before, after;
-    bool beforeOverride = false, afterOverride = true;
 };
 struct Command {
     std::vector<CellChange> cells;
     std::vector<HeightChange> heights;
+    QString heightLayer;
+    std::shared_ptr<const std::vector<SculptLayer>> layersBefore, layersAfter;
     QString label;
     std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;
 };
@@ -64,6 +74,11 @@ class HeightField {
     bool flat = true;
     std::shared_ptr<const std::vector<int16_t>> dense;
     std::vector<TerrainInstance> instances;
+    std::vector<SculptLayer> layers{SculptLayer{}};
+    QString activeLayer = "terrain-base-1";
+    int layerIndex(const QString &id) const;
+    int delta(int index) const;
+    void restoreDelta(const QString &layer, int index, int value);
     void configure(const WorldOptions &o, int x, int z);
     size_t size() const { return size_t(width) * depth; }
     int16_t base(int index) const;
@@ -72,11 +87,10 @@ class HeightField {
     void restore(int index, int value, bool overridden);
     void fill(int value);
     void assign(std::vector<int16_t> values);
-    const std::map<int, int16_t> &changes() const { return *m_edits; }
+    const std::map<int, int> &changes() const {
+        return *layers.at(size_t(std::max(0, layerIndex(activeLayer)))).deltas;
+    }
     bool operator==(const HeightField &other) const;
-
-  private:
-    std::shared_ptr<std::map<int, int16_t>> m_edits = std::make_shared<std::map<int, int16_t>>();
 };
 struct BrushOptions {
     int shape = 0, falloff = 0, flattenMode = 0;
@@ -117,6 +131,7 @@ class World {
     int chunksZ() const { return (depth + 15) / 16; }
     Block baseBlock(int x, int y, int z) const;
     Block block(int x, int y, int z) const;
+    Block blockAtHeight(int x, int y, int z, int height) const;
     void setBlock(int x, int y, int z, Block value);
     Hit raycast(QVector3D origin, QVector3D direction, float maxDistance = 1500) const;
     void apply(const Command &command, bool forward);
@@ -124,7 +139,7 @@ class World {
 
 class Stroke {
   public:
-    explicit Stroke(World &world) : world(world) {}
+    explicit Stroke(World &world) : world(world), layer(world.heights.activeLayer) {}
     bool stamp(const Hit &hit, int tool, int radius, int strength, Block material, bool reverse,
                const BrushOptions &options = {});
     Command finish(const QString &label);
@@ -134,9 +149,9 @@ class Stroke {
     void changeHeight(int index, int height);
     void reshapeSurface(int x, int z, int height, const BrushOptions &options);
     World &world;
+    QString layer;
     std::map<uint64_t, int> beforeCells;
     std::map<int, int> beforeHeights;
-    std::map<int, bool> beforeHeightOverrides;
     std::map<int, double> m_accumulated;
     int flattenHeight = -9999;
     uint64_t changes = 0;

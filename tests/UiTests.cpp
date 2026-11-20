@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QJSEngine>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
@@ -45,6 +46,18 @@ int main(int argc, char **argv) {
     engine.rootContext()->setContextProperty("editor", &editor);
     engine.load(QUrl("qrc:/main.qml"));
     try {
+        QJSEngine expressionEngine;
+        QFile expressionSource(":/Arithmetic.js");
+        check(expressionSource.open(QIODevice::ReadOnly), "arithmetic module loads");
+        auto script = QString::fromUtf8(expressionSource.readAll()).replace(".pragma library", "");
+        check(!expressionEngine.evaluate(script).isError(), "arithmetic module parses");
+        auto calculate = expressionEngine.globalObject().property("calculate");
+        check(calculate.call({QString("(256+128)/2")}).toNumber() == 192 &&
+                  calculate.call({QString("-2*(3+4)")}).toNumber() == -14,
+              "arithmetic precedence and signed parentheses");
+        for (const auto &bad :
+             {QString("1/0"), QString("foo()"), QString("1+"), QString("2**3"), QString(129, '1')})
+            check(std::isnan(calculate.call({bad}).toNumber()), "invalid or oversized expression rejected");
         check(!engine.rootObjects().isEmpty(), "QML window loads");
         auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         check(win, "native Qt window");
@@ -267,7 +280,7 @@ int main(int argc, char **argv) {
         check(init["result"].toObject()["protocolVersion"] == "2025-06-18", "MCP negotiation");
         bridge.write("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n");
         auto tools = request("tools/list", {});
-        check(tools["result"].toObject()["tools"].toArray().size() == 11, "MCP discoverable tools");
+        check(tools["result"].toObject()["tools"].toArray().size() == 12, "MCP discoverable tools");
         auto call = [&](QString name, QJsonObject args) {
             return request("tools/call", {{"name", name}, {"arguments", args}})["result"].toObject();
         };
@@ -345,7 +358,7 @@ int main(int argc, char **argv) {
             houseImage.loadFromData(QByteArray::fromBase64(screenshot["data"].toString().toLatin1()), "PNG"),
             "decode real MCP screenshot");
         QDir().mkpath("test-output");
-        check(houseImage.save("test-output/mcp-house-0.5.0.png"), "capture MCP house");
+        check(houseImage.save("test-output/mcp-house-0.6.0.png"), "capture MCP house");
         const int caveY = editor.world().height(-20, -20);
         result = call("fill_box", {{"min", QJsonArray{-20, caveY - 4, -20}},
                                    {"max", QJsonArray{-20, caveY, -20}},
@@ -397,6 +410,17 @@ int main(int argc, char **argv) {
         auto *instancePanel = win->findChild<QQuickItem *>("terrainInstanceControls");
         check(instancePanel && instancePanel->isVisible(), "selected instance exposes detail controls");
         auto *terrainX = win->findChild<QQuickItem *>("terrainX");
+        std::function<QQuickItem *(QQuickItem *, const QString &)> visualItem =
+            [&](QQuickItem *root, const QString &name) -> QQuickItem * {
+            if (root->objectName() == name)
+                return root;
+            for (auto *child : root->childItems())
+                if (auto *found = visualItem(child, name))
+                    return found;
+            return nullptr;
+        };
+        if (!terrainX)
+            terrainX = visualItem(win->contentItem(), "terrainX");
         check(QTest::qWaitFor(
                   [&] {
                       return terrainX && terrainX->isVisible() && terrainX->width() > 40 &&
@@ -405,7 +429,7 @@ int main(int argc, char **argv) {
                   3000),
               "terrain details lay out actual numeric controls");
         auto *terrainInput = qobject_cast<QQuickItem *>(terrainX->property("contentItem").value<QObject *>());
-        check(terrainInput && terrainInput->property("text").toString() == "-32",
+        check(terrainInput && terrainInput->property("text").toString() == "-1",
               "terrain coordinate control reflects imported origin");
         auto *terrainWindow = terrainInput->window();
         terrainWindow->requestActivate();
@@ -414,14 +438,27 @@ int main(int argc, char **argv) {
             terrainWindow, Qt::LeftButton, Qt::NoModifier,
             terrainInput->mapToScene({terrainInput->width() / 2, terrainInput->height() / 2}).toPoint());
         QTest::qWait(50);
-        check(terrainInput->property("selectedText").toString() == "-32",
+        check(terrainInput->property("selectedText").toString() == "-1",
               "terrain number click selects value");
         QTest::keyClick(terrainWindow, Qt::Key_1);
         QTest::keyClick(terrainWindow, Qt::Key_6);
         QTest::keyClick(terrainWindow, Qt::Key_Return);
-        check(editor.world().heights.instances[0].x == 16, "terrain panel commits typed origin");
+        check(editor.world().heights.instances[0].x == -15, "terrain panel commits typed center");
         editor.undo();
         check(editor.world().heights.instances[0].x == -32, "terrain panel input shares undo history");
+        QTest::qWait(60);
+        auto terrainScrub = terrainInput->mapToScene({7, terrainInput->height() / 2}).toPoint();
+        QTest::mousePress(terrainWindow, Qt::LeftButton, Qt::NoModifier, terrainScrub);
+        QTest::mouseMove(terrainWindow, terrainScrub + QPoint(60, 0), 30);
+        QTest::mouseMove(terrainWindow, terrainScrub + QPoint(90, 0), 30);
+        QTest::mouseRelease(terrainWindow, Qt::LeftButton, Qt::NoModifier, terrainScrub + QPoint(90, 0));
+        check(editor.world().heights.instances[0].x != -32 && !editor.terrainEditing(),
+              "numeric terrain scrub commits preview transaction");
+        editor.undo();
+        QTest::qWait(50);
+        check(editor.world().heights.instances[0].x == -32 &&
+                  terrainInput->property("text").toString() == "-1",
+              "numeric scrub is single undo and preserves UI binding");
         auto instanceScene = call("world_info", {});
         auto instanceInfo = QJsonDocument::fromJson(
                                 instanceScene["content"].toArray()[0].toObject()["text"].toString().toUtf8())
@@ -483,7 +520,7 @@ int main(int argc, char **argv) {
         editor.focusTerrain();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "instance preview rendered");
         QTest::qWait(150);
-        check(win->grabWindow().save("test-output/terrain-0.5.0.png"), "capture terrain instance controls");
+        check(win->grabWindow().save("test-output/terrain-0.6.0.png"), "capture terrain instance controls");
         auto *detailScroll = win->findChild<QQuickItem *>("sceneDetailsScroll");
         auto *detailFlickable = detailScroll->property("contentItem").value<QObject *>();
         auto *removeInstance = win->findChild<QQuickItem *>("removeTerrainButton");
@@ -494,9 +531,130 @@ int main(int argc, char **argv) {
         const auto removePoint = removeInstance->mapToItem(detailScroll, {0, removeInstance->height() / 2});
         check(removePoint.y() >= 0 && removePoint.y() < detailScroll->height(),
               "scrolling reveals terrain mask and removal controls");
-        check(win->grabWindow().save("test-output/terrain-actions-0.5.0.png"),
+        check(win->grabWindow().save("test-output/terrain-actions-0.6.0.png"),
               "capture lower terrain controls");
         detailFlickable->setProperty("contentY", 0);
+        v->resetCamera();
+        editor.setTool(-1);
+        v->forceActiveFocus();
+        QTest::qWait(80);
+        auto originalInstance = editor.world().heights.instances.back();
+        auto overlay = v->gizmoOverlay();
+        check(overlay["active"].toBool() && overlay["markers"].toList().size() == 2,
+              "projected instance markers and gizmo visible");
+        auto marker = overlay["markers"].toList().last().toMap();
+        editor.setSelectedNode("terrain-base-1");
+        auto iconPoint = v->mapToScene({marker["x"].toDouble(), marker["y"].toDouble() - 24}).toPoint();
+        QTest::mousePress(win, Qt::RightButton, Qt::NoModifier, iconPoint);
+        QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, iconPoint);
+        check(editor.selectedNode() == "terrain-base-1" && !v->gizmoDragging(),
+              "combined navigation buttons bypass instance markers");
+        QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, iconPoint);
+        QTest::mouseRelease(win, Qt::RightButton, Qt::NoModifier, iconPoint);
+        QTest::mouseClick(win, Qt::LeftButton, Qt::NoModifier, iconPoint);
+        check(editor.selectedNode() == topId, "click viewport icon selects the instance");
+        auto dragAxis = [&](int mode, int axis, bool cancel) {
+            v->setGizmoMode(mode);
+            auto data = v->gizmoOverlay();
+            auto pts = data["axes"].toList()[axis].toMap()["points"].toList();
+            QPointF localStart, localEnd;
+            if (mode == 1) {
+                auto a = pts[8].toMap(), b = pts[13].toMap();
+                localStart = {a["x"].toDouble(), a["y"].toDouble()};
+                localEnd = {b["x"].toDouble(), b["y"].toDouble()};
+            } else {
+                auto a = pts[0].toMap(), b = pts[1].toMap();
+                QPointF start(a["x"].toDouble(), a["y"].toDouble()),
+                    end(b["x"].toDouble(), b["y"].toDouble());
+                localStart = start + (end - start) * .75;
+                localEnd = localStart + (end - start) * .35;
+            }
+            auto start = v->mapToScene(localStart).toPoint(), end = v->mapToScene(localEnd).toPoint();
+            QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, start);
+            check(v->gizmoDragging(), "gizmo handle captures drag");
+            QTest::mouseMove(win, end, 40);
+            if (cancel)
+                QTest::keyClick(win, Qt::Key_Escape);
+            QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, end);
+        };
+        QTest::keyClick(win, Qt::Key_E);
+        check(v->gizmoMode() == 1, "E selects rotate without flying");
+        QTest::keyClick(win, Qt::Key_R);
+        check(v->gizmoMode() == 2, "R selects scale");
+        QTest::keyClick(win, Qt::Key_W);
+        check(v->gizmoMode() == 0, "W selects translate without RMB");
+        dragAxis(0, 0, false);
+        check(editor.world().heights.instances.back().x != originalInstance.x,
+              "axis drag translates terrain");
+        editor.undo();
+        check(editor.world().heights.instances.back() == originalInstance,
+              "entire translate drag is one undo");
+        dragAxis(2, 0, false);
+        check(editor.world().heights.instances.back().scaleX != 100, "axis drag scales terrain");
+        editor.undo();
+        check(editor.world().heights.instances.back() == originalInstance, "scale drag undo");
+        dragAxis(1, 1, false);
+        check(editor.world().heights.instances.back() != originalInstance, "ring drag rotates terrain");
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000), "rotated terrain preview settles");
+        win->grabWindow().save("test-output/rotate-0.6.0.png");
+        editor.undo();
+        check(editor.world().heights.instances.back() == originalInstance, "rotation drag undo");
+        dragAxis(0, 0, true);
+        check(editor.world().heights.instances.back() == originalInstance && !editor.terrainEditing(),
+              "Esc cancels transform transaction");
+        auto *eye = visualItem(win->contentItem(), "eye_" + topId);
+        check(eye, "outliner has visibility eye");
+        QTest::mouseClick(eye->window(), Qt::LeftButton, Qt::NoModifier,
+                          eye->mapToScene({eye->width() / 2, eye->height() / 2}).toPoint());
+        check(!editor.world().heights.instances.back().enabled, "eye hides instance generation");
+        editor.undo();
+        result = call("sculpt_layer", {{"action", "add"}, {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().heights.layers.size() == 2,
+              "MCP creates real sculpt layer");
+        auto sculptId = editor.world().heights.activeLayer;
+        const auto layerSelectionRevision = editor.revision();
+        editor.setActiveSculptLayer("terrain-base-1");
+        result = call("sculpt", {{"position", QJsonArray{0, editor.world().height(0, 0), 0}},
+                                 {"tool", 0},
+                                 {"radius", 1},
+                                 {"strength", 4},
+                                 {"expected_revision", double(layerSelectionRevision)}});
+        check(result["isError"].toBool() && editor.revision() != layerSelectionRevision,
+              "changing active layer invalidates pending MCP sculpt");
+        editor.setActiveSculptLayer(sculptId);
+        const int baseComposed = editor.world().height(0, 0);
+        result = call("sculpt", {{"position", QJsonArray{0, baseComposed, 0}},
+                                 {"tool", 0},
+                                 {"radius", 1},
+                                 {"strength", 4},
+                                 {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().height(0, 0) == baseComposed + 4,
+              "MCP sculpts relative height into active layer");
+        editor.setNodeVisible(instanceId, false);
+        editor.setNodeVisible(topId, false);
+        check(editor.world().height(0, 0) == 28,
+              "two hidden instances remove contributions while plus four remains");
+        result = call("sculpt_layer", {{"action", "visible"},
+                                       {"id", sculptId},
+                                       {"enabled", false},
+                                       {"expected_revision", double(editor.revision())}});
+        check(!result["isError"].toBool() && editor.world().height(0, 0) == 24,
+              "hiding sculpt layer removes only its delta");
+        auto hiddenRevision = editor.revision();
+        result = call("sculpt", {{"position", QJsonArray{0, 24, 0}},
+                                 {"tool", 0},
+                                 {"radius", 1},
+                                 {"strength", 4},
+                                 {"expected_revision", double(hiddenRevision)}});
+        check(result["isError"].toBool() && editor.revision() == hiddenRevision,
+              "MCP refuses sculpt on hidden layer");
+        editor.setNodeVisible(sculptId, true);
+        check(editor.save(QUrl::fromLocalFile(tmp.filePath("layers.wbench"))) &&
+                  editor.open(QUrl::fromLocalFile(tmp.filePath("layers.wbench"))) &&
+                  editor.world().height(0, 0) == 28 && editor.world().heights.activeLayer == sculptId,
+              "GUI layer project reopens with relative state");
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "layer preview ready");
+        win->grabWindow().save("test-output/layers-0.6.0.png");
         editor.setMcpEnabled(false);
         check(!editor.mcpEnabled(), "MCP disabled");
         bridge.closeWriteChannel();
@@ -569,7 +727,7 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "brush preview ready");
         QTest::mouseMove(win, point + QPoint(1, 0));
         QTest::qWait(120);
-        check(win->grabWindow().save("test-output/brush-decay-0.5.0.png"), "capture both decay rings");
+        check(win->grabWindow().save("test-output/brush-decay-0.6.0.png"), "capture both decay rings");
         const auto beforeSelection = editor.world().heights;
         const auto selectionRevision = editor.revision();
         editor.setTool(6);
@@ -586,7 +744,7 @@ int main(int argc, char **argv) {
                   editor.world().heights == beforeSelection && editor.revision() == selectionRevision,
               "actual mouse drag selects rectangle without changing terrain");
         QTest::qWait(120);
-        check(win->grabWindow().save("test-output/selection-0.5.0.png"), "capture selection boundary");
+        check(win->grabWindow().save("test-output/selection-0.6.0.png"), "capture selection boundary");
         editor.clearSelection();
         editor.setTool(1);
         QTest::qWait(30);
@@ -756,7 +914,7 @@ int main(int argc, char **argv) {
         std::cout << "Large 16384x12289 creation " << creationMs << " ms / first local preview "
                   << firstLargePreview << " ms / " << editor.scene()->chunks.size() << " chunks\n";
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/large-0.5.0.png"), "capture large local preview");
+        check(win->grabWindow().save("test-output/large-0.6.0.png"), "capture large local preview");
         editor.createWorld(128, 42, 24, 0, -60, true);
         if (app.arguments().size() > 1) {
             check(editor.open(QUrl::fromLocalFile(app.arguments()[1])), "open real resource preview fixture");
@@ -772,20 +930,20 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "final layout mesh settles");
         QTest::qWait(120);
         QDir().mkpath("test-output");
-        check(win->grabWindow().save("test-output/ui-0.5.0.png"), "capture brush and scene layout");
+        check(win->grabWindow().save("test-output/ui-0.6.0.png"), "capture brush and scene layout");
         auto *settings = win->findChild<QObject *>("editorSettingsDialog");
         auto *settingsContent = win->findChild<QObject *>("settingsContent");
         check(settings && settingsContent, "settings pages loaded outside scene outliner");
         settingsContent->setProperty("page", "resources");
         check(QMetaObject::invokeMethod(settings, "open"), "resource settings opens");
         QTest::qWait(80);
-        check(win->grabWindow().save("test-output/resources-0.5.0.png"), "capture resource management");
+        check(win->grabWindow().save("test-output/resources-0.6.0.png"), "capture resource management");
         QMetaObject::invokeMethod(settings, "close");
         auto *fileMenu = win->findChild<QObject *>("fileMenu");
         check(fileMenu && QMetaObject::invokeMethod(fileMenu, "open"), "custom file menu opens");
         fileMenu->setProperty("currentIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/menu-hover-0.5.0.png"), "capture menu highlight contrast");
+        check(win->grabWindow().save("test-output/menu-hover-0.6.0.png"), "capture menu highlight contrast");
         QMetaObject::invokeMethod(fileMenu, "close");
         auto *newWorldDialog = win->findChild<QObject *>("newWorldDialog");
         check(newWorldDialog && QMetaObject::invokeMethod(newWorldDialog, "open"), "creation dialog opens");
@@ -811,7 +969,31 @@ int main(int argc, char **argv) {
         QTest::keyClick(numberWindow, Qt::Key_Return);
         check(widthControl->property("value").toInt() == 4096,
               "selected number replaces and commits correctly");
-        check(win->grabWindow().save("test-output/new-world-0.5.0.png"), "capture creation settings");
+        QTest::mouseClick(numberWindow, Qt::LeftButton, Qt::NoModifier, numericPoint);
+        QTest::qWait(50);
+        check(numberInput->property("selectedText").toString().isEmpty(),
+              "subsequent single click places caret");
+        QTest::mouseDClick(numberWindow, Qt::LeftButton, Qt::NoModifier, numericPoint);
+        QTest::qWait(30);
+        check(numberInput->property("selectedText").toString() == "4096",
+              "double click selects entire numeric value");
+        for (auto key : {Qt::Key_2, Qt::Key_5, Qt::Key_6, Qt::Key_Slash, Qt::Key_2})
+            QTest::keyClick(numberWindow, key);
+        QTest::keyClick(numberWindow, Qt::Key_Return);
+        check(widthControl->property("value").toInt() == 128,
+              "typed arithmetic expression calculates on commit");
+        QTest::keyClick(numberWindow, Qt::Key_A, Qt::ControlModifier);
+        for (auto key : {Qt::Key_2, Qt::Key_Slash, Qt::Key_0})
+            QTest::keyClick(numberWindow, key);
+        QTest::keyClick(numberWindow, Qt::Key_Return);
+        check(widthControl->property("value").toInt() == 128, "division by zero leaves value unchanged");
+        auto scrubStart = numberInput->mapToScene({7, numberInput->height() / 2}).toPoint();
+        QTest::mousePress(numberWindow, Qt::LeftButton, Qt::NoModifier, scrubStart);
+        QTest::mouseMove(numberWindow, scrubStart + QPoint(60, 0), 40);
+        QTest::mouseRelease(numberWindow, Qt::LeftButton, Qt::NoModifier, scrubStart + QPoint(60, 0));
+        check(widthControl->property("value").toInt() > 128,
+              "numeric drag scrubs value while already focused");
+        check(win->grabWindow().save("test-output/new-world-0.6.0.png"), "capture creation settings");
         QMetaObject::invokeMethod(newWorldDialog, "close");
         editor.setTool(1);
         editor.setBrushOption("fillHoles", true);
@@ -821,7 +1003,7 @@ int main(int argc, char **argv) {
         check(popup && QMetaObject::invokeMethod(popup, "open"), "flatten options dropdown opens");
         selector->setProperty("highlightedIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/flatten-controls-0.5.0.png"), "capture flatten controls");
+        check(win->grabWindow().save("test-output/flatten-controls-0.6.0.png"), "capture flatten controls");
         QMetaObject::invokeMethod(popup, "close");
         std::cout << "PASS " << checks << " UI integration checks; mesh settle " << elapsed.elapsed()
                   << " ms\n";

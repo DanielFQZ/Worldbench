@@ -13,7 +13,8 @@ void HeightField::configure(const WorldOptions &o, int x, int z) {
     flat = o.flat;
     dense.reset();
     instances.clear();
-    m_edits = std::make_shared<std::map<int, int16_t>>();
+    layers = {SculptLayer{}};
+    activeLayer = "terrain-base-1";
 }
 int16_t HeightField::base(int i) const {
     const double x = i % width + originX, z = i / width + originZ, phase = (seed % 997) * .009;
@@ -29,19 +30,51 @@ int16_t HeightField::base(int i) const {
         value = instance.apply(value, int(x), int(z));
     return int16_t(std::clamp(int(std::lround(value)), -63, 318));
 }
+int HeightField::layerIndex(const QString &id) const {
+    for (size_t n = 0; n < layers.size(); ++n)
+        if (layers[n].id == id)
+            return int(n);
+    return -1;
+}
+int HeightField::delta(int i) const {
+    const auto &edits = changes();
+    const auto it = edits.find(i);
+    return it == edits.end() ? 0 : it->second;
+}
 int16_t HeightField::operator[](int i) const {
-    const auto it = m_edits->find(i);
-    return it == m_edits->end() ? base(i) : it->second;
+    int value = base(i);
+    for (const auto &layer : layers)
+        if (layer.enabled) {
+            const auto it = layer.deltas->find(i);
+            if (it != layer.deltas->end())
+                value += it->second;
+        }
+    return int16_t(std::clamp(value, -63, 318));
+}
+void HeightField::restoreDelta(const QString &id, int i, int value) {
+    const int n = layerIndex(id);
+    if (n < 0)
+        return;
+    auto &edits = layers[n].deltas;
+    if (edits.use_count() != 1)
+        edits = std::make_shared<std::map<int, int>>(*edits);
+    if (value == 0)
+        edits->erase(i);
+    else
+        (*edits)[i] = value;
 }
 void HeightField::set(int i, int v) {
-    if ((*this)[i] == v)
+    const int n = layerIndex(activeLayer);
+    if (n < 0 || !layers[n].enabled || (*this)[i] == v)
         return;
-    if (m_edits.use_count() != 1)
-        m_edits = std::make_shared<std::map<int, int16_t>>(*m_edits);
-    if (base(i) == v)
-        m_edits->erase(i);
-    else
-        (*m_edits)[i] = int16_t(v);
+    int other = base(i);
+    for (const auto &l : layers)
+        if (l.enabled && l.id != activeLayer) {
+            const auto it = l.deltas->find(i);
+            if (it != l.deltas->end())
+                other += it->second;
+        }
+    restoreDelta(activeLayer, i, std::clamp(v - other, -1000000, 1000000));
 }
 void HeightField::fill(int v) {
     dense.reset();
@@ -49,19 +82,17 @@ void HeightField::fill(int v) {
     flat = true;
     baseHeight = v;
     variation = 0;
-    m_edits = std::make_shared<std::map<int, int16_t>>();
+    layers = {SculptLayer{}};
+    activeLayer = "terrain-base-1";
 }
 void HeightField::restore(int i, int value, bool overridden) {
-    if (m_edits.use_count() != 1)
-        m_edits = std::make_shared<std::map<int, int16_t>>(*m_edits);
-    if (overridden)
-        (*m_edits)[i] = int16_t(value);
-    else
-        m_edits->erase(i);
+    // Legacy v3/v4 absolute heights migrate to deltas preserving their current appearance.
+    restoreDelta(activeLayer, i, overridden ? value - base(i) : 0);
 }
 void HeightField::assign(std::vector<int16_t> v) {
     dense = std::make_shared<const std::vector<int16_t>>(std::move(v));
-    m_edits = std::make_shared<std::map<int, int16_t>>();
+    layers = {SculptLayer{}};
+    activeLayer = "terrain-base-1";
 }
 bool HeightField::operator==(const HeightField &o) const {
     if (width != o.width || depth != o.depth)
@@ -71,7 +102,7 @@ bool HeightField::operator==(const HeightField &o) const {
                               : originX == o.originX && originZ == o.originZ && seed == o.seed &&
                                     baseHeight == o.baseHeight && variation == o.variation && flat == o.flat;
     if (sameBase && instances == o.instances)
-        return *m_edits == *o.m_edits;
+        return layers == o.layers;
     for (int i = 0; i < int(size()); ++i)
         if ((*this)[i] != o[i])
             return false;

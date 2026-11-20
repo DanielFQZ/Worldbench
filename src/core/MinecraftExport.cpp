@@ -112,6 +112,10 @@ void paletteEntry(Nbt &n, const BlockState &b) {
     n.end();
 }
 QByteArray chunk(const World &w, int cx, int cz) {
+    int columnHeights[16][16];
+    for (int z = 0; z < 16; ++z)
+        for (int x = 0; x < 16; ++x)
+            columnHeights[z][x] = w.height(cx * 16 + x, cz * 16 + z);
     Nbt n;
     n.compound("");
     n.integer("DataVersion", 3465);
@@ -132,7 +136,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
         for (int y = 0; y < 16; ++y)
             for (int z = 0; z < 16; ++z)
                 for (int x = 0; x < 16; ++x) {
-                    Block b = w.block(cx * 16 + x, sy * 16 + y, cz * 16 + z);
+                    Block b = w.blockAtHeight(cx * 16 + x, sy * 16 + y, cz * 16 + z, columnHeights[z][x]);
                     if (indices[b] < 0) {
                         indices[b] = int(palette.size());
                         palette.push_back(b);
@@ -161,7 +165,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
         for (int x = 0; x < 16; ++x) {
             bool s = false, f = false;
             for (int y = World::MaxY - 1; y >= World::MinY; --y) {
-                Block b = w.block(cx * 16 + x, y, cz * 16 + z);
+                Block b = w.blockAtHeight(cx * 16 + x, y, cz * 16 + z, columnHeights[z][x]);
                 if (!s && b != Air) {
                     surface[z * 16 + x] = y - World::MinY + 1;
                     s = true;
