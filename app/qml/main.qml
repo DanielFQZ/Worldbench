@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.6.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.7.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -17,6 +17,14 @@ ApplicationWindow {
     palette.placeholderText: "#7e8da1"
     palette.highlight: "#43a9bf"; palette.highlightedText: "#101b24"
     property string pendingAction: ""
+    property url pendingProject: ""
+    function requestProjectDrop(urls) {
+        if (!editor.acceptsProjectDrop(urls)) return false
+        if (editor.assetBusy || editor.exportBusy) return false
+        pendingProject = urls[0]
+        requestAction("drop")
+        return true
+    }
     property bool allowClose: false
     property bool autoCloseResources:false
     function requestAction(action) {
@@ -28,6 +36,7 @@ ApplicationWindow {
         const action = pendingAction; pendingAction = ""
         if (action === "new") newWorldDialog.open()
         else if (action === "open") { openDialog.currentFolder=editor.dialogFolder("openProject"); openDialog.open() }
+        else if (action === "drop") { const url = pendingProject; pendingProject=""; editor.rememberDialogFolder("openProject",url); editor.open(url) }
         else if (action === "close") { allowClose = true; win.close() }
     }
     function chooseResources(overlay) {
@@ -100,7 +109,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.6.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.7.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     RowLayout {
@@ -126,6 +135,14 @@ ApplicationWindow {
                 worldDock.dockWidget.title = "场景 / 详细信息"
                 addDockWidget(worldDock, KDDW.KDDockWidgets.Location_OnRight, null, Qt.size(310, 0))
             }
+        }
+    }
+    DropArea {
+        objectName:"projectDropArea";anchors.fill:parent;z:50
+        onEntered:function(drag){drag.accepted=!editor.assetBusy&&!editor.exportBusy&&editor.acceptsProjectDrop(drag.urls)}
+        onDropped:function(drop){if(win.requestProjectDrop(drop.urls))drop.acceptProposedAction()}
+        Rectangle{anchors.fill:parent;visible:parent.containsDrag;color:"#302080a0";border.color:"#69d5e7";border.width:3
+            Label{anchors.centerIn:parent;text:"松开以打开 Worldbench 工程";color:"#efffff";font.pixelSize:22}
         }
     }
     Timer{id:resourceCloseTimer;interval:350;onTriggered:{if(!win.autoCloseResources)return;if(editor.assetBusy||editor.meshBusy){restart();return}settingsDialog.close();win.autoCloseResources=false}}
@@ -201,12 +218,13 @@ ApplicationWindow {
     }
     FileDialog { id: openDialog; title: "打开 Worldbench 工程"; fileMode: FileDialog.OpenFile; nameFilters: ["Worldbench 工程 (*.wbench)"]; onAccepted: { editor.rememberDialogFolder("openProject",selectedFile); editor.open(selectedFile) } onRejected: editor.rememberDialogFolder("openProject",currentFolder,true) }
     MessageDialog {
-        id: unsaved; title: "保存当前改动？"; text: "当前工程有未保存的改动。"
+        id: unsaved; objectName:"unsavedDialog"; title: "保存当前改动？"; text: "当前工程有未保存的改动。"
         buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
+        onRejected:{win.pendingAction="";win.pendingProject=""}
         onButtonClicked: function(button, role) {
             if (button === MessageDialog.Save) win.saveCurrent()
             else if (button === MessageDialog.Discard) win.finishAction()
-            else win.pendingAction = ""
+            else {win.pendingAction = "";win.pendingProject=""}
         }
     }
     MessageDialog { id: errorBox; title: "Worldbench"; buttons: MessageDialog.Ok }

@@ -70,9 +70,14 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     bool pressGizmo(QPointF p);
     void moveGizmo(QPointF p);
     void finishGizmo(bool cancel = false);
-    int m_gizmoMode = 0, m_gizmoAxis = -1;
+    int hitGizmo(QPointF p, const QVariantMap &overlay) const;
+    int m_gizmoMode = 0, m_gizmoAxis = -1, m_gizmoHover = -1;
     bool m_gizmoDragging = false;
     QPointF m_gizmoStart, m_gizmoScreenCenter, m_gizmoScreenAxis;
+    QPointF m_gizmoPlaneU, m_gizmoPlaneV, m_gizmoLast;
+    QVector3D m_gizmoCenter;
+    QString m_gizmoReadout;
+    double m_gizmoAngle = 0;
     double m_gizmoWorldLength = 1;
     wb::TerrainInstance m_gizmoInitial;
     QVector3D forward() const;

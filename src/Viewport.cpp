@@ -459,12 +459,15 @@ void Viewport::wheelEvent(QWheelEvent *e) {
     e->accept();
 }
 void Viewport::hoverMoveEvent(QHoverEvent *e) {
-    if (m_buttons == Qt::NoButton)
+    if (m_buttons == Qt::NoButton) {
+        m_gizmoHover = hitGizmo(e->position(), gizmoOverlay());
         pick(e->position());
+    }
 }
 void Viewport::hoverLeaveEvent(QHoverEvent *) {
     if (m_buttons == Qt::NoButton) {
         m_hit = {};
+        m_gizmoHover = -1;
         update();
         emit cameraChanged();
     }

@@ -15,6 +15,18 @@ double HeightmapData::sample(double u, double v) const {
 QVector3D TerrainInstance::pivot() const {
     return {float(x + (width - 1) * .5), float(low + y), float(z + (depth - 1) * .5)};
 }
+QRectF TerrainInstance::bounds() const {
+    const double pi = 3.14159265358979323846 / 180;
+    const double c = std::cos(rotationY * pi), s = std::sin(rotationY * pi), ca = std::cos(rotationX * pi),
+                 sa = std::sin(rotationX * pi), cb = std::cos(rotationZ * pi), sb = std::sin(rotationZ * pi);
+    const double sx = std::max(1, width - 1) * scaleX / 200., sz = std::max(1, depth - 1) * scaleZ / 200.,
+                 sy = std::max(.0001, (high - low) * scaleY / 100.);
+    const double rx = std::abs(c * cb + s * sa * sb) * sx + std::abs(-c * sb + s * sa * cb) * sy +
+                      std::abs(s * ca) * sz,
+                 rz = std::abs(-s * cb + c * sa * sb) * sx + std::abs(s * sb + c * sa * cb) * sy +
+                      std::abs(c * ca) * sz;
+    return {x + (width - 1) * .5 - rx, z + (depth - 1) * .5 - rz, 2 * rx, 2 * rz};
+}
 double TerrainInstance::apply(double base, int worldX, int worldZ) const {
     if (!enabled || !image || opacity == 0)
         return base;

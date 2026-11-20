@@ -1,3 +1,4 @@
+#include "ReferenceMesh.h"
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
@@ -448,6 +449,24 @@ int main(int argc, char **argv) {
                        QJsonObject{{"size", 32}, {"origin", -16}, {"minY", -64}, {"maxY", 320}, {"ids", ids}})
                        .toJson());
         meta.close();
+        // Compare the optimized mesher against the prior exhaustive implementation.
+        auto meshWorld = World::create(WorldOptions{35, 42, 40, 60, 30, false, 51});
+        for (int z = -16; z < 16; z += 3)
+            for (int x = -16; x < 16; x += 3) {
+                meshWorld.setBlock(x, -40, z, Air);
+                meshWorld.setBlock(x, -39, z, Glass);
+                meshWorld.setBlock(x, 120, z, Slab);
+            }
+        for (int z = -1; z <= 2; ++z)
+            for (int x = -1; x <= 1; ++x)
+                check(sameMesh(buildChunkMesh(meshWorld, x, z, 1), referenceChunkMesh(meshWorld, x, z, 1)),
+                      "exact surface mesher matches exhaustive geometry including cavities and edges");
+        auto special = std::make_shared<BlockModel>(*meshWorld.models[Stone]);
+        special->faces.front().cull = -1;
+        special->full = false;
+        meshWorld.models[Stone] = special;
+        check(sameMesh(buildChunkMesh(meshWorld, 0, 0, 1), referenceChunkMesh(meshWorld, 0, 0, 1)),
+              "nonstandard resource model retains exhaustive path");
         QElapsedTimer t;
         t.start();
         auto defaultWorld = World::create();

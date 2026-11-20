@@ -61,7 +61,7 @@ class Editor : public QObject {
     void setStrength(int v);
     int material() const { return m_material; }
     void setMaterial(int v);
-    bool assetBusy() const { return m_assetsLoading || m_heightmapLoading; }
+    bool assetBusy() const { return m_assetsLoading || m_heightmapLoading || m_regionLoading; }
     int assetProgress() const { return m_assetProgress; }
     QString assetStage() const { return m_assetStage; }
     QString assetLog() const { return m_assetLog.join('\n'); }
@@ -78,6 +78,8 @@ class Editor : public QObject {
     }
     Q_INVOKABLE void setSelection(int minX, int minZ, int maxX, int maxZ);
     Q_INVOKABLE void clearSelection();
+    Q_INVOKABLE bool adjustSelectedHeight(int offset);
+    Q_INVOKABLE bool acceptsProjectDrop(const QList<QUrl> &urls) const;
     QRect selectionRect() const { return m_selection; }
     void setPreviewCenter(int x, int z);
     bool previewContains(int x, int z) const;
@@ -219,6 +221,13 @@ class Editor : public QObject {
         bool mask = false;
     };
     QFutureWatcher<HeightmapResult> m_heightmapWatcher;
+    struct RegionResult {
+        wb::Command command;
+        QString error;
+        int clipped = 0;
+    };
+    QFutureWatcher<RegionResult> m_regionWatcher;
+    bool m_regionLoading = false;
     bool m_heightmapLoading = false;
     std::unique_ptr<McpServer> m_mcp;
     uint64_t m_revision = 1, m_resourceRevision = 0, m_savedResourceRevision = 0;

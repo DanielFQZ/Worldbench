@@ -1,5 +1,6 @@
 #pragma once
 #include <QJsonObject>
+#include <QRectF>
 #include <QString>
 #include <QVector3D>
 #include <array>
@@ -31,6 +32,7 @@ struct TerrainInstance {
     int y = 0, rotationX = 0, rotationY = 0, rotationZ = 0;
     int scaleX = 100, scaleY = 100, scaleZ = 100;
     QVector3D pivot() const;
+    QRectF bounds() const;
     int low = 24, high = 80, blend = 0, opacity = 100, feather = 10;
     bool enabled = true;
     double apply(double base, int worldX, int worldZ) const;

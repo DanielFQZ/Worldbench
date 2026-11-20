@@ -10,14 +10,33 @@
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QThreadPool>
 #include <QtConcurrent>
 #include <algorithm>
 
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
     initializeTerrainImporter();
+    connect(&m_regionWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_regionLoading = false;
+        auto result = m_regionWatcher.result();
+        if (!result.error.isEmpty()) {
+            emit failure(result.error);
+            emit changed();
+            return;
+        }
+        const int count = int(result.command.heights.size());
+        if (count) {
+            m_world.apply(result.command, true);
+            ++m_revision;
+            dirtyCommand(result.command);
+            pushCommand(std::move(result.command));
+        }
+        m_status = QString("选区高度调整完成 · %1 列改变 · %2 列触及高度边界").arg(count).arg(result.clipped);
+        emit changed();
+    });
     m_meshTimer.setSingleShot(true);
-    m_meshTimer.setInterval(25);
+    m_meshTimer.setInterval(8);
     connect(&m_meshTimer, &QTimer::timeout, this, &Editor::startMesh);
     connect(&m_meshWatcher, &QFutureWatcherBase::finished, this, [this] {
         m_meshActive = false;
@@ -87,11 +106,51 @@ Editor::Editor(QObject *parent)
     dirtyAll();
 }
 Editor::~Editor() {
+    m_regionWatcher.waitForFinished();
     m_heightmapWatcher.waitForFinished();
     m_cancelExport = true;
     m_assetWatcher.waitForFinished();
     m_meshWatcher.waitForFinished();
     m_exportWatcher.waitForFinished();
+}
+bool Editor::acceptsProjectDrop(const QList<QUrl> &urls) const {
+    return urls.size() == 1 && urls.front().isLocalFile() && QFileInfo(urls.front().toLocalFile()).isFile() &&
+           QFileInfo(urls.front().toLocalFile()).suffix().compare("wbench", Qt::CaseInsensitive) == 0;
+}
+bool Editor::adjustSelectedHeight(int offset) {
+    if (commandBusy() || exportBusy())
+        return false;
+    if (!m_selection.isValid() || qint64(m_selection.width()) * m_selection.height() > 262144 ||
+        offset < -381 || offset > 381 || offset == 0) {
+        emit failure("请选取不超过262144列的区域，并输入非零高度偏移（−381…381）");
+        return false;
+    }
+    if (!m_world.heights.layers[m_world.heights.layerIndex(m_world.heights.activeLayer)].enabled) {
+        emit failure("请先显示当前雕刻层");
+        return false;
+    }
+    auto snapshot = m_world;
+    const auto area = m_selection;
+    m_regionLoading = true;
+    m_status = "正在后台计算选区高度…";
+    m_regionWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), area, offset]() mutable {
+        RegionResult result;
+        result.command.label = "选区高度偏移";
+        result.command.heightLayer = snapshot.heights.activeLayer;
+        for (int z = area.top(); z <= area.bottom(); ++z)
+            for (int x = area.left(); x <= area.right(); ++x) {
+                const int index = snapshot.column(x, z), before = snapshot.heights.delta(index);
+                const int raw = snapshot.height(x, z) + offset, target = std::clamp(raw, -63, 318);
+                result.clipped += raw != target;
+                snapshot.heights.set(index, target);
+                int after = snapshot.heights.delta(index);
+                if (after != before)
+                    result.command.heights.push_back({index, before, after});
+            }
+        return result;
+    }));
+    emit changed();
+    return true;
 }
 void Editor::setTool(int v) {
     endStroke();
@@ -336,7 +395,48 @@ void Editor::dirtyCommand(const wb::Command &command) {
     if (command.terrainAfter || command.layersAfter) {
         if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0)
             m_selectedNode = "terrain-base-1";
-        dirtyAll();
+        const auto wanted = desiredChunks();
+        auto dirtyBounds = [&](QRectF bounds) {
+            bounds.adjust(-1, -1, 1, 1); // Cull faces on neighbouring chunk borders too.
+            for (int id : wanted) {
+                QRectF chunk(m_world.originX + id % m_world.chunksX() * 16,
+                             m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
+                if (chunk.intersects(bounds))
+                    m_dirty.insert(id);
+            }
+        };
+        if (command.terrainBefore && command.terrainAfter) {
+            // Index changes also matter because replace/min/max composition is ordered.
+            const auto &a = *command.terrainBefore, &b = *command.terrainAfter;
+            for (size_t n = 0; n < std::max(a.size(), b.size()); ++n) {
+                if (n < a.size() && n < b.size() && a[n] == b[n])
+                    continue;
+                if (n < a.size() && a[n].enabled)
+                    dirtyBounds(a[n].bounds());
+                if (n < b.size() && b[n].enabled)
+                    dirtyBounds(b[n].bounds());
+            }
+        }
+        if (command.layersBefore && command.layersAfter) {
+            for (const auto &list : {command.layersBefore, command.layersAfter})
+                for (const auto &l : *list)
+                    for (auto [index, value] : *l.deltas) {
+                        const int x = index % m_world.width + m_world.originX,
+                                  z = index / m_world.width + m_world.originZ;
+                        for (int dz = -1; dz <= 1; ++dz)
+                            for (int dx = -1; dx <= 1; ++dx) {
+                                if (!m_world.contains(x + dx, 0, z + dz))
+                                    continue;
+                                int id = (z + dz - m_world.originZ) / 16 * m_world.chunksX() +
+                                         (x + dx - m_world.originX) / 16;
+                                if (wanted.contains(id))
+                                    m_dirty.insert(id);
+                            }
+                    }
+        }
+        if (!m_dirty.empty() && !m_meshTimer.isActive())
+            m_meshTimer.start();
+        emit changed();
         return;
     }
     auto chunks = wb::affectedChunks(m_world, command);
@@ -396,36 +496,40 @@ void Editor::startMesh() {
     const auto serial = ++m_meshSerial;
     m_jobEpoch = m_epoch;
     m_meshActive = true;
-    m_meshWatcher.setFuture(
-        QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old, serial, wanted] {
-            QElapsedTimer elapsed;
-            elapsed.start();
-            auto next = std::make_shared<wb::MeshScene>();
-            next->revision = serial;
-            next->assets = snapshot.assets;
-            std::map<int, wb::MeshPtr> cached;
-            for (size_t i = 0; i < old->chunkIds.size(); ++i)
-                cached[old->chunkIds[i]] = old->chunks[i];
-            int rebuilt = 0;
-            for (int id : wanted) {
-                auto it = cached.find(id);
-                auto mesh = it == cached.end() ? nullptr : it->second;
-                if (!mesh || dirty.contains(id)) {
-                    mesh = wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
-                                              snapshot.originZ / 16 + id / snapshot.chunksX(), serial);
-                    ++rebuilt;
-                }
-                next->chunks.push_back(mesh);
-                next->chunkIds.push_back(id);
-            }
-            next->updatedChunks = rebuilt;
-            next->buildMilliseconds = elapsed.elapsed();
-            next->vertices = 0;
-            for (const auto &c : next->chunks)
-                if (c)
-                    next->vertices += c->opaque.size() + c->transparent.size();
-            return next;
-        }));
+    m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old,
+                                               serial, wanted] {
+        QElapsedTimer elapsed;
+        elapsed.start();
+        auto next = std::make_shared<wb::MeshScene>();
+        next->revision = serial;
+        next->assets = snapshot.assets;
+        std::map<int, wb::MeshPtr> cached;
+        for (size_t i = 0; i < old->chunkIds.size(); ++i)
+            cached[old->chunkIds[i]] = old->chunks[i];
+        std::vector<int> jobs;
+        for (int id : wanted)
+            if (!cached.contains(id) || dirty.contains(id))
+                jobs.push_back(id);
+        QThreadPool pool;
+        pool.setMaxThreadCount(std::clamp(QThread::idealThreadCount() - 2, 1, 4));
+        const auto meshes = QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(&pool, jobs, [&](int id) {
+            return wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
+                                      snapshot.originZ / 16 + id / snapshot.chunksX(), serial);
+        });
+        for (size_t n = 0; n < jobs.size(); ++n)
+            cached[jobs[n]] = meshes[n];
+        for (int id : wanted) {
+            next->chunks.push_back(cached.at(id));
+            next->chunkIds.push_back(id);
+        }
+        next->updatedChunks = int(jobs.size());
+        next->buildMilliseconds = elapsed.elapsed();
+        next->vertices = 0;
+        for (const auto &c : next->chunks)
+            if (c)
+                next->vertices += c->opaque.size() + c->transparent.size();
+        return next;
+    }));
     emit changed();
 }
 void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {

@@ -1,3 +1,4 @@
+#include "ReferenceMesh.h"
 #include "core/Assets.h"
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
@@ -241,6 +242,8 @@ int main(int argc, char **argv) {
             last.open(QIODevice::WriteOnly);
             last.write(QFileInfo(exportRoot).absoluteFilePath().toUtf8());
             last.close();
+            check(sameMesh(wb::buildChunkMesh(gallery, 0, 0, 1), wb::referenceChunkMesh(gallery, 0, 0, 1)),
+                  "real resource mesher matches exhaustive geometry");
             auto unsupported = gallery;
             unsupported.resourceVersion = "1.21";
             check(!wb::exportMinecraft(unsupported, exportRoot + "/wrong-version").ok,
