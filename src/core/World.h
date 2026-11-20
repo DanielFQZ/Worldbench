@@ -1,5 +1,6 @@
 #pragma once
 #include "Assets.h"
+#include "Heightmap.h"
 #include <QString>
 #include <QVector3D>
 #include <cstdint>
@@ -42,11 +43,13 @@ struct CellChange {
 };
 struct HeightChange {
     int index, before, after;
+    bool beforeOverride = false, afterOverride = true;
 };
 struct Command {
     std::vector<CellChange> cells;
     std::vector<HeightChange> heights;
     QString label;
+    std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;
 };
 struct WorldOptions {
     int width = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
@@ -60,11 +63,13 @@ class HeightField {
     int width = 0, depth = 0, originX = 0, originZ = 0, seed = 0, baseHeight = 0, variation = 0;
     bool flat = true;
     std::shared_ptr<const std::vector<int16_t>> dense;
+    std::vector<TerrainInstance> instances;
     void configure(const WorldOptions &o, int x, int z);
     size_t size() const { return size_t(width) * depth; }
     int16_t base(int index) const;
     int16_t operator[](int index) const;
     void set(int index, int value);
+    void restore(int index, int value, bool overridden);
     void fill(int value);
     void assign(std::vector<int16_t> values);
     const std::map<int, int16_t> &changes() const { return *m_edits; }
@@ -131,6 +136,7 @@ class Stroke {
     World &world;
     std::map<uint64_t, int> beforeCells;
     std::map<int, int> beforeHeights;
+    std::map<int, bool> beforeHeightOverrides;
     std::map<int, double> m_accumulated;
     int flattenHeight = -9999;
     uint64_t changes = 0;

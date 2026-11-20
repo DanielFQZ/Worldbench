@@ -12,6 +12,8 @@ ScrollView {
      Label{text:"透视相机";font.pixelSize:17}
      Label{text:editor.cameraController?editor.cameraController.cameraText:"";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#a6b4c5"}
      CheckBox{text:"Windows 原始鼠标输入";checked:editor.cameraController?editor.cameraController.rawInput:false;onToggled:if(editor.cameraController)editor.cameraController.rawInput=checked}
+     CheckBox{text:"飞行惯性（平滑加速 / 减速）";checked:editor.cameraController?editor.cameraController.flightInertia:true;onToggled:if(editor.cameraController)editor.cameraController.flightInertia=checked}
+     Label{text:"松开方向键时短暂减速；松开右键、Esc 或切换窗口立即停止。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#9caabb"}
      Label{text:"旋转灵敏度  "+(editor.cameraController?editor.cameraController.sensitivity.toFixed(2):"")+" °/计数";color:"#a6b4c5"}
      Slider{Layout.fillWidth:true;from:.01;to:.5;stepSize:.01;value:editor.cameraController?editor.cameraController.sensitivity:.12;onMoved:if(editor.cameraController)editor.cameraController.sensitivity=value}
      Label{text:editor.cameraController&&editor.cameraController.rawActive?"原始输入：捕获中":"原始输入：导航时启用";color:"#74c2bd"}

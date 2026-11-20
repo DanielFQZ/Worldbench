@@ -211,7 +211,9 @@ def verify_models(base):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "--models":
+    if sys.argv[1] == "--terrain":
+        verify_rectangle(pathlib.Path(sys.argv[2]))
+    elif sys.argv[1] == "--models":
         verify_models(pathlib.Path(sys.argv[2]))
     else:
         base = pathlib.Path(sys.argv[1])

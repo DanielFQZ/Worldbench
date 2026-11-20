@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.4.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.5.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -76,6 +76,8 @@ ApplicationWindow {
             Action { text: "体积填充"; onTriggered: editor.tool = 3 }
             Action { text: "材质涂绘"; onTriggered: editor.tool = 4 }
             Action { text: "平滑地形"; onTriggered: editor.tool = 5 }
+            MenuSeparator {}
+            Action { text: "导入高度图地貌 PNG…";enabled:!editor.assetBusy&&!editor.exportBusy;onTriggered:{heightmapDialog.currentFolder=editor.dialogFolder("heightmap");heightmapDialog.open()} }
         }
         WorkbenchMenu {
             title: "视图"
@@ -98,7 +100,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.4.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.5.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     RowLayout {
@@ -127,12 +129,13 @@ ApplicationWindow {
         }
     }
     Timer{id:resourceCloseTimer;interval:350;onTriggered:{if(!win.autoCloseResources)return;if(editor.assetBusy||editor.meshBusy){restart();return}settingsDialog.close();win.autoCloseResources=false}}
+    FileDialog{id:heightmapDialog;title:"导入地貌实例：8/16 位灰度 PNG";fileMode:FileDialog.OpenFile;nameFilters:["灰度 PNG (*.png)"];onAccepted:{editor.rememberDialogFolder("heightmap",selectedFile);editor.importHeightmap(selectedFile)}onRejected:editor.rememberDialogFolder("heightmap",currentFolder,true)}
     Dialog {
         id:jumpDialog;title:"跳转至坐标";modal:true;anchors.centerIn:parent;width:440;standardButtons:Dialog.Ok|Dialog.Cancel
         contentItem:ColumnLayout{
             Label{text:"移动到地图内的指定位置，自动加载附近区块。";wrapMode:Text.WordWrap;Layout.fillWidth:true}
-            RowLayout{Label{text:"X"} SpinBox{id:jumpX;from:editor.layerDetails.originX;to:from+editor.layerDetails.width-1;editable:true;Layout.fillWidth:true}}
-            RowLayout{Label{text:"Z"} SpinBox{id:jumpZ;from:editor.layerDetails.originZ;to:from+editor.layerDetails.depth-1;editable:true;Layout.fillWidth:true}}
+            RowLayout{Label{text:"X"} WorkbenchSpinBox{id:jumpX;from:editor.layerDetails.originX;to:from+editor.layerDetails.width-1;editable:true;Layout.fillWidth:true}}
+            RowLayout{Label{text:"Z"} WorkbenchSpinBox{id:jumpZ;from:editor.layerDetails.originZ;to:from+editor.layerDetails.depth-1;editable:true;Layout.fillWidth:true}}
         }
         onAccepted:if(editor.cameraController)editor.cameraController.jumpTo(jumpX.value,jumpZ.value)
     }

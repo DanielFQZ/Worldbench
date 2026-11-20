@@ -39,7 +39,7 @@ ColumnLayout {
  RowLayout{
   objectName:"fillDepthControls";visible:editor.tool===1&&panel.options.fillHoles;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
   Label{text:"平面下方深度（格）";color:"#a6b4c5"}
-  SpinBox{Layout.fillWidth:true;from:1;to:383;value:panel.options.fillDepth;editable:true;onValueModified:editor.setBrushOption("fillDepth",value)}
+  WorkbenchSpinBox{Layout.fillWidth:true;from:1;to:383;value:panel.options.fillDepth;editable:true;onValueModified:editor.setBrushOption("fillDepth",value)}
  }
  Label{visible:editor.tool===1;text:panel.options.fillHoles?"表面补齐一层方块；下方指定深度内的空气填为石头，更深空腔保留。":"只补齐表面的一层方块，下方空腔保留。";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;wrapMode:Text.WordWrap;color:"#91a8ba";font.pixelSize:11}
  CheckBox{Layout.leftMargin:8;text:"启用笔刷过滤";checked:panel.options.filterEnabled;onToggled:editor.setBrushOption("filterEnabled",checked)}
@@ -47,15 +47,15 @@ ColumnLayout {
   visible:panel.options.filterEnabled;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;spacing:8
   Label{text:"高度范围 Y";color:"#a6b4c5"}
   RowLayout{
-   SpinBox{Layout.fillWidth:true;from:-63;to:318;value:panel.options.minHeight;editable:true;onValueModified:editor.setBrushOption("minHeight",value)}
+   WorkbenchSpinBox{Layout.fillWidth:true;from:-63;to:318;value:panel.options.minHeight;editable:true;onValueModified:editor.setBrushOption("minHeight",value)}
    Label{text:"至"}
-   SpinBox{Layout.fillWidth:true;from:-63;to:318;value:panel.options.maxHeight;editable:true;onValueModified:editor.setBrushOption("maxHeight",value)}
+   WorkbenchSpinBox{Layout.fillWidth:true;from:-63;to:318;value:panel.options.maxHeight;editable:true;onValueModified:editor.setBrushOption("maxHeight",value)}
   }
   Label{text:"地表坡度（度）";color:"#a6b4c5"}
   RowLayout{
-   SpinBox{Layout.fillWidth:true;from:0;to:90;value:panel.options.minSlope;editable:true;onValueModified:editor.setBrushOption("minSlope",value)}
+   WorkbenchSpinBox{Layout.fillWidth:true;from:0;to:90;value:panel.options.minSlope;editable:true;onValueModified:editor.setBrushOption("minSlope",value)}
    Label{text:"至"}
-   SpinBox{Layout.fillWidth:true;from:0;to:90;value:panel.options.maxSlope;editable:true;onValueModified:editor.setBrushOption("maxSlope",value)}
+   WorkbenchSpinBox{Layout.fillWidth:true;from:0;to:90;value:panel.options.maxSlope;editable:true;onValueModified:editor.setBrushOption("maxSlope",value)}
   }
   WorkbenchComboBox{Layout.fillWidth:true;model:["不限材质","仅以下材质","排除以下材质"];currentIndex:panel.options.materialFilter;onActivated:editor.setBrushOption("materialFilter",currentIndex)}
   Label{visible:panel.options.materialFilter!==0;text:panel.options.filterBlock;Layout.fillWidth:true;wrapMode:Text.WrapAnywhere;color:"#94c9cf";font.pixelSize:11}

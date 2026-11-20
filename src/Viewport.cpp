@@ -243,6 +243,7 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_timer.start();
     QSettings settings;
     m_rawInput = settings.value("input/raw", true).toBool();
+    m_flightInertia = settings.value("input/flightInertia", true).toBool();
     m_sensitivity = std::clamp(settings.value("input/sensitivity", .12).toDouble(), .01, 1.0);
     QCoreApplication::instance()->installNativeEventFilter(this);
 }
@@ -396,6 +397,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent *e) {
         m_sculpting = false;
     }
     if (m_buttons == Qt::NoButton) {
+        m_velocity = {};
         endRawInput();
         unsetCursor();
         m_keys.clear();
@@ -487,6 +489,7 @@ void Viewport::keyReleaseEvent(QKeyEvent *e) {
     e->accept();
 }
 void Viewport::stopInput() {
+    m_velocity = {};
     endRawInput();
     m_keys.clear();
     m_buttons = Qt::NoButton;
@@ -525,11 +528,26 @@ void Viewport::tick() {
             move += QVector3D(0, 1, 0);
         if (m_keys.contains(Qt::Key_Q))
             move -= QVector3D(0, 1, 0);
-        if (!move.isNull()) {
-            m_camera += move.normalized() * m_speed * dt * (m_keys.contains(Qt::Key_Shift) ? 3.f : 1.f);
+        const auto target = move.normalized() * m_speed * (m_keys.contains(Qt::Key_Shift) ? 3.f : 1.f);
+        QVector3D displacement;
+        if (m_flightInertia) {
+            // Exact integration of exponential acceleration/braking, independent of tick rate.
+            const float tau = move.isNull() ? .09f : .12f;
+            const float decay = std::exp(-dt / tau);
+            displacement = target * dt + (m_velocity - target) * (tau * (1 - decay));
+            m_velocity = target + (m_velocity - target) * decay;
+            if (move.isNull() && m_velocity.lengthSquared() < .0001f)
+                m_velocity = {};
+        } else {
+            m_velocity = target;
+            displacement = target * dt;
+        }
+        if (!displacement.isNull()) {
+            m_camera += displacement;
             changedCamera();
         }
-    }
+    } else
+        m_velocity = {};
     if (m_sculpting && m_editor && m_stampClock.elapsed() > 100) {
         pick(m_pointer);
         m_editor->stamp(m_hit, m_reverse);
@@ -552,6 +570,12 @@ void Viewport::setSensitivity(double value) {
         return;
     m_sensitivity = std::clamp(value, .01, 1.0);
     QSettings().setValue("input/sensitivity", m_sensitivity);
+    emit cameraChanged();
+}
+void Viewport::setFlightInertia(bool value) {
+    m_flightInertia = value;
+    m_velocity = {};
+    QSettings().setValue("input/flightInertia", value);
     emit cameraChanged();
 }
 void Viewport::beginRawInput() {

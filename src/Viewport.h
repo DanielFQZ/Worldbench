@@ -15,6 +15,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(bool rawInput READ rawInput WRITE setRawInput NOTIFY cameraChanged)
     Q_PROPERTY(bool rawActive READ rawActive NOTIFY cameraChanged)
     Q_PROPERTY(double sensitivity READ sensitivity WRITE setSensitivity NOTIFY cameraChanged)
+    Q_PROPERTY(bool flightInertia READ flightInertia WRITE setFlightInertia NOTIFY cameraChanged)
     Q_PROPERTY(int rawPackets READ rawPackets NOTIFY cameraChanged)
   public:
     explicit Viewport(QQuickItem *parent = nullptr);
@@ -25,6 +26,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     double sensitivity() const { return m_sensitivity; }
     void setRawInput(bool value);
     void setSensitivity(double value);
+    bool flightInertia() const { return m_flightInertia; }
+    void setFlightInertia(bool value);
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
     void applyCamera(const QJsonObject &arguments);
     Editor *editor() const { return m_editor; }
@@ -68,6 +71,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void endRawInput();
     Editor *m_editor = nullptr;
     QVector3D m_camera{80, 65, 100}, m_pivot{0, 20, 0};
+    QVector3D m_velocity;
+    bool m_flightInertia = true;
     float m_yaw = -38.66f, m_pitch = -19.36f, m_speed = 35;
     QPointF m_pointer, m_anchorGlobal;
     wb::Hit m_hit;

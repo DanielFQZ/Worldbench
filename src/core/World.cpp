@@ -267,8 +267,10 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     return {};
 }
 void World::apply(const Command &cmd, bool forward) {
+    if (cmd.terrainBefore && cmd.terrainAfter)
+        heights.instances = *(forward ? cmd.terrainAfter : cmd.terrainBefore);
     for (auto c : cmd.heights)
-        heights.set(c.index, forward ? c.after : c.before);
+        heights.restore(c.index, forward ? c.after : c.before, forward ? c.afterOverride : c.beforeOverride);
     for (auto c : cmd.cells) {
         const int v = forward ? c.after : c.before;
         if (v < 0)
@@ -293,6 +295,7 @@ void Stroke::changeHeight(int i, int h) {
     if (h == world.heights[i])
         return;
     beforeHeights.try_emplace(i, world.heights[i]);
+    beforeHeightOverrides.try_emplace(i, world.heights.changes().contains(i));
     world.heights.set(i, h);
     ++changes;
 }
@@ -434,8 +437,9 @@ Command Stroke::finish(const QString &label) {
     Command c;
     c.label = label;
     for (auto [i, b] : beforeHeights)
-        if (b != world.heights[i])
-            c.heights.push_back({i, b, world.heights[i]});
+        if (b != world.heights[i] || beforeHeightOverrides[i] != world.heights.changes().contains(i))
+            c.heights.push_back(
+                {i, b, world.heights[i], beforeHeightOverrides[i], world.heights.changes().contains(i)});
     for (auto [k, b] : beforeCells) {
         auto it = world.overrides.find(k);
         int a = it == world.overrides.end() ? -1 : int(it->second);

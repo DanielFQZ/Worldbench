@@ -41,6 +41,7 @@ class Editor : public QObject {
     Q_PROPERTY(QString resourceDiagnostics READ resourceDiagnostics NOTIFY changed)
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
     Q_PROPERTY(QVariantMap layerDetails READ layerDetails NOTIFY changed)
+    Q_PROPERTY(QVariantMap terrainDetails READ terrainDetails NOTIFY changed)
     Q_PROPERTY(QString materialLabel READ materialLabel NOTIFY changed)
     Q_PROPERTY(QVariantList materialProperties READ materialProperties NOTIFY changed)
     Q_PROPERTY(QStringList resourceSources READ resourceSources NOTIFY changed)
@@ -60,7 +61,7 @@ class Editor : public QObject {
     void setStrength(int v);
     int material() const { return m_material; }
     void setMaterial(int v);
-    bool assetBusy() const { return m_assetsLoading; }
+    bool assetBusy() const { return m_assetsLoading || m_heightmapLoading; }
     int assetProgress() const { return m_assetProgress; }
     QString assetStage() const { return m_assetStage; }
     QString assetLog() const { return m_assetLog.join('\n'); }
@@ -90,6 +91,13 @@ class Editor : public QObject {
     QString resourceDiagnostics() const;
     QVariantList sceneNodes() const;
     QVariantMap layerDetails() const;
+    QVariantMap terrainDetails() const;
+    Q_INVOKABLE void importHeightmap(const QUrl &url, bool mask = false);
+    Q_INVOKABLE void setTerrainOption(const QString &key, const QVariant &value);
+    Q_INVOKABLE void removeTerrain();
+    Q_INVOKABLE void moveTerrain(int direction);
+    Q_INVOKABLE void clearTerrainMask();
+    Q_INVOKABLE void focusTerrain();
     QString materialLabel() const;
     QVariantList materialProperties() const;
     QStringList resourceSources() const { return m_world.resourcePaths; }
@@ -98,12 +106,7 @@ class Editor : public QObject {
     QString mcpConfiguration() const;
     QString mcpActivity() const;
     QString selectedNode() const { return m_selectedNode; }
-    void setSelectedNode(const QString &node) {
-        if (node != "terrain-base-1" || node == m_selectedNode)
-            return;
-        m_selectedNode = node;
-        emit changed();
-    }
+    void setSelectedNode(const QString &node);
     QObject *cameraController() const { return m_cameraController; }
     void setCameraController(QObject *controller) {
         m_cameraController = controller;
@@ -168,6 +171,9 @@ class Editor : public QObject {
     static QString resourceFingerprint(const QStringList &paths);
     void saveBrushProfile();
     void restoreBrushProfile();
+    void initializeTerrainImporter();
+    int selectedTerrainIndex() const;
+    void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
     std::set<int> desiredChunks() const;
     wb::BrushOptions m_brushOptions;
     wb::World m_world;
@@ -195,6 +201,13 @@ class Editor : public QObject {
         QString error;
     };
     QFutureWatcher<AssetResult> m_assetWatcher;
+    struct HeightmapResult {
+        std::shared_ptr<const wb::HeightmapData> image;
+        QString error, fileName, targetId;
+        bool mask = false;
+    };
+    QFutureWatcher<HeightmapResult> m_heightmapWatcher;
+    bool m_heightmapLoading = false;
     std::unique_ptr<McpServer> m_mcp;
     uint64_t m_revision = 1, m_resourceRevision = 0, m_savedResourceRevision = 0;
     QString m_selectedNode = "terrain-base-1";

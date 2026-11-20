@@ -15,6 +15,7 @@
 
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
+    initializeTerrainImporter();
     m_meshTimer.setSingleShot(true);
     m_meshTimer.setInterval(25);
     connect(&m_meshTimer, &QTimer::timeout, this, &Editor::startMesh);
@@ -86,6 +87,7 @@ Editor::Editor(QObject *parent)
     dirtyAll();
 }
 Editor::~Editor() {
+    m_heightmapWatcher.waitForFinished();
     m_cancelExport = true;
     m_assetWatcher.waitForFinished();
     m_meshWatcher.waitForFinished();
@@ -164,7 +166,7 @@ void Editor::endStroke() {
     pushCommand(std::move(c));
 }
 void Editor::pushCommand(wb::Command c) {
-    if (!c.cells.empty() || !c.heights.empty()) {
+    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -172,9 +174,17 @@ void Editor::pushCommand(wb::Command c) {
         // Bound history by both stroke count and delta payload size.
         auto bytes = [&] {
             size_t b = 0;
-            for (const auto &e : m_history)
+            std::set<const wb::HeightmapData *> images;
+            for (const auto &e : m_history) {
                 b += e.command.cells.size() * sizeof(wb::CellChange) +
                      e.command.heights.size() * sizeof(wb::HeightChange);
+                for (const auto &list : {e.command.terrainBefore, e.command.terrainAfter})
+                    if (list)
+                        for (const auto &instance : *list)
+                            for (const auto &image : {instance.image, instance.mask})
+                                if (image && images.insert(image.get()).second)
+                                    b += image->values.size() * 2;
+            }
             return b;
         };
         while (m_history.size() > 64 || (m_history.size() > 1 && bytes() > 32 * 1024 * 1024))
@@ -213,6 +223,7 @@ void Editor::redo() {
     emit changed();
 }
 void Editor::resetHistory() {
+    m_selectedNode = "terrain-base-1";
     m_stroke.reset();
     m_strokeChanged = false;
     m_history.clear();
@@ -310,6 +321,13 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
+    if (command.terrainAfter) {
+        if (selectedTerrainIndex() < 0)
+            m_selectedNode = "terrain-base-1";
+        ++m_epoch;
+        dirtyAll();
+        return;
+    }
     auto chunks = wb::affectedChunks(m_world, command);
     m_dirty.insert(chunks.begin(), chunks.end());
     if (!m_dirty.empty())

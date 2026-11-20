@@ -31,12 +31,13 @@ bool saveProject(const QString &path, const World &w, QString &error) {
     }
     for (const auto &path : w.resourcePaths)
         paths.append(path);
-    QJsonObject root{{"format", 3},
+    QJsonObject root{{"format", 4},
                      {"width", w.width},
                      {"depth", w.depth},
                      {"terrain", QJsonObject{{"baseHeight", w.heights.baseHeight},
                                              {"variation", w.heights.variation},
                                              {"flat", w.heights.flat}}},
+                     {"terrainInstances", saveTerrain(w.heights.instances)},
                      {"heightChanges", heightChanges},
                      {"originX", w.originX},
                      {"originZ", w.originZ},
@@ -99,12 +100,12 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 3))
+    if (!integer(o["format"], 1, 4))
         return fail("不支持的工程版本");
-    const auto widthValue = o[format == 3 ? "width" : "size"];
-    const auto depthValue = format == 3 ? o["depth"] : widthValue;
-    if (!integer(widthValue, 32, format == 3 ? 16384 : 256) ||
-        !integer(depthValue, 32, format == 3 ? 16384 : 256))
+    const auto widthValue = o[format >= 3 ? "width" : "size"];
+    const auto depthValue = format >= 3 ? o["depth"] : widthValue;
+    if (!integer(widthValue, 32, format >= 3 ? 16384 : 256) ||
+        !integer(depthValue, 32, format >= 3 ? 16384 : 256))
         return fail("工程长宽越界");
     w.width = widthValue.toInt();
     w.depth = depthValue.toInt();
@@ -117,7 +118,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
     w.seed = o["seed"].toInt();
     w.seaLevel = o["seaLevel"].toInt();
     WorldOptions options{w.width, w.seed, w.seaLevel, 0, 0, true, w.depth};
-    if (format == 3) {
+    if (format >= 3) {
         const auto t = o["terrain"].toObject();
         if (!integer(t["baseHeight"], -63, 318) || !integer(t["variation"], 0, 128) || !t["flat"].isBool())
             return fail("基础地形参数无效");
@@ -141,7 +142,9 @@ bool loadProject(const QString &path, World &world, QString &error) {
         }
         w.heights.assign(std::move(values));
     }
-    if (format == 3) {
+    if (format >= 4 && !loadTerrain(o["terrainInstances"].toObject(), w.heights.instances, error))
+        return false;
+    if (format >= 3) {
         if (!o["heightChanges"].isArray())
             return fail("缺少高度差量");
         std::set<int> seen;
@@ -150,7 +153,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
             if (a.size() != 2 || !integer(a[0], 0, w.width * w.depth - 1) || !integer(a[1], -63, 318) ||
                 !seen.insert(a[0].toInt()).second)
                 return fail("高度差量无效");
-            w.heights.set(a[0].toInt(), a[1].toInt());
+            w.heights.restore(a[0].toInt(), a[1].toInt(), true);
         }
     }
     if (format >= 2) {

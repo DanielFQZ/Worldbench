@@ -3,7 +3,9 @@
 <file alias="ToolRail.qml">qml/ToolRail.qml</file>
 <file alias="SettingsPanel.qml">qml/SettingsPanel.qml</file>
 <file alias="ToolPanel.qml">qml/ToolPanel.qml</file>
+<file alias="WorkbenchSpinBox.qml">qml/WorkbenchSpinBox.qml</file>
 <file alias="SelectionPanel.qml">qml/SelectionPanel.qml</file>
+<file alias="TerrainPanel.qml">qml/TerrainPanel.qml</file>
 <file alias="WorldPanel.qml">qml/WorldPanel.qml</file>
 <file alias="ViewportPane.qml">qml/ViewportPane.qml</file>
 <file alias="WorkbenchMenu.qml">qml/WorkbenchMenu.qml</file>

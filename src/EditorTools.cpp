@@ -41,7 +41,12 @@ QString Editor::resourceDiagnostics() const {
     return lines.isEmpty() ? "未发现需要跳过的资源条目。" : lines.join('\n');
 }
 QVariantList Editor::sceneNodes() const {
-    return {QVariantMap{{"id", "terrain-base-1"}, {"name", "基础地形层1"}, {"kind", "terrain"}}};
+    QVariantList nodes;
+    for (auto it = m_world.heights.instances.rbegin(); it != m_world.heights.instances.rend(); ++it)
+        nodes << QVariantMap{
+            {"id", it->id}, {"name", it->name + (it->enabled ? "" : "（隐藏）")}, {"kind", "heightmap"}};
+    nodes << QVariantMap{{"id", "terrain-base-1"}, {"name", "基础地形层1"}, {"kind", "terrain"}};
+    return nodes;
 }
 QVariantMap Editor::layerDetails() const {
     return {{"name", "基础地形层1"},
@@ -338,7 +343,24 @@ void Editor::copyMcpConfiguration() {
     QGuiApplication::clipboard()->setText(mcpConfiguration());
 }
 QJsonObject Editor::worldInfo() const {
+    QJsonArray terrain;
+    for (const auto &i : m_world.heights.instances)
+        terrain.append(QJsonObject{{"id", i.id},
+                                   {"name", i.name},
+                                   {"x", i.x},
+                                   {"z", i.z},
+                                   {"width", i.width},
+                                   {"depth", i.depth},
+                                   {"low", i.low},
+                                   {"high", i.high},
+                                   {"blend", i.blend},
+                                   {"opacity", i.opacity},
+                                   {"feather", i.feather},
+                                   {"enabled", i.enabled},
+                                   {"source", i.sourceName},
+                                   {"mask", i.maskName}});
     return {{"revision", double(m_revision)},
+            {"terrain_instances", terrain},
             {"size", m_world.width},
             {"width", m_world.width},
             {"depth", m_world.depth},
@@ -455,6 +477,53 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         throw std::runtime_error("revision 已过期；请先读取 world_info，不得盲目重试写入");
     if (name == "undo") {
         undo();
+        return worldInfo();
+    }
+    if (name == "terrain_instance") {
+        auto next = m_world.heights.instances;
+        auto it = std::find_if(next.begin(), next.end(),
+                               [&](const auto &i) { return i.id == args["id"].toString(); });
+        if (it == next.end() || !args["changes"].isObject() || args["changes"].toObject().isEmpty())
+            throw std::runtime_error("请选择有效实例，并提供非空 changes 对象");
+        const auto changes = args["changes"].toObject();
+        for (auto p = changes.begin(); p != changes.end(); ++p) {
+            const auto key = p.key();
+            if (key == "name") {
+                if (!p.value().isString())
+                    throw std::runtime_error("name 必须为字符串");
+                it->name = p.value().toString().trimmed();
+            } else if (key == "enabled") {
+                if (!p.value().isBool())
+                    throw std::runtime_error("enabled 必须为布尔值");
+                it->enabled = p.value().toBool();
+            } else {
+                const int n = integer(p.value(), -2000000, 2000000);
+                if (key == "x")
+                    it->x = n;
+                else if (key == "z")
+                    it->z = n;
+                else if (key == "width")
+                    it->width = n;
+                else if (key == "depth")
+                    it->depth = n;
+                else if (key == "low")
+                    it->low = n;
+                else if (key == "high")
+                    it->high = n;
+                else if (key == "blend")
+                    it->blend = n;
+                else if (key == "opacity")
+                    it->opacity = n;
+                else if (key == "feather")
+                    it->feather = n;
+                else
+                    throw std::runtime_error("未知地貌属性");
+            }
+        }
+        QString error;
+        if (!wb::validateTerrain(next, error))
+            throw std::runtime_error(error.toStdString());
+        commitTerrain(std::move(next), "MCP 调整地貌实例");
         return worldInfo();
     }
     if (name == "redo") {

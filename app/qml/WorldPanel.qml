@@ -16,22 +16,27 @@ Pane {
    objectName:"sceneOutliner"
    SplitView.preferredHeight:220;SplitView.minimumHeight:120;spacing:2
    Label{text:"场景大纲";font.bold:true;color:"#c9d2df";Layout.margins:12}
-   Repeater {
+   ListView {
+    Layout.fillWidth:true;Layout.fillHeight:true;clip:true
+    ScrollBar.vertical:ScrollBar{}
     model:editor.sceneNodes
     delegate:ItemDelegate{
      required property var modelData
-     Layout.fillWidth:true;implicitHeight:34;text:"▧  "+modelData.name;highlighted:editor.selectedNode===modelData.id
+     width:ListView.view.width;implicitHeight:34;text:"▧  "+modelData.name;highlighted:editor.selectedNode===modelData.id
      background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
      onClicked:editor.selectedNode=modelData.id
     }
    }
-   Item{Layout.fillHeight:true}
   }
   ScrollView {
-   id:details
+   id:details;objectName:"sceneDetailsScroll"
    SplitView.fillHeight:true;SplitView.minimumHeight:200;clip:true;contentWidth:availableWidth
    ColumnLayout {
     width:details.availableWidth;spacing:12
+    property var selectedLayer:editor.layerDetails
+    TerrainPanel{Layout.fillWidth:true;visible:editor.terrainDetails.valid}
+    ColumnLayout {
+    Layout.fillWidth:true;visible:!editor.terrainDetails.valid;spacing:12
     property var selectedLayer:editor.layerDetails
     Label{text:"详细信息";font.bold:true;Layout.margins:12;color:"#c9d2df"}
     Label{text:parent.selectedLayer.name;font.pixelSize:17;Layout.leftMargin:12}
@@ -43,6 +48,7 @@ Pane {
     Label{text:"种子   "+parent.selectedLayer.seed; color:"#a6b4c5";Layout.leftMargin:12}
     Label{text:"体素修改   "+parent.selectedLayer.overrideCells+" 格";color:"#a6b4c5";Layout.leftMargin:12}
     Label{text:"此层包含当前地表与体素编辑结果。选择左侧工具进行编辑。";color:"#8997a9";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap}
+    }
    }
   }
  }
