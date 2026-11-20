@@ -33,13 +33,14 @@ Item {
      c.font="bold 13px sans-serif";c.fillText(["X","Y","Z"][i],end.x+9,end.y-7)
     }
    }
-   if(o.active&&o.mode!==1){c.fillStyle=(o.dragging?o.axis===3:o.hover===3)?"#ffe283":"#dbe9f1";c.fillRect(o.cx-5,o.cy-5,10,10);c.strokeStyle="#172635";c.lineWidth=1;c.strokeRect(o.cx-5,o.cy-5,10,10)}
    var icons=o.markers||[]
    for(var n=0;n<icons.length;n++){
-    var m=icons[n],x=m.x,y=m.y-24;c.fillStyle=m.selected?"#27586c":"#202c3b";c.strokeStyle=m.enabled?"#82cfdd":"#74818d";c.lineWidth=m.selected?2:1
+    var m=icons[n],x=m.x,y=m.y;c.fillStyle=m.selected?"#27586c":"#202c3b";c.strokeStyle=m.enabled?"#82cfdd":"#74818d";c.lineWidth=m.selected?2:1
     c.beginPath();c.arc(x,y,12,0,Math.PI*2);c.fill();c.stroke();c.beginPath();c.moveTo(x-7,y+5);c.lineTo(x-1,y-5);c.lineTo(x+2,y);c.lineTo(x+5,y-3);c.lineTo(x+8,y+5);c.stroke()
     if(m.selected){c.font="12px sans-serif";c.fillStyle="#e0f5ff";c.fillText(m.name,x+17,y+4)}
    }
+   // Paint the center last so the instance badge cannot cover the draggable handle.
+   if(o.active&&o.mode!==1){c.fillStyle=(o.dragging?o.axis===3:o.hover===3)?"#ffe283":"#dbe9f1";c.fillRect(o.cx-5,o.cy-5,10,10);c.strokeStyle="#172635";c.lineWidth=1;c.strokeRect(o.cx-5,o.cy-5,10,10)}
   }
  }
  Rectangle {

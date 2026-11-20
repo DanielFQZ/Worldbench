@@ -26,10 +26,10 @@ Dialog {
   spacing:12
   RowLayout{
    CheckBox{id:enabledBox;objectName:"themeEnabled";text:"启用高度主题"}
-   CheckBox{id:beaches;text:"水位附近及以下使用沙滩材料"}
+   CheckBox{id:beaches;text:"水位附近及以下使用沙滩材料";enabled:enabledBox.checked}
    Item{Layout.fillWidth:true}
   }
-  Label{text:"每个区间从起始高度延伸到下一区间。材料随地表高度自动更新；独立涂绘、建筑和挖空优先保留。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#9eb1c2"}
+  Label{objectName:"themeStateHint";text:!enabledBox.checked?"主题未启用：勾选上方开关，再点击“应用并预览”。关闭状态下，区间和边界噪声不会改变地表。":!editor.surfaceTheme.enabled?"主题已勾选，尚未应用。点击“应用并预览”后生效。":"主题已启用。修改参数后仍需点击“应用并预览”；独立涂绘和挖空优先保留。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:!enabledBox.checked||!editor.surfaceTheme.enabled?"#efc778":"#9eb1c2"}
   RowLayout{
    spacing:8
    Label{text:"区间名称";Layout.preferredWidth:132}
@@ -39,7 +39,7 @@ Dialog {
    Label{text:"总厚度（格）";Layout.preferredWidth:112}
   }
   ListView {
-   id:ranges;objectName:"themeRanges";Layout.fillWidth:true;Layout.fillHeight:true;clip:true;spacing:7;model:bands
+   id:ranges;objectName:"themeRanges";Layout.fillWidth:true;Layout.fillHeight:true;clip:true;spacing:7;model:bands;enabled:enabledBox.checked
    ScrollBar.vertical:ScrollBar{}
    delegate:RowLayout {
     required property int index
@@ -50,7 +50,11 @@ Dialog {
     required property int depth
     id:row;width:ranges.width;spacing:8
     TextField{text:row.name;Layout.preferredWidth:132;selectByMouse:true;maximumLength:64;onTextEdited:bands.setProperty(row.index,"name",text)}
-    WorkbenchSpinBox{objectName:"themeHeight"+row.index;from:-63;to:318;value:row.minHeight;Layout.preferredWidth:115;enabled:row.index>0;onValueModified:bands.setProperty(row.index,"minHeight",value)}
+    Item {
+     Layout.preferredWidth:115;Layout.preferredHeight:40
+     Label{objectName:"themeDefaultBand";anchors.centerIn:parent;visible:row.index===0;text:"默认区间";color:"#9eb1c2"}
+     WorkbenchSpinBox{objectName:"themeHeight"+row.index;anchors.fill:parent;visible:row.index>0;from:-63;to:318;value:row.minHeight;onValueModified:bands.setProperty(row.index,"minHeight",value)}
+    }
     Button{text:editor.themeMaterialLabel(row.surface);Layout.preferredWidth:170;onClicked:dialog.chooseMaterial(row.index,"surface");ToolTip.visible:hovered;ToolTip.text:"选择此区间的表层方块"}
     Button{text:editor.themeMaterialLabel(row.subsurface);Layout.preferredWidth:170;onClicked:dialog.chooseMaterial(row.index,"subsurface");ToolTip.visible:hovered;ToolTip.text:"选择表层下方的方块"}
     WorkbenchSpinBox{from:1;to:32;value:row.depth;Layout.preferredWidth:112;onValueModified:bands.setProperty(row.index,"depth",value)}
@@ -58,11 +62,12 @@ Dialog {
    }
   }
   RowLayout {
-   Button{objectName:"addThemeBand";text:"+ 高度区间";enabled:bands.count<16&&bands.count>0&&bands.get(bands.count-1).minHeight<318;onClicked:{const y=bands.get(bands.count-1).minHeight;bands.append({minHeight:Math.min(318,y+16),name:"新区间",surface:3,subsurface:3,depth:4})}}
-   Label{text:"最多16段；首段从−63开始。总厚度包含表层，深处为石头。";color:"#8fa5b7";Layout.fillWidth:true;wrapMode:Text.WordWrap}
+   Button{objectName:"addThemeBand";text:"+ 高度区间";enabled:enabledBox.checked&&bands.count<16&&bands.count>0&&bands.get(bands.count-1).minHeight<318;onClicked:{const y=bands.get(bands.count-1).minHeight;bands.append({minHeight:Math.min(318,y+16),name:"新区间",surface:3,subsurface:3,depth:4})}}
+   Label{text:"默认区间从−63覆盖至下一起点，无需设置起点；其他行可编辑。厚度含表层。";color:"#8fa5b7";Layout.fillWidth:true;Layout.minimumWidth:0;Layout.preferredWidth:0;wrapMode:Text.WordWrap}
   }
   RowLayout {
-   Label{text:"边界变化"}
+   enabled:enabledBox.checked
+   Label{text:"边界噪声幅度"}
    WorkbenchSpinBox{id:edgeNoise;objectName:"themeNoise";from:0;to:32;Layout.preferredWidth:112}
    Label{text:"格　尺度"}
    WorkbenchSpinBox{id:edgeScale;from:1;to:256;Layout.preferredWidth:112}
@@ -70,7 +75,7 @@ Dialog {
    WorkbenchSpinBox{id:seed;from:-1000000;to:1000000;Layout.preferredWidth:150}
    Item{Layout.fillWidth:true}
   }
-  Label{text:"边界变化只影响材料分布，不改变山体高度。关闭主题可恢复默认地表；每次应用都可撤销。主题目前只使用完整、不透明方块的默认状态。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#8fa5b7"}
+  Label{text:"噪声仅在区间分界附近改变材料，不改变山高。例如分界Y=30、幅度8格，主要影响Y=22–38。单一区间、相同材料或沙滩覆盖区域可能看不出变化。";Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#8fa5b7"}
   RowLayout {
    Item{Layout.fillWidth:true}
    Button{objectName:"applySurfaceTheme";text:"应用并预览";enabled:!editor.commandBusy&&!editor.exportBusy;onClicked:dialog.apply()}

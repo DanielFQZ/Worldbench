@@ -24,6 +24,11 @@ std::array<QVector3D, 3> gizmoBasis(const wb::TerrainInstance &i, int mode) {
     return basis;
 }
 const int planeAxes[3][2] = {{0, 1}, {0, 2}, {1, 2}};
+QVector3D gizmoAnchor(const wb::TerrainInstance &i) {
+    // A stable editing anchor, independent of evaluated terrain, visibility, rotation and scale.
+    const auto pivot = i.pivot();
+    return {pivot.x(), float(i.y + i.high + 7), pivot.z()};
+}
 } // namespace
 void Viewport::setSnapEnabled(bool enabled) {
     m_snapEnabled = enabled;
@@ -56,7 +61,7 @@ QVariantMap Viewport::gizmoOverlay() const {
         const int x = int(pivot.x()), z = int(pivot.z());
         if (!world.contains(x, 0, z) && !(m_gizmoDragging && i.id == m_gizmoInitial.id))
             continue;
-        auto position = QVector3D(pivot.x(), float(world.height(x, z) + 7), pivot.z());
+        const auto position = gizmoAnchor(i);
         bool visible;
         auto screen = projectPoint(position, &visible);
         visible = visible && screen.x() > 16 && screen.x() < width() - 16 && screen.y() > 55 &&
@@ -201,23 +206,24 @@ bool Viewport::pressGizmo(QPointF p) {
     if (!m_editor || m_editor->assetBusy() || m_editor->terrainEditing())
         return false;
     auto overlay = gizmoOverlay();
+    const int axis = hitGizmo(p, overlay);
     for (auto item : overlay["markers"].toList()) {
         auto m = item.toMap();
-        if (QLineF(p, {m["x"].toDouble(), m["y"].toDouble() - 24}).length() < 14) {
+        // Transform handles take precedence over badges, including overlapping instances.
+        if (axis >= 0)
+            break;
+        if (QLineF(p, {m["x"].toDouble(), m["y"].toDouble()}).length() < 14) {
             m_editor->setSelectedNode(m["id"].toString());
             m_editor->setTool(-1);
             return true;
         }
     }
-    int axis = hitGizmo(p, overlay);
     if (axis < 0)
         return false;
     for (const auto &i : m_editor->world().heights.instances)
         if (i.id == m_editor->selectedNode())
             m_gizmoInitial = i;
-    const auto pivot = m_gizmoInitial.pivot();
-    m_gizmoCenter = {pivot.x(), float(m_editor->world().height(int(pivot.x()), int(pivot.z())) + 7),
-                     pivot.z()};
+    m_gizmoCenter = gizmoAnchor(m_gizmoInitial);
     m_gizmoAxis = axis;
     m_gizmoStart = m_gizmoLast = p;
     m_gizmoScreenCenter = {overlay["cx"].toDouble(), overlay["cy"].toDouble()};
@@ -336,19 +342,26 @@ void Viewport::moveGizmo(QPointF p) {
     } else {
         const int start[3] = {i.scaleX, i.scaleY, i.scaleZ};
         const QString keys[3] = {"scaleX", "scaleY", "scaleZ"};
-        if (m_gizmoAxis == 3)
-            for (int k = 0; k < 3; ++k)
-                changes[keys[k]] = std::clamp(quantize(start[k] * (1 + d.x() / 120), 10), 1, 1600);
-        else if (m_gizmoAxis >= 4) {
-            const double det = m_gizmoPlaneU.x() * m_gizmoPlaneV.y() - m_gizmoPlaneU.y() * m_gizmoPlaneV.x();
-            if (std::abs(det) < 1)
-                return;
-            const double u = (d.x() * m_gizmoPlaneV.y() - d.y() * m_gizmoPlaneV.x()) / det;
-            const double v = (m_gizmoPlaneU.x() * d.y() - m_gizmoPlaneU.y() * d.x()) / det;
-            for (int n = 0; n < 2; ++n) {
-                const int axis = planeAxes[m_gizmoAxis - 4][n];
-                changes[keys[axis]] = std::clamp(quantize(start[axis] * (1 + (n ? v : u)), 10), 1, 1600);
+        auto proportional = [&](std::initializer_list<int> axes, double factor) {
+            // Snap the shared multiplier, not each component: preserve an existing unequal ratio.
+            if (snap)
+                factor = std::round(factor * 10) / 10;
+            double minimum = 0, maximum = 1600;
+            for (int k : axes) {
+                minimum = std::max(minimum, 1. / start[k]);
+                maximum = std::min(maximum, 1600. / start[k]);
             }
+            factor = std::clamp(factor, minimum, maximum);
+            for (int k : axes)
+                changes[keys[k]] = int(std::lround(start[k] * factor));
+        };
+        if (m_gizmoAxis == 3)
+            proportional({0, 1, 2}, 1 + d.x() / 120);
+        else if (m_gizmoAxis >= 4) {
+            const auto diagonal = m_gizmoPlaneU + m_gizmoPlaneV;
+            const auto length2 = QPointF::dotProduct(diagonal, diagonal);
+            const double amount = length2 > 25 ? QPointF::dotProduct(d, diagonal) / length2 : d.x() / 120;
+            proportional({planeAxes[m_gizmoAxis - 4][0], planeAxes[m_gizmoAxis - 4][1]}, 1 + amount);
         } else
             changes[keys[m_gizmoAxis]] = std::clamp(quantize(start[m_gizmoAxis] * (1 + t), 10), 1, 1600);
     }
