@@ -18,6 +18,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(bool flightInertia READ flightInertia WRITE setFlightInertia NOTIFY cameraChanged)
     Q_PROPERTY(QVariantMap gizmoOverlay READ gizmoOverlay NOTIFY cameraChanged)
     Q_PROPERTY(int gizmoMode READ gizmoMode WRITE setGizmoMode NOTIFY cameraChanged)
+    Q_PROPERTY(bool snapEnabled READ snapEnabled WRITE setSnapEnabled NOTIFY cameraChanged)
     Q_PROPERTY(int rawPackets READ rawPackets NOTIFY cameraChanged)
   public:
     explicit Viewport(QQuickItem *parent = nullptr);
@@ -36,6 +37,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     int gizmoMode() const { return m_gizmoMode; }
     Q_INVOKABLE void setGizmoMode(int mode);
     bool gizmoDragging() const { return m_gizmoDragging; }
+    bool snapEnabled() const { return m_snapEnabled; }
+    void setSnapEnabled(bool enabled);
     Editor *editor() const { return m_editor; }
     void setEditor(Editor *editor);
     QString cameraText() const;
@@ -71,11 +74,14 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void moveGizmo(QPointF p);
     void finishGizmo(bool cancel = false);
     int hitGizmo(QPointF p, const QVariantMap &overlay) const;
+    bool rotationVector(QPointF p, QVector3D &vector) const;
     int m_gizmoMode = 0, m_gizmoAxis = -1, m_gizmoHover = -1;
     bool m_gizmoDragging = false;
     QPointF m_gizmoStart, m_gizmoScreenCenter, m_gizmoScreenAxis;
     QPointF m_gizmoPlaneU, m_gizmoPlaneV, m_gizmoLast;
     QVector3D m_gizmoCenter;
+    QVector3D m_rotationStart, m_rotationLast;
+    bool m_rotationRay = false, m_snapEnabled = false;
     QString m_gizmoReadout;
     double m_gizmoAngle = 0;
     double m_gizmoWorldLength = 1;

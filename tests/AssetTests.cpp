@@ -202,6 +202,12 @@ int main(int argc, char **argv) {
             gallery.overrides.clear();
             gallery.seaLevel = -60;
             gallery.setAssets(real);
+            gallery.theme.enabled = true;
+            gallery.theme.beaches = false;
+            gallery.theme.bands.front().surface =
+                gallery.intern(real->catalog["minecraft:gold_block"].defaults);
+            check(gallery.block(12, 4, 12) == gallery.theme.bands.front().surface,
+                  "theme uses real dynamic material outside independent overrides");
             int x = -6;
             for (const auto &name : QStringList{"anvil", "oak_door", "oak_fence", "lantern", "oak_stairs"}) {
                 auto s = real->catalog["minecraft:" + name].defaults;
@@ -223,6 +229,9 @@ int main(int argc, char **argv) {
             check(wb::exportMinecraft(gallery, exportRoot + "/minecraft").ok,
                   "dynamic blockstate Minecraft export");
             QJsonArray expected;
+            expected << QJsonObject{{"position", QJsonArray{12, 4, 12}},
+                                    {"Name", "minecraft:gold_block"},
+                                    {"Properties", QJsonObject{}}};
             for (const auto &[key, b] : gallery.overrides) {
                 int x, y, z;
                 gallery.decode(key, x, y, z);

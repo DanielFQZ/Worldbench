@@ -158,6 +158,8 @@ Block World::baseBlock(int x, int y, int z) const {
     const int h = height(x, z);
     if (y > h)
         return y <= seaLevel ? Water : Air;
+    if (theme.enabled)
+        return theme.block(x, y, z, h, seaLevel);
     if (y == h)
         return h <= seaLevel + 1 ? Sand : Grass;
     return y >= h - 3 ? (h <= seaLevel + 1 ? Sand : Dirt) : Stone;
@@ -178,6 +180,8 @@ Block World::blockAtHeight(int x, int y, int z, int h) const {
         return Bedrock;
     if (y > h)
         return y <= seaLevel ? Water : Air;
+    if (theme.enabled)
+        return theme.block(x, y, z, h, seaLevel);
     if (y == h)
         return h <= seaLevel + 1 ? Sand : Grass;
     return y >= h - 3 ? (h <= seaLevel + 1 ? Sand : Dirt) : Stone;
@@ -281,6 +285,8 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     return {};
 }
 void World::apply(const Command &cmd, bool forward) {
+    if (cmd.themeBefore && cmd.themeAfter)
+        theme = *(forward ? cmd.themeAfter : cmd.themeBefore);
     if (cmd.terrainBefore && cmd.terrainAfter)
         heights.instances = *(forward ? cmd.terrainAfter : cmd.terrainBefore);
     if (cmd.layersBefore && cmd.layersAfter) {
@@ -324,22 +330,29 @@ void Stroke::reshapeSurface(int x, int z, int target, const BrushOptions &o) {
     // Snapshot the authoritative column before changing the height-derived base.
     // Air overrides are meaningful: retain them below the new cap, never erase a cave.
     std::array<Block, World::MaxY - World::MinY> original;
+    std::array<bool, World::MaxY - World::MinY> pinned;
     int upper = std::max(oldHeight, target);
     for (int y = World::MinY; y < World::MaxY; ++y) {
         const auto b = world.block(x, y, z);
         original[y - World::MinY] = b;
+        pinned[y - World::MinY] = world.overrides.contains(world.key(x, y, z));
         if (!world.isAir(b) && b != Water)
             upper = std::max(upper, y);
     }
     Block cap = original[oldHeight - World::MinY];
     if (world.isAir(cap) || cap == Water || !world.models[cap]->full)
         cap = target <= world.seaLevel + 1 ? Sand : Grass;
+    if (world.theme.enabled && !pinned[oldHeight - World::MinY])
+        cap = world.theme.block(x, target, z, target, world.seaLevel);
     changeHeight(world.column(x, z), target);
     for (int y = World::MinY + 1; y <= upper; ++y) {
         if (y == target)
             changeCell(x, y, z, cap);
         else if (y < target) {
             const auto b = original[y - World::MinY];
+            // Generated solid soil follows the new theme; explicit material and air stay pinned.
+            if (world.theme.enabled && !pinned[y - World::MinY] && !world.isAir(b) && b != Water)
+                continue;
             changeCell(x, y, z,
                        o.fillHoles && target - y <= std::clamp(o.fillDepth, 1, 383) && world.isAir(b) ? Stone
                                                                                                       : b);

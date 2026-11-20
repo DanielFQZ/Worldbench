@@ -11,6 +11,8 @@
 <file alias="TerrainPanel.qml">qml/TerrainPanel.qml</file>
 <file alias="WorldPanel.qml">qml/WorldPanel.qml</file>
 <file alias="ViewportPane.qml">qml/ViewportPane.qml</file>
+<file alias="ViewportIconButton.qml">qml/ViewportIconButton.qml</file>
+<file alias="SurfaceThemeDialog.qml">qml/SurfaceThemeDialog.qml</file>
 <file alias="WorkbenchMenu.qml">qml/WorkbenchMenu.qml</file>
 <file alias="WorkbenchComboBox.qml">qml/WorkbenchComboBox.qml</file>
 <file alias="NewWorldDialog.qml">qml/NewWorldDialog.qml</file>

@@ -136,8 +136,6 @@ void Editor::initializeTerrainImporter() {
         }
         commitTerrain(std::move(next), result.mask ? "已应用地貌蒙版" : "已导入高度图实例");
         setSelectedNode(selected);
-        if (!result.mask)
-            focusTerrain();
     });
 }
 void Editor::importHeightmap(const QUrl &url, bool mask) {

@@ -29,6 +29,7 @@ class Editor : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
+    Q_PROPERTY(bool commandBusy READ commandBusy NOTIFY changed)
     Q_PROPERTY(int assetProgress READ assetProgress NOTIFY assetProgressChanged)
     Q_PROPERTY(QString assetStage READ assetStage NOTIFY assetProgressChanged)
     Q_PROPERTY(QString assetLog READ assetLog NOTIFY assetProgressChanged)
@@ -42,6 +43,7 @@ class Editor : public QObject {
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
     Q_PROPERTY(QVariantMap layerDetails READ layerDetails NOTIFY changed)
     Q_PROPERTY(QVariantMap terrainDetails READ terrainDetails NOTIFY changed)
+    Q_PROPERTY(QVariantMap surfaceTheme READ surfaceTheme NOTIFY changed)
     Q_PROPERTY(QString materialLabel READ materialLabel NOTIFY changed)
     Q_PROPERTY(QVariantList materialProperties READ materialProperties NOTIFY changed)
     Q_PROPERTY(QStringList resourceSources READ resourceSources NOTIFY changed)
@@ -94,6 +96,10 @@ class Editor : public QObject {
     QVariantList sceneNodes() const;
     QVariantMap layerDetails() const;
     QVariantMap terrainDetails() const;
+    QVariantMap surfaceTheme() const;
+    Q_INVOKABLE bool applySurfaceTheme(const QVariantMap &theme);
+    Q_INVOKABLE int resolveThemeMaterial(const QString &name);
+    Q_INVOKABLE QString themeMaterialLabel(int material) const;
     Q_INVOKABLE void importHeightmap(const QUrl &url, bool mask = false);
     Q_INVOKABLE void setTerrainOption(const QString &key, const QVariant &value);
     Q_INVOKABLE void removeTerrain();

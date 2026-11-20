@@ -293,16 +293,26 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
         if (!w.resourceVersion.isEmpty() && w.resourceVersion != "1.20.1")
             throw std::runtime_error("本版只支持导出 1.20.1，资源版本不匹配");
         QSet<Block> checked;
-        for (const auto &[key, b] : w.overrides) {
+        auto validateMaterial = [&](Block b) {
             if (b >= w.palette.size())
                 throw std::runtime_error("工程包含越界的方块索引");
             if (b < BlockCount || checked.contains(b))
-                continue;
+                return;
             checked.insert(b);
             QString error;
             if (!w.assets || w.assets->version != "1.20.1" || !w.assets->validate(w.palette[b], error))
                 throw std::runtime_error(("动态方块需要对应的 1.20.1 客户端资源：" + error).toStdString());
-        }
+        };
+        for (const auto &[key, b] : w.overrides)
+            validateMaterial(b);
+        QString themeError;
+        if (!validateTheme(w.theme, w.palette.size(), themeError))
+            throw std::runtime_error(themeError.toStdString());
+        if (w.theme.enabled)
+            for (const auto &band : w.theme.bands) {
+                validateMaterial(band.surface);
+                validateMaterial(band.subsurface);
+            }
         if (w.width < 32 || w.width > 16384 || w.depth < 32 || w.depth > 16384 || w.originX % 16 ||
             w.originZ % 16 || w.heights.size() != size_t(w.width) * w.depth)
             throw std::runtime_error("不支持的世界尺寸或区块对齐");

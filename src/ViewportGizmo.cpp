@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QLineF>
 #include <QPolygonF>
+#include <QSettings>
 #include <algorithm>
 #include <cmath>
 namespace {
@@ -10,7 +11,25 @@ double distanceToLine(QPointF p, QPointF a, QPointF b) {
     double l = QPointF::dotProduct(d, d);
     return QLineF(p, a + d * std::clamp(l > 0 ? QPointF::dotProduct(p - a, d) / l : 0., 0., 1.)).length();
 }
+std::array<QVector3D, 3> gizmoBasis(const wb::TerrainInstance &i, int mode) {
+    std::array<QVector3D, 3> basis{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    if (mode == 2) {
+        QMatrix4x4 rotation;
+        rotation.rotate(i.rotationY, 0, 1, 0);
+        rotation.rotate(i.rotationX, 1, 0, 0);
+        rotation.rotate(i.rotationZ, 0, 0, 1);
+        for (auto &axis : basis)
+            axis = rotation.mapVector(axis);
+    }
+    return basis;
+}
+const int planeAxes[3][2] = {{0, 1}, {0, 2}, {1, 2}};
 } // namespace
+void Viewport::setSnapEnabled(bool enabled) {
+    m_snapEnabled = enabled;
+    QSettings().setValue("input/transformSnap", enabled);
+    emit cameraChanged();
+}
 QPointF Viewport::projectPoint(QVector3D p, bool *visible) const {
     auto q = viewProjection() * QVector4D(p, 1);
     if (visible)
@@ -35,7 +54,7 @@ QVariantMap Viewport::gizmoOverlay() const {
     for (const auto &i : world.heights.instances) {
         const auto pivot = i.pivot();
         const int x = int(pivot.x()), z = int(pivot.z());
-        if (!world.contains(x, 0, z))
+        if (!world.contains(x, 0, z) && !(m_gizmoDragging && i.id == m_gizmoInitial.id))
             continue;
         auto position = QVector3D(pivot.x(), float(world.height(x, z) + 7), pivot.z());
         bool visible;
@@ -49,7 +68,7 @@ QVariantMap Viewport::gizmoOverlay() const {
                                        {"y", screen.y()},
                                        {"enabled", i.enabled},
                                        {"selected", i.id == m_editor->selectedNode()}});
-        if (i.id == m_editor->selectedNode() && visible) {
+        if (i.id == m_editor->selectedNode() && (visible || m_gizmoDragging)) {
             selected = &i;
             center = position;
         }
@@ -57,8 +76,12 @@ QVariantMap Viewport::gizmoOverlay() const {
     QVariantMap result{{"markers", markers}, {"axes", axes}, {"mode", m_gizmoMode}};
     if (!selected || m_editor->tool() != -1)
         return result;
-    if (m_gizmoDragging)
+    if (m_gizmoDragging) {
         center = m_gizmoCenter;
+        if (m_gizmoMode == 0)
+            center += QVector3D(selected->x - m_gizmoInitial.x, selected->y - m_gizmoInitial.y,
+                                selected->z - m_gizmoInitial.z);
+    }
     const double length =
         m_gizmoDragging
             ? m_gizmoWorldLength
@@ -76,15 +99,15 @@ QVariantMap Viewport::gizmoOverlay() const {
     result["hover"] = m_gizmoHover;
     result["axis"] = m_gizmoAxis;
     result["angle"] = m_gizmoAngle;
+    const auto basis = gizmoBasis(*selected, m_gizmoMode);
     QVariantList planes;
-    if (m_gizmoMode == 0) {
-        const int pairs[3][2] = {{0, 1}, {0, 2}, {1, 2}};
-        const QVector3D vectors[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    if (m_gizmoMode != 1) {
         for (int n = 0; n < 3; ++n) {
             QVariantList points;
             for (auto pair : {QPointF(.22, .22), QPointF(.43, .22), QPointF(.43, .43), QPointF(.22, .43)}) {
                 const auto p = projectPoint(
-                    center + (vectors[pairs[n][0]] * pair.x() + vectors[pairs[n][1]] * pair.y()) * length);
+                    center +
+                    (basis[planeAxes[n][0]] * pair.x() + basis[planeAxes[n][1]] * pair.y()) * length);
                 points.append(QVariantMap{{"x", p.x()}, {"y", p.y()}});
             }
             planes.append(QVariantMap{
@@ -92,18 +115,21 @@ QVariantMap Viewport::gizmoOverlay() const {
         }
     }
     result["planes"] = planes;
-    const QVector3D basis[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     const QString colors[3] = {"#ef6666", "#76d789", "#70a9ff"};
     for (int k = 0; k < 3; ++k) {
         QVariantList points;
-        if (m_gizmoMode == 1)
-            for (int n = 0; n <= 64; ++n) {
-                double a = n * 6.283185307179586 / 64;
-                auto p = projectPoint(
-                    center + (basis[(k + 1) % 3] * std::cos(a) + basis[(k + 2) % 3] * std::sin(a)) * length);
+        if (m_gizmoMode == 1) {
+            const auto view = m_camera - center;
+            const auto u =
+                basis[(k + 1) % 3] * (QVector3D::dotProduct(view, basis[(k + 1) % 3]) >= 0 ? 1 : -1);
+            const auto v =
+                basis[(k + 2) % 3] * (QVector3D::dotProduct(view, basis[(k + 2) % 3]) >= 0 ? 1 : -1);
+            for (int n = 0; n <= 24; ++n) {
+                double a = n * 1.5707963267948966 / 24;
+                auto p = projectPoint(center + (u * std::cos(a) + v * std::sin(a)) * length);
                 points.append(QVariantMap{{"x", p.x()}, {"y", p.y()}});
             }
-        else {
+        } else {
             auto p = projectPoint(center + basis[k] * length);
             points = {QVariantMap{{"x", origin.x()}, {"y", origin.y()}},
                       QVariantMap{{"x", p.x()}, {"y", p.y()}}};
@@ -114,6 +140,28 @@ QVariantMap Viewport::gizmoOverlay() const {
                                 {"selected", m_gizmoDragging ? m_gizmoAxis == k : m_gizmoHover == k}});
     }
     result["axes"] = axes;
+    if (m_gizmoDragging && m_gizmoMode == 1) {
+        const bool snap = m_snapEnabled || QGuiApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
+        const double delta = std::round(m_gizmoAngle / (snap ? 15 : 1)) * (snap ? 15 : 1);
+        const auto u = m_rotationStart, v = QVector3D::crossProduct(basis[m_gizmoAxis], u);
+        QVariantList sector, ticks;
+        sector.append(QVariantMap{{"x", origin.x()}, {"y", origin.y()}});
+        const double angle = std::clamp(delta, -360., 360.) * 3.141592653589793 / 180.;
+        for (int n = 0; n <= 64; ++n) {
+            double a = angle * n / 64.;
+            auto p = projectPoint(center + (u * std::cos(a) + v * std::sin(a)) * length);
+            sector.append(QVariantMap{{"x", p.x()}, {"y", p.y()}});
+        }
+        for (int n = 0; n < 24; ++n) {
+            double a = n * 6.283185307179586 / 24;
+            auto direction = u * std::cos(a) + v * std::sin(a);
+            auto p = projectPoint(center + direction * length);
+            auto q = projectPoint(center + direction * length * (n % 6 == 0 ? 1.12 : 1.06));
+            ticks.append(QVariantMap{{"x", p.x()}, {"y", p.y()}, {"x2", q.x()}, {"y2", q.y()}});
+        }
+        result["sector"] = sector;
+        result["ticks"] = ticks;
+    }
     return result;
 }
 int Viewport::hitGizmo(QPointF p, const QVariantMap &overlay) const {
@@ -176,7 +224,7 @@ bool Viewport::pressGizmo(QPointF p) {
     m_gizmoWorldLength = overlay["length"].toDouble();
     m_gizmoAngle = 0;
     m_gizmoReadout.clear();
-    const QVector3D basis[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const auto basis = gizmoBasis(m_gizmoInitial, m_gizmoMode);
     if (axis < 3 && m_gizmoMode != 1)
         m_gizmoScreenAxis =
             projectPoint(m_gizmoCenter + basis[axis] * m_gizmoWorldLength) - m_gizmoScreenCenter;
@@ -187,10 +235,37 @@ bool Viewport::pressGizmo(QPointF p) {
         m_gizmoPlaneV = projectPoint(m_gizmoCenter + basis[pairs[axis - 4][1]] * m_gizmoWorldLength) -
                         m_gizmoScreenCenter;
     }
+    if (m_gizmoMode == 1) {
+        m_rotationRay = rotationVector(p, m_rotationStart);
+        if (!m_rotationRay)
+            m_rotationStart = basis[(axis + 1) % 3];
+        m_rotationLast = m_rotationStart;
+    }
     m_editor->beginTerrainEdit();
     m_gizmoDragging = true;
     moveGizmo(p);
     emit cameraChanged();
+    return true;
+}
+bool Viewport::rotationVector(QPointF p, QVector3D &vector) const {
+    bool invertible;
+    const auto inverse = viewProjection().inverted(&invertible);
+    if (!invertible)
+        return false;
+    const float x = float(p.x() * 2 / width() - 1), y = float(1 - p.y() * 2 / height());
+    auto near = inverse * QVector4D(x, y, -1, 1), far = inverse * QVector4D(x, y, 1, 1);
+    if (std::abs(near.w()) < 1e-8 || std::abs(far.w()) < 1e-8)
+        return false;
+    const auto origin = near.toVector3DAffine(), direction = (far.toVector3DAffine() - origin).normalized();
+    const auto axis = gizmoBasis(m_gizmoInitial, 1)[m_gizmoAxis];
+    const double denominator = QVector3D::dotProduct(direction, axis);
+    if (std::abs(denominator) < .025)
+        return false;
+    const double t = QVector3D::dotProduct(m_gizmoCenter - origin, axis) / denominator;
+    vector = origin + direction * t - m_gizmoCenter;
+    if (t < 0 || vector.lengthSquared() < .001)
+        return false;
+    vector.normalize();
     return true;
 }
 void Viewport::moveGizmo(QPointF p) {
@@ -201,7 +276,7 @@ void Viewport::moveGizmo(QPointF p) {
     QVariantMap changes;
     double projected = QPointF::dotProduct(m_gizmoScreenAxis, m_gizmoScreenAxis);
     double t = projected > 25 ? QPointF::dotProduct(d, m_gizmoScreenAxis) / projected : d.x() / 90.;
-    const bool snap = QGuiApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
+    const bool snap = m_snapEnabled || QGuiApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
     auto quantize = [snap](double value, int step) {
         return int(std::lround(value / (snap ? step : 1))) * (snap ? step : 1);
     };
@@ -234,15 +309,24 @@ void Viewport::moveGizmo(QPointF p) {
                 std::clamp(starts[m_gizmoAxis] + quantize(t * m_gizmoWorldLength, 4), -limit, limit);
         }
     } else if (m_gizmoMode == 1) {
-        auto a = m_gizmoLast - m_gizmoScreenCenter, b = p - m_gizmoScreenCenter;
-        double angle =
-            std::atan2(a.x() * b.y() - a.y() * b.x(), QPointF::dotProduct(a, b)) * 180 / 3.141592653589793;
         const int start[3] = {i.rotationX, i.rotationY, i.rotationZ};
         const QString keys[3] = {"rotationX", "rotationY", "rotationZ"};
-        const QVector3D basis[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-        const double direction =
-            QVector3D::dotProduct(m_camera - m_gizmoCenter, basis[m_gizmoAxis]) >= 0 ? -1 : 1;
-        m_gizmoAngle += angle * direction;
+        const auto axis = gizmoBasis(i, 1)[m_gizmoAxis];
+        if (m_rotationRay) {
+            QVector3D current;
+            if (!rotationVector(p, current))
+                return;
+            m_gizmoAngle +=
+                std::atan2(QVector3D::dotProduct(axis, QVector3D::crossProduct(m_rotationLast, current)),
+                           QVector3D::dotProduct(m_rotationLast, current)) *
+                180 / 3.141592653589793;
+            m_rotationLast = current;
+        } else {
+            auto a = m_gizmoLast - m_gizmoScreenCenter, b = p - m_gizmoScreenCenter;
+            const double angle = std::atan2(a.x() * b.y() - a.y() * b.x(), QPointF::dotProduct(a, b)) * 180 /
+                                 3.141592653589793;
+            m_gizmoAngle += angle * (QVector3D::dotProduct(m_camera - m_gizmoCenter, axis) >= 0 ? -1 : 1);
+        }
         int value = start[m_gizmoAxis] + quantize(m_gizmoAngle, 15);
         while (value > 180)
             value -= 360;
@@ -255,30 +339,42 @@ void Viewport::moveGizmo(QPointF p) {
         if (m_gizmoAxis == 3)
             for (int k = 0; k < 3; ++k)
                 changes[keys[k]] = std::clamp(quantize(start[k] * (1 + d.x() / 120), 10), 1, 1600);
-        else
+        else if (m_gizmoAxis >= 4) {
+            const double det = m_gizmoPlaneU.x() * m_gizmoPlaneV.y() - m_gizmoPlaneU.y() * m_gizmoPlaneV.x();
+            if (std::abs(det) < 1)
+                return;
+            const double u = (d.x() * m_gizmoPlaneV.y() - d.y() * m_gizmoPlaneV.x()) / det;
+            const double v = (m_gizmoPlaneU.x() * d.y() - m_gizmoPlaneU.y() * d.x()) / det;
+            for (int n = 0; n < 2; ++n) {
+                const int axis = planeAxes[m_gizmoAxis - 4][n];
+                changes[keys[axis]] = std::clamp(quantize(start[axis] * (1 + (n ? v : u)), 10), 1, 1600);
+            }
+        } else
             changes[keys[m_gizmoAxis]] = std::clamp(quantize(start[m_gizmoAxis] * (1 + t), 10), 1, 1600);
     }
     m_editor->setTerrainOptions(changes);
     m_gizmoLast = p;
     const auto now = m_editor->terrainDetails();
-    if (m_gizmoMode == 0)
-        m_gizmoReadout = QString("位移 Δ  X %1   Y %2   Z %3 格")
-                             .arg(now["x"].toInt() - i.x)
-                             .arg(now["y"].toInt() - i.y)
-                             .arg(now["z"].toInt() - i.z);
-    else if (m_gizmoMode == 1) {
-        const QString keys[3] = {"rotationX", "rotationY", "rotationZ"};
-        m_gizmoReadout = QString("旋转 %1  %2°   Δ %3°")
-                             .arg(QStringList{"X", "Y", "Z"}[m_gizmoAxis])
-                             .arg(now[keys[m_gizmoAxis]].toInt())
-                             .arg(quantize(m_gizmoAngle, 15));
-    } else
-        m_gizmoReadout = QString("缩放  X %1%   Y %2%   Z %3%")
-                             .arg(now["scaleX"].toInt())
-                             .arg(now["scaleY"].toInt())
-                             .arg(now["scaleZ"].toInt());
-    if (snap)
-        m_gizmoReadout += "  · 吸附";
+    QStringList readout;
+    const QStringList labels{"X", "Y", "Z"};
+    if (m_gizmoMode == 1) {
+        int delta = quantize(m_gizmoAngle, 15);
+        if (delta)
+            readout << QString("%1  %2%3°").arg(labels[m_gizmoAxis], delta > 0 ? "+" : "").arg(delta);
+    } else {
+        const QStringList keys =
+            m_gizmoMode == 0 ? QStringList{"x", "y", "z"} : QStringList{"scaleX", "scaleY", "scaleZ"};
+        const int start[3] = {m_gizmoMode == 0 ? i.x : i.scaleX, m_gizmoMode == 0 ? i.y : i.scaleY,
+                              m_gizmoMode == 0 ? i.z : i.scaleZ};
+        for (int k = 0; k < 3; ++k) {
+            const int value = now[keys[k]].toInt(), delta = value - start[k];
+            if (delta)
+                readout << (m_gizmoMode == 0
+                                ? QString("%1  %2%3 格").arg(labels[k], delta > 0 ? "+" : "").arg(delta)
+                                : QString("%1  %2%").arg(labels[k]).arg(value));
+        }
+    }
+    m_gizmoReadout = readout.join("   ");
     emit cameraChanged();
 }
 void Viewport::finishGizmo(bool cancel) {

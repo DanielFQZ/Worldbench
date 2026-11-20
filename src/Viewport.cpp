@@ -242,6 +242,7 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_stampClock.start();
     m_timer.start();
     QSettings settings;
+    m_snapEnabled = settings.value("input/transformSnap", false).toBool();
     m_rawInput = settings.value("input/raw", true).toBool();
     m_flightInertia = settings.value("input/flightInertia", true).toBool();
     m_sensitivity = std::clamp(settings.value("input/sensitivity", .12).toDouble(), .01, 1.0);

@@ -12,6 +12,8 @@
 #include <cmath>
 namespace wb {
 bool saveProject(const QString &path, const World &w, QString &error) {
+    if (!validateTheme(w.theme, w.palette.size(), error))
+        return false;
     QJsonArray heights, cells;
     if (w.heights.dense)
         for (int h : *w.heights.dense)
@@ -36,7 +38,8 @@ bool saveProject(const QString &path, const World &w, QString &error) {
             edits.append(QJsonArray{i, h});
         layers.append(QJsonObject{{"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"deltas", edits}});
     }
-    QJsonObject root{{"format", 5},
+    QJsonObject root{{"format", 6},
+                     {"surfaceTheme", saveTheme(w.theme)},
                      {"sculptLayers", layers},
                      {"activeLayer", w.heights.activeLayer},
                      {"width", w.width},
@@ -106,7 +109,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 5))
+    if (!integer(o["format"], 1, 6))
         return fail("不支持的工程版本");
     const auto widthValue = o[format >= 3 ? "width" : "size"];
     const auto depthValue = format >= 3 ? o["depth"] : widthValue;
@@ -233,6 +236,8 @@ bool loadProject(const QString &path, World &world, QString &error) {
         }
         w.resourceVersion = o["resourceVersion"].toString();
     }
+    if (format >= 6 && !loadTheme(o["surfaceTheme"].toObject(), w.theme, w.palette.size(), error))
+        return false;
     if (!o["overrides"].isArray())
         return fail("缺少体素差量");
     for (auto v : o["overrides"].toArray()) {

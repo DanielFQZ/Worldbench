@@ -225,7 +225,7 @@ void Editor::endStroke() {
     pushCommand(std::move(c));
 }
 void Editor::pushCommand(wb::Command c) {
-    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter) {
+    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -236,6 +236,9 @@ void Editor::pushCommand(wb::Command c) {
             std::set<const wb::HeightmapData *> images;
             std::set<const std::map<int, int> *> layerMaps;
             for (const auto &e : m_history) {
+                for (const auto &theme : {e.command.themeBefore, e.command.themeAfter})
+                    if (theme)
+                        b += theme->bands.size() * 256;
                 b += e.command.cells.size() * sizeof(wb::CellChange) +
                      e.command.heights.size() * sizeof(wb::HeightChange);
                 for (const auto &list : {e.command.layersBefore, e.command.layersAfter})
@@ -392,6 +395,10 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
+    if (command.themeAfter) {
+        dirtyAll();
+        return;
+    }
     if (command.terrainAfter || command.layersAfter) {
         if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0)
             m_selectedNode = "terrain-base-1";

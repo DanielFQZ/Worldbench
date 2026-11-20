@@ -20,7 +20,13 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     // Interior columns are provably invisible only for opaque, cullable base materials.
     // Custom resource models without those guarantees retain the general voxel path.
     bool buriedCull = true;
-    for (Block b : {Grass, Dirt, Stone, Sand, Bedrock}) {
+    std::set<Block> baseMaterials{Grass, Dirt, Stone, Sand, Bedrock};
+    if (w.theme.enabled)
+        for (const auto &band : w.theme.bands) {
+            baseMaterials.insert(band.surface);
+            baseMaterials.insert(band.subsurface);
+        }
+    for (Block b : baseMaterials) {
         const auto &m = *w.models[b];
         buriedCull &= m.full && !m.translucent &&
                       std::all_of(m.faces.begin(), m.faces.end(), [](const auto &f) { return f.cull >= 0; });

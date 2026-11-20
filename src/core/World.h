@@ -53,6 +53,23 @@ struct SculptLayer {
 struct HeightChange {
     int index, before, after;
 };
+struct SurfaceBand {
+    int minHeight = -63;
+    QString name = "低地";
+    Block surface = Grass, subsurface = Dirt;
+    int depth = 4; // Total soil thickness, including the surface block.
+    bool operator==(const SurfaceBand &) const = default;
+};
+struct SurfaceTheme {
+    bool enabled = false, beaches = true;
+    int noise = 0, scale = 32, seed = 2026;
+    std::vector<SurfaceBand> bands{{}, {64, "高山", Stone, Stone, 4}};
+    Block block(int x, int y, int z, int height, int seaLevel) const;
+    bool operator==(const SurfaceTheme &) const = default;
+};
+bool validateTheme(const SurfaceTheme &theme, size_t paletteSize, QString &error);
+QJsonObject saveTheme(const SurfaceTheme &theme);
+bool loadTheme(const QJsonObject &object, SurfaceTheme &theme, size_t paletteSize, QString &error);
 struct Command {
     std::vector<CellChange> cells;
     std::vector<HeightChange> heights;
@@ -60,6 +77,7 @@ struct Command {
     std::shared_ptr<const std::vector<SculptLayer>> layersBefore, layersAfter;
     QString label;
     std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;
+    std::shared_ptr<const SurfaceTheme> themeBefore, themeAfter;
 };
 struct WorldOptions {
     int width = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
@@ -111,6 +129,7 @@ class World {
     static constexpr int MinY = -64, MaxY = 320, ChunkSize = 16;
     int width = 128, depth = 128, originX = -64, originZ = -64, seed = 2026, seaLevel = 12;
     HeightField heights;
+    SurfaceTheme theme;
     std::unordered_map<uint64_t, Block> overrides;
     std::vector<BlockState> palette;
     std::vector<std::shared_ptr<const BlockModel>> models;

@@ -17,11 +17,12 @@ Rectangle {
             Label { text: "透视  /  体素"; color: "#e4edf6"; font.pixelSize: 12 }
             Label { text: "  ·  " + editor.sceneStats; color: "#8297ad"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
             Repeater {
-                model:["位移 W","旋转 E","缩放 R"]
-                Button { required property string modelData;required property int index;text:modelData;visible:editor.terrainDetails.valid;implicitHeight:27;checkable:true;checked:viewport.gizmoMode===index;onClicked:{editor.tool=-1;viewport.gizmoMode=index;viewport.forceActiveFocus()} }
+                model:[{glyph:"move",hint:"位移 · W"},{glyph:"rotate",hint:"旋转 · E"},{glyph:"scale",hint:"局部轴缩放 · R"}]
+                ViewportIconButton { required property var modelData;required property int index;objectName:"transformMode"+index;glyph:modelData.glyph;hint:modelData.hint;visible:editor.terrainDetails.valid;checkable:true;checked:viewport.gizmoMode===index;onClicked:{editor.tool=-1;viewport.gizmoMode=index;viewport.forceActiveFocus()} }
             }
-            Button { text: "聚焦 F"; implicitHeight: 27; onClicked: { viewport.focusTarget(); viewport.forceActiveFocus() } }
-            Button { text: "重置视角"; implicitHeight: 27; onClicked: { viewport.resetCamera(); viewport.forceActiveFocus() } }
+            ViewportIconButton {objectName:"snapToggle";glyph:"magnet";hint:"变换吸附 · 位移4格 / 旋转15° / 缩放10%（Ctrl临时开启）";checkable:true;checked:viewport.snapEnabled;onClicked:{viewport.snapEnabled=!viewport.snapEnabled;viewport.forceActiveFocus()}}
+            ViewportIconButton {glyph:"focus";hint:"聚焦 · F";onClicked:{viewport.focusTarget();viewport.forceActiveFocus()}}
+            ViewportIconButton {glyph:"reset";hint:"重置视角";onClicked:{viewport.resetCamera();viewport.forceActiveFocus()}}
         }
     }
     Rectangle {
