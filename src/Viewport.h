@@ -7,9 +7,14 @@
 #include <QSet>
 #include <QTimer>
 
+struct RenderMetrics {
+    std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
+};
+
 class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_OBJECT
     Q_PROPERTY(Editor *editor READ editor WRITE setEditor NOTIFY editorChanged)
+    Q_PROPERTY(QString renderText READ renderText NOTIFY metricsChanged)
     Q_PROPERTY(QString cameraText READ cameraText NOTIFY cameraChanged)
     Q_PROPERTY(QString hitText READ hitText NOTIFY cameraChanged)
     Q_PROPERTY(bool rawInput READ rawInput WRITE setRawInput NOTIFY cameraChanged)
@@ -44,6 +49,9 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     QString cameraText() const;
     QString hitText() const;
     Q_INVOKABLE void resetCamera();
+    Q_INVOKABLE void frameWorld();
+    QString renderText() const;
+    std::shared_ptr<RenderMetrics> renderMetrics() const { return m_metrics; }
     Q_INVOKABLE void focusTarget();
     Q_INVOKABLE void jumpTo(int x, int z);
     QMatrix4x4 viewProjection() const;
@@ -52,12 +60,14 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     wb::Hit hit() const { return m_hit; }
     std::shared_ptr<std::atomic_int> frameCounter() const { return m_frames; }
   signals:
+    void metricsChanged();
     void editorChanged();
     void cameraChanged();
 
   protected:
     QQuickRhiItemRenderer *createRenderer() override;
     void mousePressEvent(QMouseEvent *) override;
+    void mouseDoubleClickEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void wheelEvent(QWheelEvent *) override;
@@ -102,7 +112,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     float m_yaw = -38.66f, m_pitch = -19.36f, m_speed = 35;
     QPointF m_pointer, m_anchorGlobal;
     wb::Hit m_hit;
-    QTimer m_timer;
+    QTimer m_timer, m_metricsTimer;
+    std::shared_ptr<RenderMetrics> m_metrics = std::make_shared<RenderMetrics>();
     QElapsedTimer m_elapsed, m_stampClock;
     QSet<int> m_keys;
     Qt::MouseButtons m_buttons;

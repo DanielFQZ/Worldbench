@@ -1,5 +1,6 @@
 #pragma once
 #include "Assets.h"
+#include "Environment.h"
 #include "Heightmap.h"
 #include <QString>
 #include <QVector3D>
@@ -78,6 +79,7 @@ struct Command {
     QString label;
     std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;
     std::shared_ptr<const SurfaceTheme> themeBefore, themeAfter;
+    std::shared_ptr<const Environment> environmentBefore, environmentAfter;
 };
 struct WorldOptions {
     int width = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
@@ -130,6 +132,7 @@ class World {
     int width = 128, depth = 128, originX = -64, originZ = -64, seed = 2026, seaLevel = 12;
     HeightField heights;
     SurfaceTheme theme;
+    Environment environment;
     std::unordered_map<uint64_t, Block> overrides;
     std::vector<BlockState> palette;
     std::vector<std::shared_ptr<const BlockModel>> models;

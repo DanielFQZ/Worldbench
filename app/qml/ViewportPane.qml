@@ -21,16 +21,19 @@ Rectangle {
                 ViewportIconButton { required property var modelData;required property int index;objectName:"transformMode"+index;glyph:modelData.glyph;hint:modelData.hint;visible:editor.terrainDetails.valid;checkable:true;checked:viewport.gizmoMode===index;onClicked:{editor.tool=-1;viewport.gizmoMode=index;viewport.forceActiveFocus()} }
             }
             ViewportIconButton {objectName:"snapToggle";glyph:"magnet";hint:"变换吸附 · 位移4格 / 旋转15° / 缩放10%（Ctrl临时开启）";checkable:true;checked:viewport.snapEnabled;onClicked:{viewport.snapEnabled=!viewport.snapEnabled;viewport.forceActiveFocus()}}
+            ViewportIconButton {objectName:"environmentToggle";glyph:"sun";hint:"环境光照预览（详细参数见环境组件）";checkable:true;checked:editor.environmentDetails.enabled;onClicked:editor.setEnvironment({enabled:!editor.environmentDetails.enabled})}
+            ViewportIconButton {objectName:"frameWorld";glyph:"map";hint:"显示全图 · 双击远处地表进入精确编辑";onClicked:{viewport.frameWorld();viewport.forceActiveFocus()}}
             ViewportIconButton {glyph:"focus";hint:"聚焦 · F";onClicked:{viewport.focusTarget();viewport.forceActiveFocus()}}
             ViewportIconButton {glyph:"reset";hint:"重置视角";onClicked:{viewport.resetCamera();viewport.forceActiveFocus()}}
         }
     }
     Rectangle {
         anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
-        height: 59; color: "#d9161f2b"
+        height: 79; color: "#d9161f2b"
         Column {
             anchors.left: parent.left; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 5
             Text { text: viewport.hitText; color: "#8cdae5"; font.pixelSize: 12; font.family: "Microsoft YaHei UI" }
+            Text { text: viewport.renderText; color:"#8e9fb2";font.pixelSize:11;font.family:"Microsoft YaHei UI" }
             Text { text: viewport.cameraText+"   ·   "+editor.meshUpdateSummary; color: "#8e9fb2"; font.pixelSize: 11; font.family: "Microsoft YaHei UI" }
         }
     }

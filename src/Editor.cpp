@@ -1,5 +1,6 @@
 #include "Editor.h"
 #include "McpServer.h"
+#include "core/FarMesh.h"
 #include "core/Project.h"
 #include <QBuffer>
 #include <QClipboard>
@@ -44,7 +45,11 @@ Editor::Editor(QObject *parent)
             m_scene = m_meshWatcher.result();
             emit sceneChanged();
         }
-        if (!m_dirty.empty())
+        if (m_jobEpoch != m_epoch) {
+            m_dirty = desiredChunks();
+            m_farDirty = m_farAllDirty = true;
+        }
+        if (!m_dirty.empty() || m_farDirty)
             m_meshTimer.start();
         else if (m_status.startsWith("正在构建"))
             m_status = "就绪 · 右键 + WASD 漫游，左键雕刻";
@@ -178,12 +183,12 @@ QString Editor::projectName() const {
     return m_path.isEmpty() ? "未命名工程" : QFileInfo(m_path).completeBaseName();
 }
 QString Editor::sceneStats() const {
-    return QString("%1 × %2 方块 · 预览 %3 / %4 区块 · %5 万三角形")
+    return QString("%1 × %2 方块 · 精确 %3 区块 / %5 远景块 · %4 万三角形")
         .arg(m_world.width)
         .arg(m_world.depth)
         .arg(m_scene->chunks.size())
-        .arg(m_world.chunksX() * m_world.chunksZ())
-        .arg(m_scene->vertices / 30000.0, 0, 'f', 1);
+        .arg(m_scene->vertices / 30000.0, 0, 'f', 1)
+        .arg(m_scene->farTiles.size());
 }
 void Editor::beginStroke() {
     if (!m_stroke) {
@@ -204,6 +209,8 @@ void Editor::stamp(const wb::Hit &hit, bool reverse) {
     if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, options))
         return;
     m_strokeChanged = true;
+    m_farDirty = true;
+    m_farRegions.emplace_back(hit.x - m_radius - 2, hit.z - m_radius - 2, m_radius * 2 + 5, m_radius * 2 + 5);
     ++m_revision;
     const int n = m_world.chunksX();
     for (int z = wb::floorDiv(hit.z - m_radius - 2 - m_world.originZ, 16);
@@ -225,7 +232,8 @@ void Editor::endStroke() {
     pushCommand(std::move(c));
 }
 void Editor::pushCommand(wb::Command c) {
-    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter) {
+    if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter ||
+        c.environmentAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -266,6 +274,7 @@ void Editor::pushCommand(wb::Command c) {
 void Editor::undo() {
     if (assetBusy())
         return;
+    endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     if (!canUndo())
@@ -281,6 +290,7 @@ void Editor::undo() {
 void Editor::redo() {
     if (assetBusy())
         return;
+    endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     if (!canRedo())
@@ -296,6 +306,7 @@ void Editor::redo() {
 void Editor::resetHistory() {
     m_selectedNode = m_world.heights.activeLayer;
     m_terrainStart.reset();
+    m_environmentStart.reset();
     m_stroke.reset();
     m_strokeChanged = false;
     m_history.clear();
@@ -344,6 +355,7 @@ bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int
 bool Editor::save(const QUrl &url) {
     if (assetBusy())
         return false;
+    endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     QString path = url.isEmpty() ? m_path : url.toLocalFile();
@@ -366,6 +378,7 @@ bool Editor::save(const QUrl &url) {
 bool Editor::open(const QUrl &url) {
     if (exportBusy() || assetBusy())
         return false;
+    endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     wb::World next;
@@ -395,12 +408,24 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
+    if (command.environmentAfter)
+        return;
+    m_farDirty = true;
+    if (command.terrainAfter || command.layersAfter || command.themeAfter)
+        m_farAllDirty = true;
+    else
+        for (int id : wb::affectedChunks(m_world, command))
+            m_farRegions.emplace_back(m_world.originX + id % m_world.chunksX() * 16,
+                                      m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
+    if (!m_meshTimer.isActive())
+        m_meshTimer.start();
     if (command.themeAfter) {
         dirtyAll();
         return;
     }
     if (command.terrainAfter || command.layersAfter) {
-        if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0)
+        if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0 &&
+            !m_selectedNode.startsWith("environment"))
             m_selectedNode = "terrain-base-1";
         const auto wanted = desiredChunks();
         auto dirtyBounds = [&](QRectF bounds) {
@@ -452,10 +477,12 @@ void Editor::dirtyCommand(const wb::Command &command) {
         m_meshTimer.start();
 }
 QString Editor::meshUpdateSummary() const {
-    return QString("最近更新 %1 / %2 区块 · %3 ms")
+    return QString("构网 %1 ms（远景 %2 ms）· 更新 %3 精确 / %4 远景 · 网格 %5 MiB")
+        .arg(m_scene->buildMilliseconds)
+        .arg(m_scene->farMilliseconds)
         .arg(m_scene->updatedChunks)
-        .arg(m_scene->chunks.size())
-        .arg(m_scene->buildMilliseconds);
+        .arg(m_scene->updatedFarTiles)
+        .arg(m_scene->vertices * sizeof(wb::Vertex) / 1048576., 0, 'f', 1);
 }
 std::set<int> Editor::desiredChunks() const {
     std::set<int> result;
@@ -481,30 +508,37 @@ void Editor::setPreviewCenter(int x, int z) {
     auto after = desiredChunks();
     if (before == after)
         return;
-    ++m_epoch;
-    m_dirty = std::move(after);
+    // Retain unchanged exact chunks; only missing chunks or changed boundary skirts rebuild.
+    m_farDirty = true;
     m_meshTimer.start();
     emit changed();
 }
 void Editor::dirtyAll() {
+    m_farDirty = m_farAllDirty = true;
     m_dirty = desiredChunks();
     if (!m_meshTimer.isActive())
         m_meshTimer.start();
     emit changed();
 }
 void Editor::startMesh() {
-    if (m_meshActive || m_dirty.empty())
+    if (m_meshActive || (m_dirty.empty() && !m_farDirty))
         return;
     const auto wanted = desiredChunks();
     auto dirty = std::move(m_dirty);
     m_dirty.clear();
+    const bool allFar = m_farAllDirty;
+    auto regions = std::move(m_farRegions);
+    m_farRegions.clear();
+    m_farDirty = m_farAllDirty = false;
+    auto plan = wb::planFarTiles(m_world, wanted, m_previewX, m_previewZ);
     auto snapshot = m_world;
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
     m_jobEpoch = m_epoch;
     m_meshActive = true;
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old,
-                                               serial, wanted] {
+                                               serial, wanted, allFar, regions = std::move(regions),
+                                               plan = std::move(plan)]() mutable {
         QElapsedTimer elapsed;
         elapsed.start();
         auto next = std::make_shared<wb::MeshScene>();
@@ -513,15 +547,29 @@ void Editor::startMesh() {
         std::map<int, wb::MeshPtr> cached;
         for (size_t i = 0; i < old->chunkIds.size(); ++i)
             cached[old->chunkIds[i]] = old->chunks[i];
+        auto skirts = [&](int id) {
+            if (snapshot.width <= 256 && snapshot.depth <= 256)
+                return 0;
+            int mask = 0, x = id % snapshot.chunksX(), z = id / snapshot.chunksX();
+            if (x > 0 && !wanted.contains(id - 1))
+                mask |= 1;
+            if (x + 1 < snapshot.chunksX() && !wanted.contains(id + 1))
+                mask |= 2;
+            if (z > 0 && !wanted.contains(id - snapshot.chunksX()))
+                mask |= 4;
+            if (z + 1 < snapshot.chunksZ() && !wanted.contains(id + snapshot.chunksX()))
+                mask |= 8;
+            return mask;
+        };
         std::vector<int> jobs;
         for (int id : wanted)
-            if (!cached.contains(id) || dirty.contains(id))
+            if (!cached.contains(id) || dirty.contains(id) || cached.at(id)->skirtMask != skirts(id))
                 jobs.push_back(id);
         QThreadPool pool;
         pool.setMaxThreadCount(std::clamp(QThread::idealThreadCount() - 2, 1, 4));
         const auto meshes = QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(&pool, jobs, [&](int id) {
             return wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
-                                      snapshot.originZ / 16 + id / snapshot.chunksX(), serial);
+                                      snapshot.originZ / 16 + id / snapshot.chunksX(), serial, skirts(id));
         });
         for (size_t n = 0; n < jobs.size(); ++n)
             cached[jobs[n]] = meshes[n];
@@ -529,12 +577,45 @@ void Editor::startMesh() {
             next->chunks.push_back(cached.at(id));
             next->chunkIds.push_back(id);
         }
+        QElapsedTimer farTimer;
+        farTimer.start();
+        using TileKey = std::tuple<int, int, int, int, int>;
+        auto key = [](const wb::FarTile &t) {
+            return TileKey(t.area.x(), t.area.y(), t.area.width(), t.area.height(), t.step);
+        };
+        std::map<TileKey, wb::MeshPtr> farCache;
+        if (!allFar && old->assets == snapshot.assets)
+            for (const auto &tile : old->farTiles)
+                farCache[key(tile)] = tile.mesh;
+        std::vector<int> farJobs;
+        for (int i = 0; i < int(plan.size()); ++i) {
+            auto &t = plan[i];
+            auto found = farCache.find(key(t));
+            bool changed = std::any_of(regions.begin(), regions.end(),
+                                       [&](const QRect &r) { return r.intersects(t.area); });
+            if (found != farCache.end() && !changed)
+                t.mesh = found->second;
+            else
+                farJobs.push_back(i);
+        }
+        if (!farJobs.empty()) {
+            const auto inputs = wb::farInputs(snapshot);
+            const auto meshes = QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(
+                &pool, farJobs, [&](int i) { return wb::buildFarMesh(snapshot, plan[i], inputs, serial); });
+            for (size_t n = 0; n < farJobs.size(); ++n)
+                plan[farJobs[n]].mesh = meshes[n];
+        }
+        next->farTiles = std::move(plan);
+        next->updatedFarTiles = int(farJobs.size());
+        next->farMilliseconds = farTimer.elapsed();
         next->updatedChunks = int(jobs.size());
         next->buildMilliseconds = elapsed.elapsed();
         next->vertices = 0;
         for (const auto &c : next->chunks)
             if (c)
                 next->vertices += c->opaque.size() + c->transparent.size();
+        for (const auto &t : next->farTiles)
+            next->vertices += t.mesh->opaque.size() + t.mesh->transparent.size();
         return next;
     }));
     emit changed();
@@ -542,6 +623,7 @@ void Editor::startMesh() {
 void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {
     if (exportBusy() || assetBusy())
         return;
+    endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     if (selectedArea && !m_selection.isValid()) {

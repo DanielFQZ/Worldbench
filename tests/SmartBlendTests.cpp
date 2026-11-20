@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
         check(project.open(QIODevice::ReadOnly), "read project envelope");
         auto root = QJsonDocument::fromJson(qUncompress(project.readAll().mid(40))).object();
         project.close();
-        check(root["format"].toInt() == 7, "new format prevents old clients silently dropping settings");
+        check(root["format"].toInt() == 8, "new format prevents old clients silently dropping settings");
         auto writeRoot = [&] {
             const auto bytes = QJsonDocument(root).toJson(QJsonDocument::Compact);
             check(project.open(QIODevice::WriteOnly), "write migration fixture");

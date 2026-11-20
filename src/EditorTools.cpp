@@ -53,6 +53,15 @@ QVariantList Editor::sceneNodes() const {
                              {"kind", "terrain"},
                              {"visible", it->enabled},
                              {"active", it->id == m_world.heights.activeLayer}};
+    const auto e = environmentDetails();
+    nodes << QVariantMap{
+        {"id", "environment"}, {"name", "环境"}, {"kind", "environment"}, {"visible", e["enabled"]}};
+    for (auto pair : {std::pair{"sky", "天光 / 天空"}, {"sun", "太阳 · 平行光"}, {"atmosphere", "大气"}})
+        nodes << QVariantMap{{"id", QString("environment-") + pair.first},
+                             {"parent", "environment"},
+                             {"name", QString("    ") + pair.second},
+                             {"kind", "environment"},
+                             {"visible", e[pair.first]}};
     return nodes;
 }
 QVariantMap Editor::layerDetails() const {
@@ -406,6 +415,12 @@ QJsonObject Editor::worldInfo() const {
             {"override_cells", int(m_world.overrides.size())},
             {"busy", commandBusy()},
             {"mesh_busy", meshBusy()},
+            {"environment", wb::saveEnvironment(m_world.environment)},
+            {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
+                                    {"far_tiles", int(m_scene->farTiles.size())},
+                                    {"vertices", double(m_scene->vertices)},
+                                    {"build_ms", double(m_scene->buildMilliseconds)},
+                                    {"far_ms", double(m_scene->farMilliseconds)}}},
             {"can_undo", canUndo()},
             {"can_redo", canRedo()},
             {"scene_nodes", QJsonArray::fromVariantList(sceneNodes())}};
@@ -507,6 +522,16 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         throw std::runtime_error("用户正在编辑或加载资源，请稍后重试");
     if (!args["expected_revision"].isDouble() || args["expected_revision"].toDouble() != double(m_revision))
         throw std::runtime_error("revision 已过期；请先读取 world_info，不得盲目重试写入");
+    if (name == "environment") {
+        if (!args["changes"].isObject())
+            throw std::runtime_error("changes must be an object");
+        wb::Environment next;
+        QString error;
+        if (!wb::patchEnvironment(m_world.environment, args["changes"].toObject(), next, error))
+            throw std::runtime_error(error.toStdString());
+        setEnvironment(args["changes"].toObject().toVariantMap());
+        return worldInfo();
+    }
     if (name == "undo") {
         undo();
         return worldInfo();

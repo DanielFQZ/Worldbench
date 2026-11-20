@@ -98,6 +98,13 @@ QJsonArray toolList() {
         "Sculpt changes relative height on active layer.",
         {{"action", str}, {"id", str}, {"name", str}, {"enabled", boolean}, {"expected_revision", revision}},
         {"action", "expected_revision"}, false);
+    add("environment",
+        "Change viewport environment only; shared undo and project persistence. Changes: "
+        "enabled,sky,sun,atmosphere (bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth "
+        "-180..180, elevation 0..90 degrees; haze 0..100, exposure -30..30 tenths EV; "
+        "skyColor,horizonColor,groundColor,sunColor #RRGGBB. No shadows or volume effects yet.",
+        {{"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
+        {"changes", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",
         {{"expected_revision", revision}}, {"expected_revision"}, false);
     add("redo", "Redo the latest undone shared command.", {{"expected_revision", revision}},
@@ -161,7 +168,8 @@ McpServer::McpServer(Editor *editor) : QObject(editor), m_editor(editor) {
                         result = {
                             {"protocolVersion", "2025-06-18"},
                             {"capabilities", QJsonObject{{"tools", QJsonObject{{"listChanged", false}}}}},
-                            {"serverInfo", QJsonObject{{"name", "Worldbench"}, {"version", "0.3.0"}}},
+                            {"serverInfo", QJsonObject{{"name", "Worldbench"},
+                                                       {"version", QCoreApplication::applicationVersion()}}},
                             {"instructions",
                              "Local editor session. Read world_info and catalog before editing. Writes "
                              "require expected_revision and are undoable. The user can edit concurrently. "

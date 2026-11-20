@@ -1,4 +1,5 @@
 #include "Viewport.h"
+#include "core/FarMesh.h"
 #include <QCoreApplication>
 #include <QCursor>
 #include <QJsonArray>
@@ -38,8 +39,10 @@ class Renderer final : public QQuickRhiItemRenderer {
     std::unique_ptr<QRhiSampler> m_sampler;
     std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
     bool m_textureReady = false;
-    std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha;
-    std::vector<GpuChunk> m_chunks;
+    std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha, m_sky;
+    std::map<wb::MeshPtr, GpuChunk, std::owner_less<wb::MeshPtr>> m_chunks;
+    wb::Environment m_environment;
+    std::shared_ptr<RenderMetrics> m_metrics;
     std::shared_ptr<const wb::MeshScene> m_scene;
     QMatrix4x4 m_matrix;
     QVector3D m_camera;
@@ -53,6 +56,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_chunks.clear();
             m_opaque.reset();
             m_alpha.reset();
+            m_sky.reset();
             m_bindings.reset();
             m_uniform.reset();
             m_texture.reset();
@@ -62,7 +66,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_rhi = rhi();
         }
         if (!m_uniform) {
-            m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 144));
+            m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 304));
             if (!m_uniform->create())
                 qFatal("Unable to create uniform buffer");
             m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
@@ -112,6 +116,18 @@ class Renderer final : public QQuickRhiItemRenderer {
         };
         m_opaque = pipeline(false);
         m_alpha = pipeline(true);
+        m_sky.reset(rhi()->newGraphicsPipeline());
+        m_sky->setShaderStages({{QRhiShaderStage::Vertex, shader(":/shaders/sky.vert.qsb")},
+                                {QRhiShaderStage::Fragment, shader(":/shaders/sky.frag.qsb")}});
+        m_sky->setTopology(QRhiGraphicsPipeline::Triangles);
+        m_sky->setCullMode(QRhiGraphicsPipeline::None);
+        m_sky->setDepthTest(false);
+        m_sky->setDepthWrite(false);
+        m_sky->setSampleCount(renderTarget()->sampleCount());
+        m_sky->setShaderResourceBindings(m_bindings.get());
+        m_sky->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+        if (!m_sky->create())
+            qFatal("Unable to create sky pipeline");
     }
     void synchronize(QQuickRhiItem *item) override {
         auto *v = static_cast<Viewport *>(item);
@@ -119,8 +135,10 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_camera = v->camera();
         m_hit = v->hit();
         m_frames = v->frameCounter();
+        m_metrics = v->renderMetrics();
         if (v->editor()) {
             m_scene = v->editor()->scene();
+            m_environment = v->editor()->world().environment;
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
             m_brushShape = v->editor()->brushShape();
@@ -129,6 +147,10 @@ class Renderer final : public QQuickRhiItemRenderer {
         }
     }
     void render(QRhiCommandBuffer *cb) override {
+        QElapsedTimer submit;
+        submit.start();
+        size_t uploadBytes = 0, residentBytes = 0;
+        int draws = 0;
         auto *updates = rhi()->nextResourceUpdateBatch();
         auto assets = m_scene ? m_scene->assets : std::shared_ptr<const wb::AssetLibrary>{};
         if (!m_textureReady || assets != m_uploadedAssets) {
@@ -149,7 +171,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_textureReady = true;
         }
         const QMatrix4x4 mvp = rhi()->clipSpaceCorrMatrix() * m_matrix;
-        std::array<float, 36> u{};
+        std::array<float, 76> u{};
         std::memcpy(u.data(), mvp.constData(), 64);
         u[16] = m_camera.x();
         u[17] = m_camera.y();
@@ -167,66 +189,110 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[30] = float(m_selection.right() + 1);
         u[31] = float(m_selection.bottom() + 1);
         u[32] = m_selection.isValid() ? 1.f : 0.f;
-        updates->updateDynamicBuffer(m_uniform.get(), 0, 144, u.data());
+        auto sun = m_environment.sunDirection();
+        u[36] = sun.x();
+        u[37] = sun.y();
+        u[38] = sun.z();
+        u[39] = m_environment.sun ? m_environment.sunIntensity / 100.f : 0;
+        auto color = [&](int offset, const QString &name, float w) {
+            QColor c(name);
+            u[offset] = c.redF();
+            u[offset + 1] = c.greenF();
+            u[offset + 2] = c.blueF();
+            u[offset + 3] = w;
+        };
+        color(40, m_environment.skyColor, m_environment.sky ? m_environment.skyIntensity / 100.f : 0);
+        color(44, m_environment.groundColor, std::exp2(m_environment.exposure / 10.f));
+        color(48, m_environment.sunColor, m_environment.enabled ? 1.f : 0.f);
+        color(52, m_environment.horizonColor, m_environment.atmosphere ? m_environment.haze / 100.f : 0);
+        u[56] = m_environment.sky;
+        u[57] = m_environment.sun;
+        u[58] = m_environment.atmosphere;
+        u[59] = rhi()->clipSpaceCorrMatrix()(1, 1);
+        const auto inverse = m_matrix.inverted();
+        std::memcpy(u.data() + 60, inverse.constData(), 64);
+        updates->updateDynamicBuffer(m_uniform.get(), 0, 304, u.data());
+        std::set<wb::MeshPtr, std::owner_less<wb::MeshPtr>> retained;
+        std::vector<wb::MeshPtr> visible;
         if (m_scene) {
-            m_chunks.resize(m_scene->chunks.size());
-            for (size_t i = 0; i < m_chunks.size(); ++i) {
-                const auto &src = m_scene->chunks[i];
-                auto &dst = m_chunks[i];
-                if (!src || src->revision == dst.revision)
-                    continue;
-                auto upload = [&](const std::vector<wb::Vertex> &vertices,
-                                  std::unique_ptr<QRhiBuffer> &buffer, int &count) {
-                    count = int(vertices.size());
-                    if (vertices.empty()) {
-                        buffer.reset();
-                        return;
-                    }
-                    const auto bytes = quint32(vertices.size() * sizeof(wb::Vertex));
-                    if (!buffer || buffer->size() < bytes) {
-                        buffer.reset(
-                            rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, bytes));
-                        if (!buffer->create())
-                            qFatal("Unable to allocate voxel vertex buffer");
-                    }
-                    updates->uploadStaticBuffer(buffer.get(), 0, bytes, vertices.data());
-                };
-                upload(src->opaque, dst.opaque, dst.opaqueCount);
-                upload(src->transparent, dst.transparent, dst.transparentCount);
-                dst.revision = src->revision;
-            }
-        } else
-            m_chunks.clear();
+            auto add = [&](wb::MeshPtr src) {
+                if (!src)
+                    return;
+                retained.insert(src);
+                if (wb::visibleMesh(*src, m_matrix))
+                    visible.push_back(src);
+            };
+            for (auto src : m_scene->chunks)
+                add(src);
+            for (const auto &t : m_scene->farTiles)
+                add(t.mesh);
+        }
+        std::erase_if(m_chunks, [&](const auto &pair) { return !retained.contains(pair.first); });
+        for (auto src : visible) {
+            auto &dst = m_chunks[src];
+            if (src->revision == dst.revision)
+                continue;
+            auto upload = [&](const std::vector<wb::Vertex> &vertices, std::unique_ptr<QRhiBuffer> &buffer,
+                              int &count) {
+                count = int(vertices.size());
+                if (vertices.empty()) {
+                    buffer.reset();
+                    return;
+                }
+                const auto bytes = quint32(vertices.size() * sizeof(wb::Vertex));
+                buffer.reset(rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, bytes));
+                if (!buffer->create())
+                    qFatal("Unable to allocate voxel vertex buffer");
+                updates->uploadStaticBuffer(buffer.get(), 0, bytes, vertices.data());
+                uploadBytes += bytes;
+            };
+            upload(src->opaque, dst.opaque, dst.opaqueCount);
+            upload(src->transparent, dst.transparent, dst.transparentCount);
+            dst.revision = src->revision;
+        }
+        for (const auto &[src, gpu] : m_chunks)
+            residentBytes +=
+                (gpu.opaque ? gpu.opaque->size() : 0) + (gpu.transparent ? gpu.transparent->size() : 0);
         cb->beginPass(renderTarget(), QColor("#202c3b"), {1.0f, 0}, updates);
         const auto sz = renderTarget()->pixelSize();
         cb->setViewport({0, 0, float(sz.width()), float(sz.height())});
+        if (m_environment.enabled) {
+            cb->setGraphicsPipeline(m_sky.get());
+            cb->setShaderResources(m_bindings.get());
+            cb->draw(3);
+        }
         auto draw = [&](QRhiBuffer *buffer, int count) {
             if (!buffer || !count)
                 return;
             QRhiCommandBuffer::VertexInput binding(buffer, 0);
             cb->setVertexInput(0, 1, &binding);
             cb->draw(count);
+            ++draws;
         };
         cb->setGraphicsPipeline(m_opaque.get());
         cb->setShaderResources(m_bindings.get());
-        for (const auto &c : m_chunks)
+        for (auto src : visible) {
+            const auto &c = m_chunks.at(src);
             draw(c.opaque.get(), c.opaqueCount);
+        }
         cb->setGraphicsPipeline(m_alpha.get());
         cb->setShaderResources(m_bindings.get());
-        std::vector<size_t> order;
-        for (size_t i = 0; i < m_chunks.size(); ++i)
-            if (m_chunks[i].transparentCount)
-                order.push_back(i);
-        if (m_scene)
-            std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-                return (m_scene->chunks[a]->center - m_camera).lengthSquared() >
-                       (m_scene->chunks[b]->center - m_camera).lengthSquared();
-            });
-        for (size_t i : order)
-            draw(m_chunks[i].transparent.get(), m_chunks[i].transparentCount);
+        std::sort(visible.begin(), visible.end(), [&](const auto &a, const auto &b) {
+            return (a->center - m_camera).lengthSquared() > (b->center - m_camera).lengthSquared();
+        });
+        for (auto src : visible) {
+            const auto &c = m_chunks.at(src);
+            draw(c.transparent.get(), c.transparentCount);
+        }
         cb->endPass();
         if (m_frames)
             ++(*m_frames);
+        if (m_metrics) {
+            m_metrics->submitMicros = int(submit.nsecsElapsed() / 1000);
+            m_metrics->uploadKiB = int(uploadBytes / 1024);
+            m_metrics->residentKiB = int(residentBytes / 1024);
+            m_metrics->draws = draws;
+        }
     }
 };
 } // namespace
@@ -241,6 +307,9 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_elapsed.start();
     m_stampClock.start();
     m_timer.start();
+    m_metricsTimer.setInterval(500);
+    connect(&m_metricsTimer, &QTimer::timeout, this, &Viewport::metricsChanged);
+    m_metricsTimer.start();
     QSettings settings;
     m_snapEnabled = settings.value("input/transformSnap", false).toBool();
     m_rawInput = settings.value("input/raw", true).toBool();
@@ -294,7 +363,15 @@ QVector3D Viewport::right() const {
 QMatrix4x4 Viewport::viewProjection() const {
     QMatrix4x4 v, p;
     v.lookAt(m_camera, m_camera + forward(), {0, 1, 0});
-    p.perspective(60, float(std::max(1., width()) / std::max(1., height())), .15f, 3000);
+    float nearPlane = std::clamp((m_camera.y() - wb::World::MaxY) * .002f, .15f, 64.f);
+    float farPlane = 3000;
+    if (m_editor) {
+        const auto &w = m_editor->world();
+        QVector3D center(float(w.originX + w.width / 2), 128, float(w.originZ + w.depth / 2));
+        farPlane = std::max(3000.f, (m_camera - center).length() +
+                                        std::hypot(float(w.width), float(w.depth)) + 1024.f);
+    }
+    p.perspective(60, float(std::max(1., width()) / std::max(1., height())), nearPlane, farPlane);
     return p * v;
 }
 void Viewport::pick(QPointF pos) {
@@ -315,7 +392,7 @@ void Viewport::pick(QPointF pos) {
     const auto inv = viewProjection().inverted();
     QVector4D farPoint =
         inv * QVector4D(float(pos.x() / width() * 2 - 1), float(1 - pos.y() / height() * 2), 1, 1);
-    m_hit = m_editor->world().raycast(m_camera, farPoint.toVector3DAffine() - m_camera);
+    m_hit = m_editor->world().raycast(m_camera, farPoint.toVector3DAffine() - m_camera, 2500);
     if (m_hit.valid && !m_editor->previewContains(m_hit.x, m_hit.z))
         m_hit = {};
     update();
@@ -325,15 +402,25 @@ void Viewport::changedCamera() {
     m_pitch = std::clamp(m_pitch, -89.f, 89.f);
     if (m_editor) {
         auto p = m_camera + forward() * 60;
+        if (m_camera.y() > 500 && forward().y() < -.05f)
+            p = m_camera +
+                forward() * ((m_editor->world().heights.baseHeight - m_camera.y()) / forward().y());
         m_editor->setPreviewCenter(int(p.x()), int(p.z()));
     }
-    pick(m_pointer);
+    if (m_camera.y() > wb::World::MaxY + 1500)
+        m_hit = {};
+    else
+        pick(m_pointer);
     emit cameraChanged();
     update();
 }
 void Viewport::resetCamera() {
     stopInput();
     const auto &w = m_editor->world();
+    if (w.width > 256 || w.depth > 256) {
+        frameWorld();
+        return;
+    }
     m_pivot = {float(w.originX + w.width / 2),
                float(w.height(w.originX + w.width / 2, w.originZ + w.depth / 2)),
                float(w.originZ + w.depth / 2)};
@@ -344,6 +431,47 @@ void Viewport::resetCamera() {
     m_pitch = qRadiansToDegrees(std::asin(f.y()));
     m_speed = 35;
     changedCamera();
+}
+QString Viewport::renderText() const {
+    return QString("CPU提交 %1 ms · 上传 %2 MiB · 顶点缓冲 %3 MiB · %4 次绘制")
+        .arg(m_metrics->submitMicros.load() / 1000., 0, 'f', 2)
+        .arg(m_metrics->uploadKiB.load() / 1024., 0, 'f', 1)
+        .arg(m_metrics->residentKiB.load() / 1024., 0, 'f', 1)
+        .arg(m_metrics->draws.load());
+}
+void Viewport::frameWorld() {
+    if (!m_editor)
+        return;
+    stopInput();
+    const auto &w = m_editor->world();
+    m_pivot = {float(w.originX + w.width / 2),
+               float(w.height(w.originX + w.width / 2, w.originZ + w.depth / 2)),
+               float(w.originZ + w.depth / 2)};
+    const float aspect = float(std::max(1., width()) / std::max(1., height()));
+    const float radius = std::hypot(float(w.width), float(w.depth)) * .5f + 192;
+    const float halfAngle = std::atan(std::tan(qDegreesToRadians(30.f)) * std::min(1.f, aspect));
+    const float distance = radius / std::sin(halfAngle) * 1.22f;
+    m_camera = m_pivot + QVector3D(.3f, .85f, .45f).normalized() * distance;
+    const auto f = (m_pivot - m_camera).normalized();
+    m_yaw = qRadiansToDegrees(std::atan2(f.x(), -f.z()));
+    m_pitch = qRadiansToDegrees(std::asin(f.y()));
+    m_speed = std::clamp(float(std::max(w.width, w.depth)) * .25f, 35.f, 8000.f);
+    changedCamera();
+}
+void Viewport::mouseDoubleClickEvent(QMouseEvent *e) {
+    if (m_editor && e->button() == Qt::LeftButton && e->modifiers() == Qt::NoModifier && width() > 0 &&
+        height() > 0) {
+        auto p = viewProjection().inverted() * QVector4D(float(e->position().x() / width() * 2 - 1),
+                                                         float(1 - e->position().y() / height() * 2), 1, 1);
+        const auto hit = m_editor->world().raycast(m_camera, p.toVector3DAffine() - m_camera, 100000);
+        if (hit.valid &&
+            (!m_editor->previewContains(hit.x, hit.z) || (hit.position - m_camera).length() > 300)) {
+            jumpTo(hit.x, hit.z);
+            e->accept();
+            return;
+        }
+    }
+    QQuickRhiItem::mouseDoubleClickEvent(e);
 }
 void Viewport::focusTarget() {
     m_velocity = {};
@@ -722,6 +850,7 @@ void Viewport::jumpTo(int x, int z) {
     if (!m_editor)
         return;
     stopInput();
+    m_speed = 35;
     const auto &w = m_editor->world();
     x = std::clamp(x, w.originX, w.originX + w.width - 1);
     z = std::clamp(z, w.originZ, w.originZ + w.depth - 1);

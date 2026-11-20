@@ -15,12 +15,13 @@ int Editor::selectedTerrainIndex() const {
 void Editor::setSelectedNode(const QString &id) {
     if (id == m_selectedNode)
         return;
-    if (m_world.heights.layerIndex(id) < 0 &&
+    if (!id.startsWith("environment") && m_world.heights.layerIndex(id) < 0 &&
         std::none_of(m_world.heights.instances.begin(), m_world.heights.instances.end(),
                      [&](const auto &i) { return i.id == id; }))
         return;
     endTerrainEdit();
     endStroke();
+    endEnvironmentEdit();
     m_selectedNode = id;
     if (m_world.heights.layerIndex(id) >= 0 && m_world.heights.activeLayer != id) {
         m_world.heights.activeLayer = id;
@@ -273,6 +274,10 @@ void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &labe
     pushCommand(std::move(c));
 }
 void Editor::setNodeVisible(const QString &id, bool visible) {
+    if (id.startsWith("environment")) {
+        setEnvironment({{id == "environment" ? "enabled" : id.mid(12), visible}});
+        return;
+    }
     if (assetBusy())
         return;
     endTerrainEdit();

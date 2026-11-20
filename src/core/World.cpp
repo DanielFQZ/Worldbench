@@ -235,8 +235,11 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
                       {float(originX + width), float(MaxY), float(originZ + depth)}, start, norm) ||
         start > maxDistance)
         return {};
-    QVector3D p = o + d * (start + .0001f);
+    QVector3D p = o + d * (start + .002f);
     int c[3] = {int(std::floor(p.x())), int(std::floor(p.y())), int(std::floor(p.z()))};
+    c[0] = std::clamp(c[0], originX, originX + width - 1);
+    c[1] = std::clamp(c[1], MinY, MaxY - 1);
+    c[2] = std::clamp(c[2], originZ, originZ + depth - 1);
     int step[3];
     float next[3], delta[3];
     for (int a = 0; a < 3; ++a) {
@@ -244,7 +247,7 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
         delta[a] = std::abs(d[a]) < 1e-8 ? 1e30f : std::abs(1 / d[a]);
         next[a] = std::abs(d[a]) < 1e-8 ? 1e30f : ((c[a] + (step[a] > 0 ? 1 : 0)) - o[a]) / d[a];
     }
-    for (int i = 0; i < 8000 && contains(c[0], c[1], c[2]); ++i) {
+    for (int i = 0; i < width + depth + (MaxY - MinY) + 3 && contains(c[0], c[1], c[2]); ++i) {
         const Block b = block(c[0], c[1], c[2]);
         float closest = maxDistance + 1;
         QVector3D normal;
@@ -285,6 +288,8 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     return {};
 }
 void World::apply(const Command &cmd, bool forward) {
+    if (cmd.environmentBefore && cmd.environmentAfter)
+        environment = *(forward ? cmd.environmentAfter : cmd.environmentBefore);
     if (cmd.themeBefore && cmd.themeAfter)
         theme = *(forward ? cmd.themeAfter : cmd.themeBefore);
     if (cmd.terrainBefore && cmd.terrainAfter)

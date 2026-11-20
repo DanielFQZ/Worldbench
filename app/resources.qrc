@@ -8,6 +8,7 @@
 <file alias="SelectionPanel.qml">qml/SelectionPanel.qml</file>
 <file alias="GizmoOverlay.qml">qml/GizmoOverlay.qml</file>
 <file alias="AxisTriplet.qml">qml/AxisTriplet.qml</file>
+<file alias="EnvironmentPanel.qml">qml/EnvironmentPanel.qml</file>
 <file alias="TerrainPanel.qml">qml/TerrainPanel.qml</file>
 <file alias="WorldPanel.qml">qml/WorldPanel.qml</file>
 <file alias="ViewportPane.qml">qml/ViewportPane.qml</file>

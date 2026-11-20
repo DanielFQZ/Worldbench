@@ -14,6 +14,9 @@ namespace wb {
 bool saveProject(const QString &path, const World &w, QString &error) {
     if (!validateTheme(w.theme, w.palette.size(), error) || !validateTerrain(w.heights.instances, error))
         return false;
+    Environment checked;
+    if (!loadEnvironment(saveEnvironment(w.environment), checked, error))
+        return false;
     QJsonArray heights, cells;
     if (w.heights.dense)
         for (int h : *w.heights.dense)
@@ -38,7 +41,8 @@ bool saveProject(const QString &path, const World &w, QString &error) {
             edits.append(QJsonArray{i, h});
         layers.append(QJsonObject{{"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"deltas", edits}});
     }
-    QJsonObject root{{"format", 7},
+    QJsonObject root{{"format", 8},
+                     {"environment", saveEnvironment(w.environment)},
                      {"surfaceTheme", saveTheme(w.theme)},
                      {"sculptLayers", layers},
                      {"activeLayer", w.heights.activeLayer},
@@ -109,7 +113,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 7))
+    if (!integer(o["format"], 1, 8))
         return fail("不支持的工程版本");
     const auto widthValue = o[format >= 3 ? "width" : "size"];
     const auto depthValue = format >= 3 ? o["depth"] : widthValue;
@@ -257,6 +261,8 @@ bool loadProject(const QString &path, World &world, QString &error) {
         if (!w.overrides.emplace(uint64_t(a[0].toDouble()), Block(a[1].toInt())).second)
             return fail("重复的体素键");
     }
+    if (format >= 8 && !loadEnvironment(o["environment"].toObject(), w.environment, error))
+        return false;
     world = std::move(w);
     return true;
 }

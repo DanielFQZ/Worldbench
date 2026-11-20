@@ -40,6 +40,7 @@ class Editor : public QObject {
     Q_PROPERTY(bool selectionOnly READ selectionOnly WRITE setSelectionOnly NOTIFY changed)
     Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
     Q_PROPERTY(QString resourceDiagnostics READ resourceDiagnostics NOTIFY changed)
+    Q_PROPERTY(QVariantMap environmentDetails READ environmentDetails NOTIFY changed)
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
     Q_PROPERTY(QVariantMap layerDetails READ layerDetails NOTIFY changed)
     Q_PROPERTY(QVariantMap terrainDetails READ terrainDetails NOTIFY changed)
@@ -94,6 +95,10 @@ class Editor : public QObject {
     QString resourceSummary() const;
     QString resourceDiagnostics() const;
     QVariantList sceneNodes() const;
+    QVariantMap environmentDetails() const;
+    Q_INVOKABLE bool setEnvironment(const QVariantMap &changes);
+    Q_INVOKABLE void beginEnvironmentEdit();
+    Q_INVOKABLE void endEnvironmentEdit(bool cancel = false);
     QVariantMap layerDetails() const;
     QVariantMap terrainDetails() const;
     QVariantMap surfaceTheme() const;
@@ -130,7 +135,9 @@ class Editor : public QObject {
         emit changed();
     }
     uint64_t revision() const { return m_revision; }
-    bool commandBusy() const { return bool(m_stroke) || bool(m_terrainStart) || assetBusy(); }
+    bool commandBusy() const {
+        return bool(m_stroke) || bool(m_terrainStart) || bool(m_environmentStart) || assetBusy();
+    }
     QJsonObject worldInfo() const;
     QJsonObject executeTool(const QString &name, const QJsonObject &args);
     Q_INVOKABLE QVariantList blockCatalog(const QString &filter = QString()) const;
@@ -140,12 +147,12 @@ class Editor : public QObject {
     Q_INVOKABLE void removeResource(int index);
     Q_INVOKABLE void copyMcpConfiguration();
     bool modified() const {
-        return m_strokeChanged || bool(m_terrainStart) || m_state != m_savedState ||
-               m_resourceRevision != m_savedResourceRevision;
+        return m_strokeChanged || bool(m_terrainStart) || bool(m_environmentStart) ||
+               m_state != m_savedState || m_resourceRevision != m_savedResourceRevision;
     }
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
-    bool meshBusy() const { return m_meshActive || !m_dirty.empty(); }
+    bool meshBusy() const { return m_meshActive || !m_dirty.empty() || m_farDirty; }
     bool exportBusy() const { return m_exportActive; }
     int exportProgress() const { return m_exportProgress; }
     QString projectName() const;
@@ -194,6 +201,7 @@ class Editor : public QObject {
     void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
     void commitLayers(std::vector<wb::SculptLayer> next, const QString &label);
     std::shared_ptr<const std::vector<wb::TerrainInstance>> m_terrainStart;
+    std::shared_ptr<const wb::Environment> m_environmentStart;
     std::set<int> desiredChunks() const;
     wb::BrushOptions m_brushOptions;
     wb::World m_world;
@@ -210,6 +218,8 @@ class Editor : public QObject {
     QString m_path, m_status = "正在构建初始体素网格…";
     std::set<int> m_dirty;
     int m_previewX = 0, m_previewZ = 0;
+    bool m_farDirty = true, m_farAllDirty = true;
+    std::vector<QRect> m_farRegions;
     QRect m_selection;
     bool m_selectionOnly = false;
     QTimer m_meshTimer;

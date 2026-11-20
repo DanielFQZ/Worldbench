@@ -40,7 +40,7 @@ Pane {
        id:eyeDrawing
        onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=eyeButton.shown?"#b5d8e8":"#6e7c8e";c.lineWidth=1.5;var x=width/2,y=height/2;c.beginPath();c.moveTo(x-9,y);c.quadraticCurveTo(x,y-10,x+9,y);c.quadraticCurveTo(x,y+10,x-9,y);c.stroke();c.beginPath();c.arc(x,y,3,0,Math.PI*2);c.stroke();if(!eyeButton.shown){c.beginPath();c.moveTo(x-10,y+9);c.lineTo(x+10,y-9);c.stroke()}}
       }
-      ToolTip.visible:hovered;ToolTip.text:node.modelData.visible?"隐藏（同时停用生成）":"显示并启用"
+      ToolTip.visible:hovered;ToolTip.text:node.modelData.kind==="environment"?(node.modelData.visible?"关闭此预览效果":"开启此预览效果"):(node.modelData.visible?"隐藏（同时停用生成）":"显示并启用")
       onClicked:editor.setNodeVisible(node.modelData.id,!node.modelData.visible)
      }
     }
@@ -52,9 +52,10 @@ Pane {
    ColumnLayout {
     width:details.availableWidth;spacing:12
     property var selectedLayer:editor.layerDetails
+    EnvironmentPanel{Layout.fillWidth:true;visible:editor.selectedNode.indexOf("environment")===0}
     TerrainPanel{Layout.fillWidth:true;visible:editor.terrainDetails.valid}
     ColumnLayout {
-    Layout.fillWidth:true;visible:!editor.terrainDetails.valid;spacing:12
+    Layout.fillWidth:true;visible:!editor.terrainDetails.valid && editor.selectedNode.indexOf("environment")!==0;spacing:12
     property var selectedLayer:editor.layerDetails
     Label{text:"详细信息";font.bold:true;Layout.margins:12;color:"#c9d2df"}
     TextField{text:parent.selectedLayer.name;Layout.fillWidth:true;Layout.margins:12;onEditingFinished:editor.renameSculptLayer(text)}
