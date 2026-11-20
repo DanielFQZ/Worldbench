@@ -85,8 +85,11 @@ QJsonArray toolList() {
     add("terrain_instance",
         "Atomically adjust an existing heightmap instance. Inspect world_info.terrain_instances first. "
         "changes may contain x,y,z,rotationX/Y/Z (-180..180),scaleX/Y/Z (1..1600 "
-        "percent),width,depth,low,high,blend (0 replace,1 add,2 max,3 min),opacity (0..100),"
-        "feather (0..50),enabled,name. Embedded image data is unchanged. One shared undo step.",
+        "percent),width,depth,low,high,blend (0 replace,1 add,2 max,3 min,4 smart maximum),opacity (0..100),"
+        "feather (0..50, modes 0-3),blendSmoothness (0..128 vertical blocks),blendEdge (0..1024 local "
+        "surface blocks, clamped to half extent). Smart mode uses absolute height, adds at most "
+        "blendSmoothness/4 near crossings and fades inside edges; both zero means hard max. "
+        "enabled,name. Embedded image data is unchanged. One shared undo step.",
         {{"id", str}, {"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"id", "changes", "expected_revision"}, false);
     add("sculpt_layer",

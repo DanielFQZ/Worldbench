@@ -70,21 +70,37 @@ double TerrainInstance::apply(double base, int worldX, int worldZ) const {
     double alpha = opacity / 100.;
     if (mask)
         alpha *= mask->sample(u, v);
-    if (feather > 0) {
+    if (blend == 4 && blendEdge > 0) {
+        // Fade inside the transformed footprint. Separate axis weights also soften corners.
+        auto edge = [&](double coordinate, double span) {
+            const double distance = std::max(0., std::min(coordinate, 1 - coordinate)) * span;
+            const double t = std::clamp(distance / std::min(double(blendEdge), span * .5), 0., 1.);
+            return t * t * (3 - 2 * t);
+        };
+        alpha *= edge(u, sx) * edge(v, sz);
+    } else if (blend != 4 && feather > 0) {
         double t = std::clamp(std::min({u, v, 1 - u, 1 - v}) / (feather / 100.), 0., 1.);
         alpha *= t * t * (3 - 2 * t);
     }
-    const double target = blend == 1   ? base + value
-                          : blend == 2 ? std::max(base, value)
-                          : blend == 3 ? std::min(base, value)
-                                       : value;
+    double target = blend == 1   ? base + value
+                    : blend == 2 ? std::max(base, value)
+                    : blend == 3 ? std::min(base, value)
+                    : blend == 4 ? std::max(base, value)
+                                 : value;
+    if (blend == 4 && blendSmoothness > 0) {
+        // Compact polynomial smooth maximum. Only |base-value| < k is affected;
+        // the extra height is bounded by k/4 and never subtracts from the underlying terrain.
+        const double h = std::max(double(blendSmoothness) - std::abs(base - value), 0.);
+        target += h * h / (4 * blendSmoothness);
+    }
     return std::lerp(base, target, alpha);
 }
 bool TerrainInstance::operator==(const TerrainInstance &o) const {
     auto same = [](const auto &a, const auto &b) { return a == b || (a && b && *a == *b); };
     return id == o.id && name == o.name && sourceName == o.sourceName && maskName == o.maskName && x == o.x &&
            z == o.z && width == o.width && depth == o.depth && low == o.low && high == o.high &&
-           blend == o.blend && opacity == o.opacity && feather == o.feather && enabled == o.enabled &&
+           blend == o.blend && opacity == o.opacity && feather == o.feather &&
+           blendSmoothness == o.blendSmoothness && blendEdge == o.blendEdge && enabled == o.enabled &&
            same(image, o.image) && same(mask, o.mask) && y == o.y && rotationX == o.rotationX &&
            rotationY == o.rotationY && rotationZ == o.rotationZ && scaleX == o.scaleX && scaleY == o.scaleY &&
            scaleZ == o.scaleZ;
@@ -142,7 +158,8 @@ bool validateTerrain(const std::vector<TerrainInstance> &instances, QString &err
             i.name.isEmpty() || i.name.size() > 128 || i.sourceName.size() > 256 || i.maskName.size() > 256 ||
             !i.image || i.x < -2000000 || i.x > 2000000 || i.z < -2000000 || i.z > 2000000 || i.width < 1 ||
             i.width > 16384 || i.depth < 1 || i.depth > 16384 || i.low < -63 || i.high > 318 ||
-            i.low > i.high || i.blend < 0 || i.blend > 3 || i.opacity < 0 || i.opacity > 100 ||
+            i.low > i.high || i.blend < 0 || i.blend > 4 || i.opacity < 0 || i.opacity > 100 ||
+            i.blendSmoothness < 0 || i.blendSmoothness > 128 || i.blendEdge < 0 || i.blendEdge > 1024 ||
             i.feather < 0 || i.feather > 50 || i.y < -10000 || i.y > 10000 || std::abs(i.rotationX) > 180 ||
             std::abs(i.rotationY) > 180 || std::abs(i.rotationZ) > 180 || i.scaleX < 1 || i.scaleX > 1600 ||
             i.scaleY < 1 || i.scaleY > 1600 || i.scaleZ < 1 || i.scaleZ > 1600) {

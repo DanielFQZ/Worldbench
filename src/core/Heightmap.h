@@ -34,6 +34,8 @@ struct TerrainInstance {
     QVector3D pivot() const;
     QRectF bounds() const;
     int low = 24, high = 80, blend = 0, opacity = 100, feather = 10;
+    // Smart maximum: vertical smoothing range and local surface edge distance, in blocks.
+    int blendSmoothness = 16, blendEdge = 16;
     bool enabled = true;
     double apply(double base, int worldX, int worldZ) const;
     bool operator==(const TerrainInstance &other) const;

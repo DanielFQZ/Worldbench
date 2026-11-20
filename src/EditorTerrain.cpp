@@ -58,6 +58,8 @@ QVariantMap Editor::terrainDetails() const {
             {"blend", i.blend},
             {"opacity", i.opacity},
             {"feather", i.feather},
+            {"blendSmoothness", i.blendSmoothness},
+            {"blendEdge", i.blendEdge},
             {"enabled", i.enabled},
             {"canUp", index + 1 < int(m_world.heights.instances.size())},
             {"canDown", index > 0}};
@@ -206,6 +208,10 @@ void Editor::setTerrainOptions(const QVariantMap &values) {
                 i.opacity = n;
             else if (key == "feather")
                 i.feather = n;
+            else if (key == "blendSmoothness")
+                i.blendSmoothness = n;
+            else if (key == "blendEdge")
+                i.blendEdge = n;
             else if (key == "rotationX")
                 i.rotationX = n;
             else if (key == "rotationY")

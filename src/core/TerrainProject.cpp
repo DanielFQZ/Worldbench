@@ -46,6 +46,8 @@ QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances) {
                                    {"blend", i.blend},
                                    {"opacity", i.opacity},
                                    {"feather", i.feather},
+                                   {"blendSmoothness", i.blendSmoothness},
+                                   {"blendEdge", i.blendEdge},
                                    {"enabled", i.enabled}});
     return {{"images", images}, {"instances", entries}};
 }
@@ -91,7 +93,10 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
             !integer(a["mask"], -1, int(images.size()) - 1) || !integer(a["x"], -2000000, 2000000) ||
             !integer(a["z"], -2000000, 2000000) || !integer(a["width"], 1, 16384) ||
             !integer(a["depth"], 1, 16384) || !integer(a["low"], -63, 318) || !integer(a["high"], -63, 318) ||
-            !integer(a["blend"], 0, 3) || !integer(a["opacity"], 0, 100) || !integer(a["feather"], 0, 50) ||
+            !integer(a["blend"], 0, 4) || !integer(a["opacity"], 0, 100) || !integer(a["feather"], 0, 50) ||
+            ((a.contains("blendSmoothness") || a["blend"].toInt() == 4) &&
+             !integer(a["blendSmoothness"], 0, 128)) ||
+            ((a.contains("blendEdge") || a["blend"].toInt() == 4) && !integer(a["blendEdge"], 0, 1024)) ||
             !a["enabled"].isBool() || !a["id"].isString() || !a["name"].isString() ||
             !a["sourceName"].isString() || !a["maskName"].isString())
             return fail();
@@ -112,6 +117,8 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
         i.blend = a["blend"].toInt();
         i.opacity = a["opacity"].toInt();
         i.feather = a["feather"].toInt();
+        i.blendSmoothness = a["blendSmoothness"].toInt(16);
+        i.blendEdge = a["blendEdge"].toInt(16);
         i.enabled = a["enabled"].toBool();
         for (const auto &key : {"y", "rotationX", "rotationY", "rotationZ", "scaleX", "scaleY", "scaleZ"})
             if (a.contains(key) && !integer(a[key], -10000, 10000))

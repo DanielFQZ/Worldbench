@@ -380,6 +380,8 @@ QJsonObject Editor::worldInfo() const {
                                    {"blend", i.blend},
                                    {"opacity", i.opacity},
                                    {"feather", i.feather},
+                                   {"blendSmoothness", i.blendSmoothness},
+                                   {"blendEdge", i.blendEdge},
                                    {"enabled", i.enabled},
                                    {"source", i.sourceName},
                                    {"mask", i.maskName}});
@@ -592,6 +594,10 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
                     it->opacity = n;
                 else if (key == "feather")
                     it->feather = n;
+                else if (key == "blendSmoothness")
+                    it->blendSmoothness = n;
+                else if (key == "blendEdge")
+                    it->blendEdge = n;
                 else
                     throw std::runtime_error("未知地貌属性");
             }

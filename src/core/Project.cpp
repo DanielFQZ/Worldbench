@@ -12,7 +12,7 @@
 #include <cmath>
 namespace wb {
 bool saveProject(const QString &path, const World &w, QString &error) {
-    if (!validateTheme(w.theme, w.palette.size(), error))
+    if (!validateTheme(w.theme, w.palette.size(), error) || !validateTerrain(w.heights.instances, error))
         return false;
     QJsonArray heights, cells;
     if (w.heights.dense)
@@ -38,7 +38,7 @@ bool saveProject(const QString &path, const World &w, QString &error) {
             edits.append(QJsonArray{i, h});
         layers.append(QJsonObject{{"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"deltas", edits}});
     }
-    QJsonObject root{{"format", 6},
+    QJsonObject root{{"format", 7},
                      {"surfaceTheme", saveTheme(w.theme)},
                      {"sculptLayers", layers},
                      {"activeLayer", w.heights.activeLayer},
@@ -109,7 +109,7 @@ bool loadProject(const QString &path, World &world, QString &error) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 6))
+    if (!integer(o["format"], 1, 7))
         return fail("不支持的工程版本");
     const auto widthValue = o[format >= 3 ? "width" : "size"];
     const auto depthValue = format >= 3 ? o["depth"] : widthValue;
@@ -153,6 +153,10 @@ bool loadProject(const QString &path, World &world, QString &error) {
     }
     if (format >= 4 && !loadTerrain(o["terrainInstances"].toObject(), w.heights.instances, error))
         return false;
+    if (format < 7 && std::any_of(
+                          w.heights.instances.begin(), w.heights.instances.end(),
+                          [](const auto &i) { return i.blend == 4; }))
+        return fail("智能混合需要工程格式 v7");
     if (format == 3 || format == 4) {
         if (!o["heightChanges"].isArray())
             return fail("缺少高度差量");
