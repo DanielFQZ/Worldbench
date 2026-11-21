@@ -34,7 +34,7 @@ struct GpuChunk {
 class Renderer final : public QQuickRhiItemRenderer {
     QRhi *m_rhi = nullptr;
     std::unique_ptr<QRhiBuffer> m_uniform;
-    std::unique_ptr<QRhiShaderResourceBindings> m_bindings;
+    std::unique_ptr<QRhiShaderResourceBindings> m_bindings, m_skyBindings;
     std::unique_ptr<QRhiTexture> m_texture;
     std::unique_ptr<QRhiSampler> m_sampler;
     std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
@@ -58,6 +58,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_alpha.reset();
             m_sky.reset();
             m_bindings.reset();
+            m_skyBindings.reset();
             m_uniform.reset();
             m_texture.reset();
             m_sampler.reset();
@@ -83,6 +84,15 @@ class Renderer final : public QQuickRhiItemRenderer {
                                                            m_texture.get(), m_sampler.get())});
             if (!m_bindings->create())
                 qFatal("Unable to create shader bindings");
+            // The sky has no atlas sampler. D3D11 caches native resource slots
+            // on the SRB using the first pipeline that binds it. Sharing the
+            // voxel SRB here can leave its texture unbound after an atlas swap.
+            m_skyBindings.reset(rhi()->newShaderResourceBindings());
+            m_skyBindings->setBindings({QRhiShaderResourceBinding::uniformBuffer(
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                m_uniform.get())});
+            if (!m_skyBindings->create())
+                qFatal("Unable to create sky bindings");
         }
         auto pipeline = [&](bool alpha) {
             auto p = std::unique_ptr<QRhiGraphicsPipeline>(rhi()->newGraphicsPipeline());
@@ -124,7 +134,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_sky->setDepthTest(false);
         m_sky->setDepthWrite(false);
         m_sky->setSampleCount(renderTarget()->sampleCount());
-        m_sky->setShaderResourceBindings(m_bindings.get());
+        m_sky->setShaderResourceBindings(m_skyBindings.get());
         m_sky->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
         if (!m_sky->create())
             qFatal("Unable to create sky pipeline");
@@ -258,7 +268,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->setViewport({0, 0, float(sz.width()), float(sz.height())});
         if (m_environment.enabled) {
             cb->setGraphicsPipeline(m_sky.get());
-            cb->setShaderResources(m_bindings.get());
+            cb->setShaderResources(m_skyBindings.get());
             cb->draw(3);
         }
         auto draw = [&](QRhiBuffer *buffer, int count) {

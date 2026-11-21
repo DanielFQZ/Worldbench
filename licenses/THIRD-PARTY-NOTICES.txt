@@ -1,4 +1,4 @@
-Worldbench 0.10.0 - third-party component notices
+Worldbench 0.10.1 - third-party component notices
 Private development testing build. Final public project licensing is recorded in DEVELOPMENT.md.
 
 pypinyin 0.55.0: Copyright (c) 2016 mozillazg, hotoo.

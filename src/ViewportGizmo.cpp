@@ -87,11 +87,13 @@ QVariantMap Viewport::gizmoOverlay() const {
             center += QVector3D(selected->x - m_gizmoInitial.x, selected->y - m_gizmoInitial.y,
                                 selected->z - m_gizmoInitial.z);
     }
-    const double length =
-        m_gizmoDragging
-            ? m_gizmoWorldLength
-            : std::clamp(double((center - m_camera).length()) * 90 / std::max(1., height()) * 1.1547, 2.,
-                         150.);
+    // Perspective scale is determined by view depth, not radial distance. No
+    // world-size cap: the same handle must remain usable from a 16K overview.
+    // Freeze the scale during a gesture so displacement mapping stays stable.
+    const double depth = QVector3D::dotProduct(center - m_camera, forward());
+    const double length = m_gizmoDragging
+                              ? m_gizmoWorldLength
+                              : std::max(.001, depth) * 90.0 / std::max(1., height()) * 1.154700538;
     const auto origin = projectPoint(center);
     result["cx"] = origin.x();
     result["cy"] = origin.y();

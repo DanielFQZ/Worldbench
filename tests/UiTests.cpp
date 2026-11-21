@@ -334,7 +334,7 @@ int main(int argc, char **argv) {
         auto *envAngle = visualItem(win->contentItem(), "environment_azimuth");
         check(envPanel && envPanel->isVisible() && envAngle && envAngle->isVisible(),
               "selected sun shows contextual controls");
-        check(win->grabWindow().save("test-output/environment-0.10.0.png"),
+        check(win->grabWindow().save("test-output/environment-0.10.1.png"),
               "capture lighting controls and actual shader");
         editor.undo();
         check(editor.world().environment == envBefore && editor.scene() == envScene,
@@ -426,7 +426,7 @@ int main(int argc, char **argv) {
             houseImage.loadFromData(QByteArray::fromBase64(screenshot["data"].toString().toLatin1()), "PNG"),
             "decode real MCP screenshot");
         QDir().mkpath("test-output");
-        check(houseImage.save("test-output/mcp-house-0.10.0.png"), "capture MCP house");
+        check(houseImage.save("test-output/mcp-house-0.10.1.png"), "capture MCP house");
         const int caveY = editor.world().height(-20, -20);
         result = call("fill_box", {{"min", QJsonArray{-20, caveY - 4, -20}},
                                    {"max", QJsonArray{-20, caveY, -20}},
@@ -621,7 +621,7 @@ int main(int argc, char **argv) {
         editor.focusTerrain();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "instance preview rendered");
         QTest::qWait(150);
-        check(win->grabWindow().save("test-output/terrain-0.10.0.png"), "capture terrain instance controls");
+        check(win->grabWindow().save("test-output/terrain-0.10.1.png"), "capture terrain instance controls");
         auto *detailScroll = win->findChild<QQuickItem *>("sceneDetailsScroll");
         auto *detailFlickable = detailScroll->property("contentItem").value<QObject *>();
         auto *removeInstance = win->findChild<QQuickItem *>("removeTerrainButton");
@@ -632,7 +632,7 @@ int main(int argc, char **argv) {
         const auto removePoint = removeInstance->mapToItem(detailScroll, {0, removeInstance->height() / 2});
         check(removePoint.y() >= 0 && removePoint.y() < detailScroll->height(),
               "scrolling reveals terrain mask and removal controls");
-        check(win->grabWindow().save("test-output/terrain-actions-0.10.0.png"),
+        check(win->grabWindow().save("test-output/terrain-actions-0.10.1.png"),
               "capture lower terrain controls");
         auto *blendControl = win->findChild<QQuickItem *>("terrainBlend");
         auto *smoothControl = win->findChild<QQuickItem *>("terrainBlendSmoothness");
@@ -665,7 +665,7 @@ int main(int argc, char **argv) {
         check(editor.terrainDetails()["blendSmoothness"].toInt() == 32,
               "smart smoothing supports typed arithmetic");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "smart UI preview settles");
-        win->grabWindow().save("test-output/smart-controls-0.10.0.png");
+        win->grabWindow().save("test-output/smart-controls-0.10.1.png");
         editor.undo();
         editor.undo();
         check(editor.terrainDetails()["blend"].toInt() == 1 && !smoothControl->isVisible(),
@@ -774,13 +774,13 @@ int main(int argc, char **argv) {
                           !moved["readout"].toString().contains("Z") &&
                           !moved["readout"].toString().contains("Ctrl"),
                       "single-axis readout stays compact");
-                win->grabWindow().save("test-output/gizmo-active-0.10.0.png");
+                win->grabWindow().save("test-output/gizmo-active-0.10.1.png");
             }
             if (mode == 1) {
                 check(v->gizmoOverlay()["sector"].toList().size() > 3 &&
                           !v->gizmoOverlay()["ticks"].toList().isEmpty(),
                       "rotation gesture exposes sector protractor");
-                win->grabWindow().save("test-output/rotation-sector-0.10.0.png");
+                win->grabWindow().save("test-output/rotation-sector-0.10.1.png");
             }
             if (cancel)
                 QTest::keyClick(win, Qt::Key_Escape);
@@ -805,7 +805,7 @@ int main(int argc, char **argv) {
         dragAxis(1, 1, false);
         check(editor.world().heights.instances.back() != originalInstance, "ring drag rotates terrain");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000), "rotated terrain preview settles");
-        win->grabWindow().save("test-output/rotate-0.10.0.png");
+        win->grabWindow().save("test-output/rotate-0.10.1.png");
         editor.undo();
         check(editor.world().heights.instances.back() == originalInstance, "rotation drag undo");
         dragAxis(0, 0, true);
@@ -868,7 +868,7 @@ int main(int argc, char **argv) {
         check(pairScaled.scaleX != 80 && pairScaled.scaleZ != 160 && pairScaled.scaleY == 100 &&
                   std::abs(pairScaled.scaleZ - pairScaled.scaleX * 2) <= 1,
               "plane preserves unequal starting ratio and leaves third axis unchanged");
-        win->grabWindow().save("test-output/scale-plane-0.10.0.png");
+        win->grabWindow().save("test-output/scale-plane-0.10.1.png");
         QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, scaleStart + scaleDrag.toPoint());
         editor.undo();
         v->setSnapEnabled(true);
@@ -950,7 +950,7 @@ int main(int argc, char **argv) {
                   editor.world().height(0, 0) == 28 && editor.world().heights.activeLayer == sculptId,
               "GUI layer project reopens with relative state");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "layer preview ready");
-        win->grabWindow().save("test-output/layers-0.10.0.png");
+        win->grabWindow().save("test-output/layers-0.10.1.png");
         editor.setMcpEnabled(false);
         check(!editor.mcpEnabled(), "MCP disabled");
         bridge.closeWriteChannel();
@@ -1023,7 +1023,7 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "brush preview ready");
         QTest::mouseMove(win, point + QPoint(1, 0));
         QTest::qWait(120);
-        check(win->grabWindow().save("test-output/brush-decay-0.10.0.png"), "capture both decay rings");
+        check(win->grabWindow().save("test-output/brush-decay-0.10.1.png"), "capture both decay rings");
         editor.setSelection(-8, -8, 7, 7);
         v->forceActiveFocus();
         QTest::keyClick(win, Qt::Key_D, Qt::ControlModifier);
@@ -1099,13 +1099,13 @@ int main(int argc, char **argv) {
                       << " hit=" << v->hit().valid << " revision=" << editor.revision()
                       << " expected=" << selectionRevision << " windowActive=" << win->isActive()
                       << " dims=" << v->width() << "," << v->height() << "\n";
-            win->grabWindow().save("test-output/selection-failure-0.10.0.png");
+            win->grabWindow().save("test-output/selection-failure-0.10.1.png");
         }
         check(editor.selectionRect().width() > 1 && editor.selectionRect().height() > 1 &&
                   editor.world().heights == beforeSelection && editor.revision() == selectionRevision,
               "actual mouse drag selects rectangle without changing terrain");
         QTest::qWait(120);
-        check(win->grabWindow().save("test-output/selection-0.10.0.png"), "capture selection boundary");
+        check(win->grabWindow().save("test-output/selection-0.10.1.png"), "capture selection boundary");
         editor.clearSelection();
         editor.setTool(1);
         QTest::qWait(30);
@@ -1240,7 +1240,7 @@ int main(int argc, char **argv) {
         v->frameWorld();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000), "full map frame settles");
         QTest::qWait(150);
-        win->grabWindow().save("test-output/full-16k-0.10.0.png");
+        win->grabWindow().save("test-output/full-16k-0.10.1.png");
         auto projectFar = [&](int x, int z) {
             auto p =
                 v->viewProjection() * QVector4D(x + .5f, float(editor.world().height(x, z) + 1), z + .5f, 1);
@@ -1319,7 +1319,7 @@ int main(int argc, char **argv) {
         std::cout << "Large 16384x12289 creation " << creationMs << " ms / first local preview "
                   << firstLargePreview << " ms / " << editor.scene()->chunks.size() << " chunks\n";
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/large-0.10.0.png"), "capture large local preview");
+        check(win->grabWindow().save("test-output/large-0.10.1.png"), "capture large local preview");
         editor.createWorld(128, 42, 24, 0, -60, true);
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "theme fixture ready");
         auto *themeDialog = win->findChild<QObject *>("surfaceThemeDialog");
@@ -1350,7 +1350,7 @@ int main(int argc, char **argv) {
         check(editor.world().theme.enabled && editor.world().block(0, 24, 0) == wb::Planks,
               "UI theme applies chosen surface block");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "theme preview settles");
-        win->grabWindow().save("test-output/theme-controls-0.10.0.png");
+        win->grabWindow().save("test-output/theme-controls-0.10.1.png");
         check(QMetaObject::invokeMethod(themeDialog, "close"), "close theme editor");
         check(editor.save(QUrl::fromLocalFile(tmp.filePath("theme-ui.wbench"))), "save GUI theme");
         editor.undo();
@@ -1383,10 +1383,10 @@ int main(int argc, char **argv) {
         check(noisyPlanks > 100 && noisyStone > 100 && editor.world().height(0, 0) == 24,
               "UI noise visibly changes material distribution without changing geometry");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "noise preview settles");
-        win->grabWindow().save("test-output/theme-noise-0.10.0.png");
+        win->grabWindow().save("test-output/theme-noise-0.10.1.png");
         check(QMetaObject::invokeMethod(themeDialog, "close"), "close noise regression dialog");
         QTest::qWait(100);
-        win->grabWindow().save("test-output/theme-noise-surface-0.10.0.png");
+        win->grabWindow().save("test-output/theme-noise-surface-0.10.1.png");
         editor.createWorld(128, 42, 24, 0, -60, true);
         if (app.arguments().size() > 1) {
             check(editor.open(QUrl::fromLocalFile(app.arguments()[1])), "open real resource preview fixture");
@@ -1417,20 +1417,20 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "final layout mesh settles");
         QTest::qWait(120);
         QDir().mkpath("test-output");
-        check(win->grabWindow().save("test-output/ui-0.10.0.png"), "capture brush and scene layout");
+        check(win->grabWindow().save("test-output/ui-0.10.1.png"), "capture brush and scene layout");
         auto *settings = win->findChild<QObject *>("editorSettingsDialog");
         auto *settingsContent = win->findChild<QObject *>("settingsContent");
         check(settings && settingsContent, "settings pages loaded outside scene outliner");
         settingsContent->setProperty("page", "resources");
         check(QMetaObject::invokeMethod(settings, "open"), "resource settings opens");
         QTest::qWait(80);
-        check(win->grabWindow().save("test-output/resources-0.10.0.png"), "capture resource management");
+        check(win->grabWindow().save("test-output/resources-0.10.1.png"), "capture resource management");
         QMetaObject::invokeMethod(settings, "close");
         auto *fileMenu = win->findChild<QObject *>("fileMenu");
         check(fileMenu && QMetaObject::invokeMethod(fileMenu, "open"), "custom file menu opens");
         fileMenu->setProperty("currentIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/menu-hover-0.10.0.png"), "capture menu highlight contrast");
+        check(win->grabWindow().save("test-output/menu-hover-0.10.1.png"), "capture menu highlight contrast");
         QMetaObject::invokeMethod(fileMenu, "close");
         auto *newWorldDialog = win->findChild<QObject *>("newWorldDialog");
         check(newWorldDialog && QMetaObject::invokeMethod(newWorldDialog, "open"), "creation dialog opens");
@@ -1480,7 +1480,7 @@ int main(int argc, char **argv) {
         QTest::mouseRelease(numberWindow, Qt::LeftButton, Qt::NoModifier, scrubStart + QPoint(60, 0));
         check(widthControl->property("value").toInt() > 128,
               "numeric drag scrubs value while already focused");
-        check(win->grabWindow().save("test-output/new-world-0.10.0.png"), "capture creation settings");
+        check(win->grabWindow().save("test-output/new-world-0.10.1.png"), "capture creation settings");
         QMetaObject::invokeMethod(newWorldDialog, "close");
         editor.setTool(1);
         editor.setBrushOption("fillHoles", true);
@@ -1490,7 +1490,7 @@ int main(int argc, char **argv) {
         check(popup && QMetaObject::invokeMethod(popup, "open"), "flatten options dropdown opens");
         selector->setProperty("highlightedIndex", 1);
         QTest::qWait(100);
-        check(win->grabWindow().save("test-output/flatten-controls-0.10.0.png"), "capture flatten controls");
+        check(win->grabWindow().save("test-output/flatten-controls-0.10.1.png"), "capture flatten controls");
         QMetaObject::invokeMethod(popup, "close");
         std::cout << "PASS " << checks << " UI integration checks; mesh settle " << elapsed.elapsed()
                   << " ms\n";
