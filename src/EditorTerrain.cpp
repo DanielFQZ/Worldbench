@@ -13,6 +13,8 @@ int Editor::selectedTerrainIndex() const {
     return -1;
 }
 void Editor::setSelectedNode(const QString &id) {
+    if (regionBusy())
+        return;
     if (id == m_selectedNode)
         return;
     if (!id.startsWith("environment") && m_world.heights.layerIndex(id) < 0 &&

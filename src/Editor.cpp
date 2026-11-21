@@ -18,15 +18,29 @@
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
     initializeTerrainImporter();
+    m_regionTimer.setInterval(50);
+    connect(&m_regionTimer, &QTimer::timeout, this, &Editor::regionProgressChanged);
     connect(&m_regionWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_regionTimer.stop();
         m_regionLoading = false;
-        auto result = m_regionWatcher.result();
+        // Consume the result so the completed future cannot pin a large layer
+        // after its undo entry is evicted or another project is opened.
+        auto result = m_regionWatcher.future().takeResult();
+        emit regionProgressChanged();
+        if (result.cancelled || m_regionControl->cancelled.load()) {
+            m_status = "已取消区域高度调整 · 工程与撤销历史未改变";
+            emit changed();
+            return;
+        }
+        if (m_regionRevision != m_revision)
+            result.error = "计算期间工程状态已变化，区域结果已丢弃，请重新执行";
         if (!result.error.isEmpty()) {
+            m_status = result.error;
             emit failure(result.error);
             emit changed();
             return;
         }
-        const int count = int(result.command.heights.size());
+        const int count = result.changed;
         if (count) {
             m_world.apply(result.command, true);
             ++m_revision;
@@ -111,6 +125,8 @@ Editor::Editor(QObject *parent)
     dirtyAll();
 }
 Editor::~Editor() {
+    if (m_regionControl)
+        m_regionControl->cancelled = true;
     m_regionWatcher.waitForFinished();
     m_heightmapWatcher.waitForFinished();
     m_cancelExport = true;
@@ -125,37 +141,49 @@ bool Editor::acceptsProjectDrop(const QList<QUrl> &urls) const {
 bool Editor::adjustSelectedHeight(int offset) {
     if (commandBusy() || exportBusy())
         return false;
-    if (!m_selection.isValid() || qint64(m_selection.width()) * m_selection.height() > 262144 ||
-        offset < -381 || offset > 381 || offset == 0) {
-        emit failure("请选取不超过262144列的区域，并输入非零高度偏移（−381…381）");
+    QString error;
+    if (!wb::validateHeightRegion(m_world.heights, m_selection, offset, error)) {
+        emit failure(error);
         return false;
     }
-    if (!m_world.heights.layers[m_world.heights.layerIndex(m_world.heights.activeLayer)].enabled) {
-        emit failure("请先显示当前雕刻层");
-        return false;
-    }
-    auto snapshot = m_world;
+    auto snapshot = m_world.heights;
     const auto area = m_selection;
     m_regionLoading = true;
-    m_status = "正在后台计算选区高度…";
-    m_regionWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), area, offset]() mutable {
-        RegionResult result;
-        result.command.label = "选区高度偏移";
-        result.command.heightLayer = snapshot.heights.activeLayer;
-        for (int z = area.top(); z <= area.bottom(); ++z)
-            for (int x = area.left(); x <= area.right(); ++x) {
-                const int index = snapshot.column(x, z), before = snapshot.heights.delta(index);
-                const int raw = snapshot.height(x, z) + offset, target = std::clamp(raw, -63, 318);
-                result.clipped += raw != target;
-                snapshot.heights.set(index, target);
-                int after = snapshot.heights.delta(index);
-                if (after != before)
-                    result.command.heights.push_back({index, before, after});
-            }
-        return result;
+    m_regionRevision = m_revision;
+    m_regionControl = std::make_shared<RegionControl>();
+    m_status = "正在分块计算选区高度 · 可继续观察场景或取消";
+    m_regionTimer.start();
+    m_regionWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), area, offset,
+                                                control = m_regionControl]() {
+        return wb::prepareHeightRegion(snapshot, area, offset, [control](int done, int total) {
+            control->total = total;
+            control->done = done;
+            return !control->cancelled.load();
+        });
     }));
+    emit regionProgressChanged();
     emit changed();
     return true;
+}
+int Editor::regionProgress() const {
+    if (!m_regionControl)
+        return 0;
+    return int(std::min<int64_t>(m_regionLoading ? 99 : 100,
+              int64_t(m_regionControl->done.load()) * 100 / std::max(1, m_regionControl->total.load())));
+}
+QString Editor::regionStatus() const {
+    if (!m_regionControl)
+        return {};
+    if (m_regionControl->cancelled.load())
+        return "正在取消区域操作…";
+    return QString("分块计算 %1% · %2 / %3 项").arg(regionProgress())
+        .arg(m_regionControl->done.load()).arg(m_regionControl->total.load());
+}
+void Editor::cancelRegion() {
+    if (m_regionLoading && m_regionControl) {
+        m_regionControl->cancelled = true;
+        emit regionProgressChanged();
+    }
 }
 void Editor::setTool(int v) {
     endStroke();
@@ -199,6 +227,8 @@ void Editor::beginStroke() {
 void Editor::stamp(const wb::Hit &hit, bool reverse) {
     if (!hit.valid || m_tool < 0 || m_tool > 5 || assetBusy())
         return;
+    if (m_tool == 0 || m_tool == 1 || m_tool == 5)
+        setPreviewCenter(hit.x, hit.z);
     beginStroke();
     auto options = m_brushOptions;
     options.selectionEnabled = m_selectionOnly && m_selection.isValid();
@@ -233,7 +263,7 @@ void Editor::endStroke() {
 }
 void Editor::pushCommand(wb::Command c) {
     if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter ||
-        c.environmentAfter) {
+        c.environmentAfter || c.deltaAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -249,6 +279,9 @@ void Editor::pushCommand(wb::Command c) {
                         b += theme->bands.size() * 256;
                 b += e.command.cells.size() * sizeof(wb::CellChange) +
                      e.command.heights.size() * sizeof(wb::HeightChange);
+                for (const auto &map : {e.command.deltaBefore, e.command.deltaAfter})
+                    if (map && layerMaps.insert(map.get()).second)
+                        b += map->size() * 64;
                 for (const auto &list : {e.command.layersBefore, e.command.layersAfter})
                     if (list)
                         for (const auto &l : *list)
@@ -408,6 +441,21 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
+    if (command.deltaAfter) {
+        // Avoid scanning a million deltas on the UI thread at commit/undo.
+        // Only resident exact chunks and intersecting far tiles are invalidated.
+        const auto area = command.heightArea.adjusted(-1, -1, 1, 1);
+        m_farDirty = true;
+        m_farRegions.push_back(area);
+        for (int id : desiredChunks()) {
+            const QRect chunk(m_world.originX + id % m_world.chunksX() * 16,
+                              m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
+            if (chunk.intersects(area))
+                m_dirty.insert(id);
+        }
+        m_meshTimer.start();
+        return;
+    }
     if (command.environmentAfter)
         return;
     m_farDirty = true;

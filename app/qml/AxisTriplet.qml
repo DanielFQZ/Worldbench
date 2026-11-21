@@ -20,7 +20,7 @@ ColumnLayout {
     required property int index
     Layout.fillWidth:true;Layout.preferredWidth:1;spacing:2
     Label{text:["X","Y","Z"][index];color:["#ef6666","#76d789","#70a9ff"][index];font.pixelSize:11}
-    WorkbenchSpinBox {
+    WorkbenchSpinBox {returnFocusToViewport:true;
      objectName:row.keys[index]==="centerX"?"terrainX":"terrain_"+row.keys[index]
      compact:true;Layout.fillWidth:true;Layout.minimumWidth:60
      axisColor:["#ba5050","#4b9c60","#4b78b5"][index]

@@ -113,6 +113,13 @@ bool World::isAir(Block b) const {
 std::set<int> affectedChunks(const World &w, const Command &command) {
     std::set<int> chunks;
     const int n = w.chunksX();
+    if (command.deltaAfter && command.heightArea.isValid()) {
+        const auto area = command.heightArea.adjusted(-1, -1, 1, 1).intersected(
+            QRect(w.originX, w.originZ, w.width, w.depth));
+        for (int z = (area.top() - w.originZ) / 16; z <= (area.bottom() - w.originZ) / 16; ++z)
+            for (int x = (area.left() - w.originX) / 16; x <= (area.right() - w.originX) / 16; ++x)
+                chunks.insert(z * n + x);
+    }
     auto add = [&](int x, int z) {
         // Include adjacent columns for face visibility at chunk boundaries.
         for (int dz = -1; dz <= 1; ++dz)
@@ -305,6 +312,11 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
     return {};
 }
 void World::apply(const Command &cmd, bool forward) {
+    if (cmd.deltaBefore && cmd.deltaAfter) {
+        const int index = heights.layerIndex(cmd.heightLayer);
+        if (index >= 0)
+            heights.layers[index].deltas = forward ? cmd.deltaAfter : cmd.deltaBefore;
+    }
     if (cmd.environmentBefore && cmd.environmentAfter)
         environment = *(forward ? cmd.environmentAfter : cmd.environmentBefore);
     if (cmd.themeBefore && cmd.themeAfter)

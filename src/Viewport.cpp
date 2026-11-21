@@ -356,11 +356,14 @@ QString Viewport::cameraText() const {
         .arg(m_speed, 0, 'f', 0);
 }
 QString Viewport::hitText() const {
-    return m_hit.valid ? QString("%1 · (%2, %3, %4)")
+    return m_hit.valid ? QString("%1 · (%2, %3, %4)%5")
                              .arg(m_editor->world().palette[m_hit.block].label())
                              .arg(m_hit.x)
                              .arg(m_hit.y)
                              .arg(m_hit.z)
+                             .arg(!m_editor->previewContains(m_hit.x, m_hit.z) &&
+                                          (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5)
+                                      ? " · 远处精确落点 / 范围以实际格数为准" : "")
                        : "指向体素以雕刻";
 }
 QVector3D Viewport::forward() const {
@@ -407,10 +410,10 @@ void Viewport::pick(QPointF pos) {
                            float(world.originZ + world.depth / 2));
     const float distance =
         (m_camera - center).length() + std::hypot(float(world.width), float(world.depth)) + 1024.f;
-    // Selection/navigation query authoritative voxels over the entire map,
-    // independently of streamed geometry. Brushes still require the exact area.
+    // Surface tools and selection query authoritative voxels over the entire
+    // map. Volume/material tools still need visible exact model geometry.
     m_hit = world.raycast(m_camera, farPoint.toVector3DAffine() - m_camera, distance);
-    if (m_hit.valid && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
+    if (m_hit.valid && m_editor->tool() >= 2 && m_editor->tool() <= 4 &&
         !m_editor->previewContains(m_hit.x, m_hit.z))
         m_hit = {};
     update();
@@ -474,7 +477,7 @@ void Viewport::frameWorld() {
     changedCamera();
 }
 void Viewport::mouseDoubleClickEvent(QMouseEvent *e) {
-    if (m_editor && m_editor->tool() != 6 && e->button() == Qt::LeftButton &&
+    if (m_editor && m_editor->tool() == -1 && e->button() == Qt::LeftButton &&
         e->modifiers() == Qt::NoModifier && width() > 0 && height() > 0) {
         auto p = viewProjection().inverted() * QVector4D(float(e->position().x() / width() * 2 - 1),
                                                          float(1 - e->position().y() / height() * 2), 1, 1);
@@ -534,7 +537,7 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_selecting = true;
         m_selectionStart = {m_hit.x, m_hit.z};
         m_editor->setSelection(m_hit.x, m_hit.z, m_hit.x, m_hit.z);
-    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
+    } else if (e->button() == Qt::LeftButton && m_editor && m_hit.valid && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
                !m_editor->assetBusy()) {
         m_sculpting = true;
         m_editor->beginStroke();

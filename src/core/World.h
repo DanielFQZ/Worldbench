@@ -3,6 +3,7 @@
 #include "Environment.h"
 #include "Heightmap.h"
 #include <QString>
+#include <QRect>
 #include <QVector3D>
 #include <algorithm>
 #include <cstdint>
@@ -75,6 +76,10 @@ struct Command {
     std::vector<CellChange> cells;
     std::vector<HeightChange> heights;
     QString heightLayer;
+    // Large region edits publish a prepared immutable-by-sharing layer snapshot.
+    // Subsequent writes use HeightField's existing copy-on-write contract.
+    std::shared_ptr<std::map<int, int>> deltaBefore, deltaAfter;
+    QRect heightArea;
     std::shared_ptr<const std::vector<SculptLayer>> layersBefore, layersAfter;
     QString label;
     std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;

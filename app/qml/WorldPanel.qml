@@ -51,6 +51,7 @@ Pane {
      required property bool nodeVisible
      required property bool nodeActive
      id:node
+     enabled:!editor.regionBusy
      width:ListView.view.width;implicitHeight:34;text:(nodeActive?"✎  ":"▧  ")+nodeName;rightPadding:38;highlighted:editor.selectedNode===nodeId
      background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
      onClicked:editor.selectedNode=nodeId

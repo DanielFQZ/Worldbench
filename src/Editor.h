@@ -1,6 +1,7 @@
 #pragma once
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
+#include "core/RegionEdit.h"
 #include "core/World.h"
 #include <QFutureWatcher>
 #include <QJsonObject>
@@ -30,6 +31,10 @@ class Editor : public QObject {
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
     Q_PROPERTY(bool commandBusy READ commandBusy NOTIFY changed)
+    Q_PROPERTY(bool regionBusy READ regionBusy NOTIFY changed)
+    Q_PROPERTY(int regionProgress READ regionProgress NOTIFY regionProgressChanged)
+    Q_PROPERTY(QString regionStatus READ regionStatus NOTIFY regionProgressChanged)
+    Q_PROPERTY(int regionColumnLimit READ regionColumnLimit CONSTANT)
     Q_PROPERTY(int assetProgress READ assetProgress NOTIFY assetProgressChanged)
     Q_PROPERTY(QString assetStage READ assetStage NOTIFY assetProgressChanged)
     Q_PROPERTY(QString assetLog READ assetLog NOTIFY assetProgressChanged)
@@ -65,6 +70,11 @@ class Editor : public QObject {
     int material() const { return m_material; }
     void setMaterial(int v);
     bool assetBusy() const { return m_assetsLoading || m_heightmapLoading || m_regionLoading; }
+    bool regionBusy() const { return m_regionLoading; }
+    int regionProgress() const;
+    QString regionStatus() const;
+    int regionColumnLimit() const { return wb::MaxHeightRegionColumns; }
+    Q_INVOKABLE void cancelRegion();
     int assetProgress() const { return m_assetProgress; }
     QString assetStage() const { return m_assetStage; }
     QString assetLog() const { return m_assetLog.join('\n'); }
@@ -184,6 +194,7 @@ class Editor : public QObject {
     void resourceLoadStarted();
     void resourceLoadFinished(bool success);
     void resourceSetupRequested();
+    void regionProgressChanged();
 
   private:
     void dirtyAll();
@@ -237,12 +248,14 @@ class Editor : public QObject {
         bool mask = false;
     };
     QFutureWatcher<HeightmapResult> m_heightmapWatcher;
-    struct RegionResult {
-        wb::Command command;
-        QString error;
-        int clipped = 0;
+    struct RegionControl {
+        std::atomic_bool cancelled{false};
+        std::atomic_int done{0}, total{1};
     };
-    QFutureWatcher<RegionResult> m_regionWatcher;
+    QFutureWatcher<wb::HeightRegionResult> m_regionWatcher;
+    QTimer m_regionTimer;
+    std::shared_ptr<RegionControl> m_regionControl;
+    uint64_t m_regionRevision = 0;
     bool m_regionLoading = false;
     bool m_heightmapLoading = false;
     std::unique_ptr<McpServer> m_mcp;

@@ -200,6 +200,36 @@ int main(int argc, char **argv) {
         editor.clearSelection();
         check(!editor.selectionRect().isValid(), "clear full-map selection");
 
+        v->frameWorld();
+        editor.setTool(0);
+        editor.setRadius(16);
+        editor.setStrength(4);
+        settle();
+        QTest::mouseMove(&window, screen(5000.5f, 25, 3500.5f).toPoint(), 20);
+        const auto brushHit = v->hit();
+        check(brushHit.valid && !editor.previewContains(brushHit.x, brushHit.z),
+              "brush preview hits unloaded precise surface from full 16K view");
+        settle();
+        const auto brushImage = window.grabWindow();
+        check(brushImage.save("test-output/brush-full-16k.png"), "capture distant brush footprint");
+        const auto brushPixel = screen(brushHit.x + .5f, 25, brushHit.z + .5f) * brushImage.devicePixelRatio();
+        int cyan = 0;
+        for (int y = -5; y <= 5; ++y)
+            for (int x = -5; x <= 5; ++x) {
+                const auto p = brushPixel.toPoint() + QPoint(x, y);
+                if (!brushImage.rect().contains(p))
+                    continue;
+                const auto c = brushImage.pixelColor(p);
+                cyan += c.green() > 170 && c.blue() > 170 && c.red() < c.green() * .8;
+            }
+        check(cyan > 0, "screen-space brush outline remains visible on far LOD");
+        for (int tool : {0, 1, 5}) {
+            editor.setTool(tool);
+            QTest::mouseMove(&window, screen(5000.5f, 25, 3500.5f).toPoint(), 20);
+            check(v->hit().valid, "all surface tools can acquire remote authoritative hits");
+        }
+        editor.setTool(-1);
+
         // At a practical editing distance the new curve must have a strong,
         // monotonic effect, while 0% is visually the same as disabling atmosphere.
         v->applyCamera({{"position", QJsonArray{0, 175, 200}}, {"yaw", 0}, {"pitch", -35}});

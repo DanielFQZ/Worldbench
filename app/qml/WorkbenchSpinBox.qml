@@ -6,6 +6,7 @@ SpinBox {
  property bool compact:false
  property color axisColor:"transparent"
  property real dragStep:1
+ property bool returnFocusToViewport:false
  signal scrubStarted()
  signal scrubFinished(bool cancelled)
  property bool scrubbing:false
@@ -43,17 +44,25 @@ SpinBox {
    property int anchor:0
    property bool selectText:false
    property bool doubleTap:false
+   property bool dragged:false
    cursorShape:selectText?Qt.IBeamCursor:Qt.SizeHorCursor
-   onPressed:function(e){doubleTap=false;hadFocus=input.activeFocus;startX=e.x;cancelValue=control.value;startValue=control.valueFromText(input.text,control.locale);anchor=input.positionAt(e.x,e.y);selectText=!!(e.modifiers&Qt.ShiftModifier);}
+   onPressed:function(e){doubleTap=false;dragged=false;hadFocus=input.activeFocus;startX=e.x;cancelValue=control.value;startValue=control.valueFromText(input.text,control.locale);anchor=input.positionAt(e.x,e.y);selectText=!!(e.modifiers&Qt.ShiftModifier);}
    onPositionChanged:function(e){
     if(!pressed)return
-    if(!selectText&&Math.abs(e.x-startX)>4&&!control.scrubbing){control.scrubbing=true;control.scrubStarted();input.forceActiveFocus()}
+    if(!selectText&&Math.abs(e.x-startX)>4&&!control.scrubbing){dragged=true;control.scrubbing=true;control.scrubStarted();input.forceActiveFocus()}
     if(control.scrubbing){control.commitDrag(startValue+(e.x-startX)/3*control.dragStep)}
     else if(selectText&&Math.abs(e.x-startX)>3)input.select(anchor,input.positionAt(e.x,e.y))
    }
-   function finish(cancel){if(control.scrubbing){if(cancel)control.commitDrag(cancelValue);control.scrubbing=false;control.scrubFinished(cancel)}}
+   function finish(cancel){
+    if(!control.scrubbing)return
+    if(cancel)control.commitDrag(cancelValue)
+    control.scrubbing=false;control.scrubFinished(cancel)
+    input.deselect();input.focus=false;control.focus=false
+    if(control.returnFocusToViewport&&editor.cameraController)editor.cameraController.forceActiveFocus()
+   }
    onReleased:function(e){
     if(control.scrubbing){finish(false);return}
+    if(dragged)return // Escape may already have finished and returned focus.
     if(selectText&&Math.abs(e.x-startX)>3)return
     if(doubleTap){input.selectAll();return}
     input.forceActiveFocus()

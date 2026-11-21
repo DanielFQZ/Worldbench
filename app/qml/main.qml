@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.11.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.12.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -34,7 +34,7 @@ ApplicationWindow {
     property bool allowClose: false
     property bool autoCloseResources:false
     function requestAction(action) {
-        if (editor.exportBusy || editor.assetBusy) { errorBox.text = "请等待导出完成，或先取消导出。"; errorBox.open(); return }
+        if (editor.exportBusy || editor.assetBusy) { errorBox.text = editor.regionBusy ? "请等待区域操作完成，或点击底栏的取消区域操作。" : "请等待当前资源处理或导出完成，导出可从底栏取消。"; errorBox.open(); return }
         pendingAction = action
         if (editor.modified) unsaved.open(); else finishAction()
     }
@@ -117,8 +117,8 @@ ApplicationWindow {
         }
         WorkbenchMenu {
             title: "帮助"
-            Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，双击远处地表进入编辑\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.11.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.12.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     SurfaceThemeDialog{id:surfaceThemeDialog}
@@ -210,7 +210,9 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 14; spacing: 12
             Rectangle { width: 6; height: 6; radius: 3; color: editor.meshBusy ? "#e4b763" : "#5ac9b2" }
-            Label { text: editor.status; color: "#a8b5c5"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+            Label { text: editor.regionBusy ? editor.regionStatus : editor.status; color: "#a8b5c5"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+            ProgressBar {objectName:"regionProgressBar";visible:editor.regionBusy;from:0;to:100;value:editor.regionProgress;Layout.preferredWidth:140}
+            Button {objectName:"cancelRegionButton";text:"取消区域操作";visible:editor.regionBusy;implicitHeight:28;onClicked:editor.cancelRegion()}
             Label { text: editor.exportBusy ? "烘焙 " + editor.exportProgress + "%" : editor.meshBusy ? "网格更新中" : "D3D11 · 体素"; color: "#73c7d7"; font.pixelSize: 11 }
             Button { text: "取消导出"; visible: editor.exportBusy; implicitHeight: 28; onClicked: editor.cancelExport() }
         }

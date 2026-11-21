@@ -34,8 +34,9 @@ void main(){
     if(u.params.x>0.5){
         vec3 delta=abs(worldPos-u.brush.xyz);
         float d=u.params.y<1.5?(u.params.z>0.5?max(delta.x,delta.z):length(delta.xz)):(u.params.z>0.5?max(delta.x,max(delta.y,delta.z)):length(delta));
-        float band=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w*u.params.w));
-        float outer=1.0-smoothstep(0.06,0.20,abs(d-u.brush.w));
+        float pixel=max(fwidth(d),.08);
+        float band=1.0-smoothstep(.6*pixel,1.5*pixel,abs(d-u.brush.w*u.params.w));
+        float outer=1.0-smoothstep(.6*pixel,1.5*pixel,abs(d-u.brush.w));
         col=mix(col,vec3(0.62,0.87,0.91),outer*0.45);
         col=mix(col,vec3(0.30,0.88,0.98),band*0.95);
         if(d<u.brush.w)col=mix(col,vec3(0.25,0.75,0.85),0.10);
