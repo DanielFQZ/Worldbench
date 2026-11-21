@@ -120,9 +120,8 @@ int main(int argc, char **argv) {
         }
         for (int i = 0; i < 32; ++i) {
             const double y = std::max(150, editor.world().height(348 + i * 19, 3392 - i * 25) + 126);
-            v->applyCamera({{"position", QJsonArray{348.5 + i * 19, y, 3392.3 - i * 25}},
-                            {"yaw", 0},
-                            {"pitch", -65}});
+            v->applyCamera(
+                {{"position", QJsonArray{348.5 + i * 19, y, 3392.3 - i * 25}}, {"yaw", 0}, {"pitch", -65}});
             QTest::qWait(15);
         }
         groundVisible("render-streamed");
@@ -140,7 +139,110 @@ int main(int argc, char **argv) {
         editor.importResource(QUrl::fromLocalFile(resource), false);
         groundVisible("render-reload-atlas");
 
+        check(editor.createWorld(16384, 42, 24, 0, -60, true, 12289), "selection rectangular 16K fixture");
+        editor.setTool(6);
+        v->frameWorld();
+        settle();
+        auto screen = [&](float x, float y, float z) {
+            const auto p = v->viewProjection() * QVector4D(x, y, z, 1);
+            return QPointF((p.x() / p.w() * .5 + .5) * v->width(), (.5 - p.y() / p.w() * .5) * v->height());
+        };
+        const auto revision = editor.revision();
+        // Both endpoints are outside the 9x9 exact patch, with the camera well
+        // beyond the former 2500-block pick distance.
+        const QPoint first = screen(-3200.5f, 25, -2200.5f).toPoint();
+        const QPoint last = screen(5000.5f, 25, 3500.5f).toPoint();
+        v->forceActiveFocus();
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, first);
+        const auto firstHit = v->hit();
+        QTest::mouseMove(&window, last, 60);
+        const auto lastHit = v->hit();
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, last);
+        check(firstHit.valid && lastHit.valid && !editor.previewContains(firstHit.x, firstHit.z) &&
+                  !editor.previewContains(lastHit.x, lastHit.z),
+              "full-map drag hits precise terrain outside resident chunks");
+        const auto selected = editor.selectionRect();
+        check(selected == QRect(QPoint(firstHit.x, firstHit.z), QPoint(lastHit.x, lastHit.z)).normalized() &&
+                  selected.width() > 8000 && selected.height() > 5500 && editor.revision() == revision,
+              "whole-domain selection matches authoritative endpoints without editing world");
+        settle();
+        const auto selectedImage = window.grabWindow();
+        check(selectedImage.save("test-output/selection-full-16k.png"), "capture full-map selection");
+        int visibleEdges = 0;
+        for (int i = 1; i < 20; ++i) {
+            const float f = float(i) / 20;
+            for (const QPointF p :
+                 {screen(float(selected.left()), 25, selected.top() + selected.height() * f),
+                  screen(float(selected.right() + 1), 25, selected.top() + selected.height() * f),
+                  screen(selected.left() + selected.width() * f, 25, float(selected.top())),
+                  screen(selected.left() + selected.width() * f, 25, float(selected.bottom() + 1))}) {
+                bool orange = false;
+                const auto pixel = p * selectedImage.devicePixelRatio();
+                for (int dy = -3; dy <= 3; ++dy)
+                    for (int dx = -3; dx <= 3; ++dx) {
+                        const int x = qRound(pixel.x()) + dx, y = qRound(pixel.y()) + dy;
+                        if (!selectedImage.rect().contains(x, y))
+                            continue;
+                        const auto color = selectedImage.pixelColor(x, y);
+                        orange |= color.red() > 170 && color.red() > color.green() * 1.15 &&
+                                  color.blue() < color.red() * .65;
+                    }
+                visibleEdges += orange;
+            }
+        }
+        std::cout << "Full-map orange boundary samples " << visibleEdges << "/76" << std::endl;
+        check(visibleEdges >= 68, "far LOD selection boundary is actually visible on all four edges");
+        const auto areaBeforeMove = editor.selectionRect();
+        v->jumpTo(selected.center().x(), selected.center().y());
+        settle();
+        check(editor.selectionRect() == areaBeforeMove, "streaming into selection preserves exact bounds");
+        check(window.grabWindow().save("test-output/selection-near.png"), "capture selected near terrain");
+        editor.clearSelection();
+        check(!editor.selectionRect().isValid(), "clear full-map selection");
+
+        // At a practical editing distance the new curve must have a strong,
+        // monotonic effect, while 0% is visually the same as disabling atmosphere.
+        v->applyCamera({{"position", QJsonArray{0, 175, 200}}, {"yaw", 0}, {"pitch", -35}});
+        editor.setEnvironment({{"enabled", true}, {"atmosphere", false}, {"haze", 0}});
+        settle();
+        const auto noAtmosphere = window.grabWindow();
+        editor.setEnvironment({{"atmosphere", true}});
+        settle();
+        const auto zeroHaze = window.grabWindow();
+        const auto sceneBeforeHaze = editor.scene();
+        auto difference = [](const QImage &a, const QImage &b) {
+            double sum = 0;
+            int count = 0;
+            for (int y = a.height() * 4 / 10; y < a.height() * 7 / 10; y += 8)
+                for (int x = a.width() * 4 / 10; x < a.width() * 6 / 10; x += 8) {
+                    const auto ca = a.pixelColor(x, y), cb = b.pixelColor(x, y);
+                    sum += std::abs(ca.red() - cb.red()) + std::abs(ca.green() - cb.green()) +
+                           std::abs(ca.blue() - cb.blue());
+                    count += 3;
+                }
+            return sum / count;
+        };
+        check(difference(noAtmosphere, zeroHaze) < .1, "zero haze has no residual ground fog");
+        editor.setEnvironment({{"haze", 50}});
+        settle();
+        const auto middleHaze = window.grabWindow();
+        editor.setEnvironment({{"haze", 100}});
+        settle();
+        const auto highHaze = window.grabWindow();
+        const double middleDifference = difference(middleHaze, zeroHaze),
+                     highDifference = difference(highHaze, zeroHaze);
+        std::cout << "Atmosphere pixel difference 50/100% " << middleDifference << "/" << highDifference
+                  << std::endl;
+        check(middleDifference > 1 && highDifference > 20 && highDifference > middleDifference * 3,
+              "concentration produces visible monotonic near-distance response");
+        check(editor.scene() == sceneBeforeHaze, "atmosphere edits do not rebuild geometry");
+        check(zeroHaze.save("test-output/atmosphere-0.png") &&
+                  middleHaze.save("test-output/atmosphere-50.png") &&
+                  highHaze.save("test-output/atmosphere-100.png"),
+              "capture atmosphere comparison");
+
         // A stable instance anchor at the map center, with rotated local scale axes.
+        editor.setTool(-1);
         auto w = wb::World::create({16384, 42, -60, 24, 0, true});
         wb::TerrainInstance instance;
         instance.id = "gizmo-test";

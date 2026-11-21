@@ -34,7 +34,7 @@ $env:PATH = "$QtRoot\bin;$env:PATH"
 & (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
 if ($LASTEXITCODE) { throw 'Core tests failed.' }
 if ($Package) {
-    $dist = Join-Path $root 'dist\Worldbench-0.10.1'
+    $dist = Join-Path $root 'dist\Worldbench-0.11.0'
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     Copy-Item -LiteralPath "$build\Worldbench.exe" -Destination $dist -Force
     Copy-Item -LiteralPath "$build\WorldbenchMcp.exe" -Destination $dist -Force

@@ -20,7 +20,11 @@ void main(){
         vec3 direct=u.sunColor.rgb*max(0.0,dot(faceNormal,u.sunDirection.xyz))*u.sunDirection.w;
         col=sampled.rgb*(ambient+direct)*u.groundColor.w;
         if(u.envFlags.z>0.5){
-            float fog=1.0-exp(-distance(worldPos,u.camera.xyz)*u.horizonColor.w/16000.0);
+            // Keep low settings useful over large maps; high settings also work
+            // at editing distance (100% has a 250-block e-folding distance).
+            float haze=u.horizonColor.w;
+            float density=(haze+63.0*pow(haze,4.0))/16000.0;
+            float fog=1.0-exp(-distance(worldPos,u.camera.xyz)*density);
             vec3 ray=normalize(worldPos-u.camera.xyz);
             float glow=pow(max(0.0,dot(ray,u.sunDirection.xyz)),16.0)*u.sunDirection.w*.22;
             col=mix(col,(u.horizonColor.rgb+u.sunColor.rgb*glow)*u.groundColor.w,fog);
@@ -36,9 +40,15 @@ void main(){
         col=mix(col,vec3(0.30,0.88,0.98),band*0.95);
         if(d<u.brush.w)col=mix(col,vec3(0.25,0.75,0.85),0.10);
     }
-    if(u.flags.x>0.5 && worldPos.x>=u.selection.x-.1 && worldPos.x<=u.selection.z+.1 && worldPos.z>=u.selection.y-.1 && worldPos.z<=u.selection.w+.1){
-        float edge=min(min(abs(worldPos.x-u.selection.x),abs(worldPos.x-u.selection.z)),min(abs(worldPos.z-u.selection.y),abs(worldPos.z-u.selection.w)));
-        col=mix(col,vec3(1.0,0.68,0.2),(1.0-smoothstep(.05,.2,edge))*.85);
+    if(u.flags.x>0.5){
+        // Derivatives keep the boundary readable in pixels across exact meshes
+        // and far tiles. Apply after atmosphere so fog cannot hide the selection.
+        vec2 pixelSize=max(fwidth(worldPos.xz),vec2(.0001));
+        vec2 inset=min(worldPos.xz-u.selection.xy,u.selection.zw-worldPos.xz)/pixelSize;
+        float edge=min(inset.x,inset.y);
+        float coverage=smoothstep(-.75,.75,edge);
+        float outline=1.0-smoothstep(1.0,2.5,edge);
+        col=mix(col,vec3(1.0,0.68,0.2),coverage*(.12+.78*outline));
     }
     fragColor=vec4(col,sampled.a);
 }

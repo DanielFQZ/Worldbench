@@ -226,16 +226,23 @@ static bool boxIntersect(QVector3D o, QVector3D d, QVector3D lo, QVector3D hi, f
     return true;
 }
 Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
-    if (d.lengthSquared() < 1e-12f || !std::isfinite(d.lengthSquared()) || !std::isfinite(o.lengthSquared()))
+    if (d.lengthSquared() < 1e-12f || !std::isfinite(d.lengthSquared()) ||
+        !std::isfinite(o.lengthSquared()) || !std::isfinite(maxDistance) || maxDistance < 0)
         return {};
     d.normalize();
+    const QVector3D modelRayOrigin = o;
+    const float modelMaxDistance = maxDistance;
     float start = 0;
     QVector3D norm;
     if (!boxIntersect(o, d, {float(originX), float(MinY), float(originZ)},
                       {float(originX + width), float(MaxY), float(originZ + depth)}, start, norm) ||
         start > maxDistance)
         return {};
-    QVector3D p = o + d * (start + .002f);
+    // Rebase at the world AABB so an overview camera tens of thousands of
+    // blocks away does not accumulate that distance in every voxel DDA step.
+    o += d * start;
+    maxDistance -= start;
+    QVector3D p = o + d * .002f;
     int c[3] = {int(std::floor(p.x())), int(std::floor(p.y())), int(std::floor(p.z()))};
     c[0] = std::clamp(c[0], originX, originX + width - 1);
     c[1] = std::clamp(c[1], MinY, MaxY - 1);
@@ -247,9 +254,17 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
         delta[a] = std::abs(d[a]) < 1e-8 ? 1e30f : std::abs(1 / d[a]);
         next[a] = std::abs(d[a]) < 1e-8 ? 1e30f : ((c[a] + (step[a] > 0 ? 1 : 0)) - o[a]) / d[a];
     }
+    int lastX = originX - 1, lastZ = originZ - 1, columnHeight = MinY;
     for (int i = 0; i < width + depth + (MaxY - MinY) + 3 && contains(c[0], c[1], c[2]); ++i) {
-        const Block b = block(c[0], c[1], c[2]);
-        float closest = maxDistance + 1;
+        // Instance blending and sculpt layers are evaluated once per crossed
+        // column, not once per Y cell. Explicit air and model faces remain exact.
+        if (c[0] != lastX || c[2] != lastZ) {
+            lastX = c[0];
+            lastZ = c[2];
+            columnHeight = height(c[0], c[2]);
+        }
+        const Block b = blockAtHeight(c[0], c[1], c[2], columnHeight);
+        float closest = modelMaxDistance + 1;
         QVector3D normal;
         if (b != Air && b < models.size())
             for (const auto &face : models[b]->faces) {
@@ -262,7 +277,9 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
                     if (std::abs(det) < 1e-8f)
                         continue;
                     float inv = 1 / det;
-                    auto s = o - a;
+                    // JSON elements may protrude beyond the world AABB. Keep
+                    // the original model ray even though DDA uses a local origin.
+                    auto s = modelRayOrigin - a;
                     float u = inv * QVector3D::dotProduct(s, h);
                     if (u < 0 || u > 1)
                         continue;
@@ -277,8 +294,8 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
                     }
                 }
             }
-        if (closest <= maxDistance)
-            return {true, c[0], c[1], c[2], o + d * closest, normal, b};
+        if (closest <= modelMaxDistance)
+            return {true, c[0], c[1], c[2], modelRayOrigin + d * closest, normal, b};
         int a = next[0] < next[1] ? (next[0] < next[2] ? 0 : 2) : (next[1] < next[2] ? 1 : 2);
         if (next[a] > maxDistance)
             break;

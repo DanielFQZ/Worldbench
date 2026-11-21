@@ -283,6 +283,29 @@ int main(int argc, char **argv) {
         check(h.block == Slab && std::abs(h.position.y() - 15.5f) < .001, "half slab hit geometry");
         h = w.raycast({-2, 15.75f, .5f}, {1, 0, 0});
         check(!h.valid, "ray through empty slab upper half");
+        for (float distance : {1000.f, 35000.f, 90000.f}) {
+            h = w.raycast({.5f, distance, .5f}, {0, -1, 0}, distance + 100);
+            check(h.valid && h.block == Slab && std::abs(h.position.y() - 15.5f) < .002,
+                  "overview ray preserves partial model geometry");
+            check(!w.raycast({.5f, distance, .5f}, {0, -1, 0}, distance - 16).valid,
+                  "overview ray respects maximum distance");
+        }
+        check(!w.raycast({0, 30, 0}, {0, -1, 0}, -1).valid, "negative ray range rejected");
+        w.setBlock(1, 8, 1, Air);
+        h = w.raycast({1.5f, 35000, 1.5f}, {0, -1, 0}, 40000);
+        check(h.valid && h.y == 7, "far authoritative ray honors carved top air");
+        {
+            auto protruding = w;
+            auto model = std::make_shared<BlockModel>(*w.models[Planks]);
+            for (auto &face : model->faces)
+                for (auto &point : face.points)
+                    point.setY(point.y() + .5f);
+            protruding.models[Planks] = model;
+            protruding.setBlock(0, 319, 0, Planks);
+            const auto hit = protruding.raycast({.5f, 35000, .5f}, {0, -1, 0}, 40000);
+            check(hit.valid && std::abs(hit.position.y() - 320.5f) < .001,
+                  "rebased DDA preserves JSON model faces outside world height AABB");
+        }
         auto before = w;
         h = w.raycast({5.5f, 40, 5.5f}, {0, -1, 0});
         Stroke raise(w);

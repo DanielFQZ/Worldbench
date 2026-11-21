@@ -402,8 +402,16 @@ void Viewport::pick(QPointF pos) {
     const auto inv = viewProjection().inverted();
     QVector4D farPoint =
         inv * QVector4D(float(pos.x() / width() * 2 - 1), float(1 - pos.y() / height() * 2), 1, 1);
-    m_hit = m_editor->world().raycast(m_camera, farPoint.toVector3DAffine() - m_camera, 2500);
-    if (m_hit.valid && !m_editor->previewContains(m_hit.x, m_hit.z))
+    const auto &world = m_editor->world();
+    const QVector3D center(float(world.originX + world.width / 2), 128,
+                           float(world.originZ + world.depth / 2));
+    const float distance =
+        (m_camera - center).length() + std::hypot(float(world.width), float(world.depth)) + 1024.f;
+    // Selection/navigation query authoritative voxels over the entire map,
+    // independently of streamed geometry. Brushes still require the exact area.
+    m_hit = world.raycast(m_camera, farPoint.toVector3DAffine() - m_camera, distance);
+    if (m_hit.valid && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
+        !m_editor->previewContains(m_hit.x, m_hit.z))
         m_hit = {};
     update();
     emit cameraChanged();
@@ -417,10 +425,7 @@ void Viewport::changedCamera() {
                 forward() * ((m_editor->world().heights.baseHeight - m_camera.y()) / forward().y());
         m_editor->setPreviewCenter(int(p.x()), int(p.z()));
     }
-    if (m_camera.y() > wb::World::MaxY + 1500)
-        m_hit = {};
-    else
-        pick(m_pointer);
+    pick(m_pointer);
     emit cameraChanged();
     update();
 }
@@ -469,8 +474,8 @@ void Viewport::frameWorld() {
     changedCamera();
 }
 void Viewport::mouseDoubleClickEvent(QMouseEvent *e) {
-    if (m_editor && e->button() == Qt::LeftButton && e->modifiers() == Qt::NoModifier && width() > 0 &&
-        height() > 0) {
+    if (m_editor && m_editor->tool() != 6 && e->button() == Qt::LeftButton &&
+        e->modifiers() == Qt::NoModifier && width() > 0 && height() > 0) {
         auto p = viewProjection().inverted() * QVector4D(float(e->position().x() / width() * 2 - 1),
                                                          float(1 - e->position().y() / height() * 2), 1, 1);
         const auto hit = m_editor->world().raycast(m_camera, p.toVector3DAffine() - m_camera, 100000);
@@ -515,7 +520,7 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
             // Freeze a pivot on the view axis for this gesture. Picking at the cursor
             // forces the camera to realign on the first orbit delta and causes a snap.
             const auto direction = forward();
-            const auto centerHit = m_editor->world().raycast(m_camera, direction);
+            const auto centerHit = m_editor->world().raycast(m_camera, direction, 100000);
             float depth = centerHit.valid ? QVector3D::dotProduct(centerHit.position - m_camera, direction)
                                           : QVector3D::dotProduct(m_pivot - m_camera, direction);
             if (depth <= .01f)

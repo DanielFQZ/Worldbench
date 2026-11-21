@@ -39,20 +39,22 @@ SpinBox {
    property bool hadFocus:false
    property real startX:0
    property int startValue:0
+   property int cancelValue:0
    property int anchor:0
-   property bool dragZone:false
+   property bool selectText:false
    property bool doubleTap:false
-   cursorShape:control.scrubbing||mouseX<14?Qt.SizeHorCursor:Qt.IBeamCursor
-   onPressed:function(e){doubleTap=false;hadFocus=input.activeFocus;startX=e.x;startValue=control.value;anchor=input.positionAt(e.x,e.y);dragZone=e.x<14;}
+   cursorShape:selectText?Qt.IBeamCursor:Qt.SizeHorCursor
+   onPressed:function(e){doubleTap=false;hadFocus=input.activeFocus;startX=e.x;cancelValue=control.value;startValue=control.valueFromText(input.text,control.locale);anchor=input.positionAt(e.x,e.y);selectText=!!(e.modifiers&Qt.ShiftModifier);}
    onPositionChanged:function(e){
     if(!pressed)return
-    if((!hadFocus||dragZone)&&Math.abs(e.x-startX)>4&&!control.scrubbing){control.scrubbing=true;control.scrubStarted();input.forceActiveFocus()}
+    if(!selectText&&Math.abs(e.x-startX)>4&&!control.scrubbing){control.scrubbing=true;control.scrubStarted();input.forceActiveFocus()}
     if(control.scrubbing){control.commitDrag(startValue+(e.x-startX)/3*control.dragStep)}
-    else if(hadFocus&&Math.abs(e.x-startX)>3)input.select(anchor,input.positionAt(e.x,e.y))
+    else if(selectText&&Math.abs(e.x-startX)>3)input.select(anchor,input.positionAt(e.x,e.y))
    }
-   function finish(cancel){if(control.scrubbing){if(cancel)control.commitDrag(startValue);control.scrubbing=false;control.scrubFinished(cancel)}}
+   function finish(cancel){if(control.scrubbing){if(cancel)control.commitDrag(cancelValue);control.scrubbing=false;control.scrubFinished(cancel)}}
    onReleased:function(e){
     if(control.scrubbing){finish(false);return}
+    if(selectText&&Math.abs(e.x-startX)>3)return
     if(doubleTap){input.selectAll();return}
     input.forceActiveFocus()
     if(!hadFocus)Qt.callLater(function(){input.selectAll()})

@@ -45,6 +45,7 @@ ColumnLayout {
   Label{text:"曝光 · 0.1 EV";Layout.fillWidth:true}
   WorkbenchSpinBox{objectName:"environment_exposure";Layout.preferredWidth:130;from:-30;to:30;value:panel.env.exposure;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("exposure",value)}
  }
+ Label{text:"大气浓度采用渐进曲线：低值适合全图观察，高值在近景也明显。0% 无雾，50% 约3606格衰减至37%，100% 约250格。需开启光照预览与大气。";visible:panel.selected==="environment"||panel.selected==="environment-atmosphere";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  Label{text:"本版为半球天光、直接太阳光和简化大气。投影阴影、体积云和体积雾将在后续版本加入。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  ColorDialog{id:colorPicker;property string targetKey;title:"选择环境颜色";options:ColorDialog.DontUseNativeDialog;onAccepted:panel.change(targetKey,selectedColor.toString())}
 }

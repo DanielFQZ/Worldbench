@@ -20,28 +20,53 @@ Pane {
     Button{text:"+ 地形层";onClicked:editor.addSculptLayer();enabled:!editor.assetBusy}
    }
    ListView {
+    id:sceneList;objectName:"sceneNodeList"
     Layout.fillWidth:true;Layout.fillHeight:true;clip:true
     ScrollBar.vertical:ScrollBar{}
-    model:editor.sceneNodes
+    // Mutate stable rows by ID instead of replacing a QVariantList on every
+    // editor notification (including mesh completion), which resets scrolling.
+    model:ListModel{id:sceneModel}
+    property var sourceNodes:editor.sceneNodes
+    onSourceNodesChanged:syncNodes()
+    Component.onCompleted:syncNodes()
+    function syncNodes(){
+     const nodes=sourceNodes||[]
+     for(let i=0;i<nodes.length;++i){
+      const n=nodes[i]
+      let found=-1
+      for(let j=i;j<sceneModel.count;++j)if(sceneModel.get(j).nodeId===n.id){found=j;break}
+      const row={nodeId:String(n.id),nodeName:String(n.name),nodeKind:String(n.kind),nodeVisible:!!n.visible,nodeActive:!!n.active}
+      if(found<0)sceneModel.insert(i,row)
+      else{
+       if(found!==i)sceneModel.move(found,i,1)
+       for(const key in row)if(sceneModel.get(i)[key]!==row[key])sceneModel.setProperty(i,key,row[key])
+      }
+     }
+     if(sceneModel.count>nodes.length)sceneModel.remove(nodes.length,sceneModel.count-nodes.length)
+    }
     delegate:ItemDelegate{
-     required property var modelData
+     required property string nodeId
+     required property string nodeName
+     required property string nodeKind
+     required property bool nodeVisible
+     required property bool nodeActive
      id:node
-     width:ListView.view.width;implicitHeight:34;text:(modelData.active?"✎  ":"▧  ")+modelData.name;rightPadding:38;highlighted:editor.selectedNode===modelData.id
+     width:ListView.view.width;implicitHeight:34;text:(nodeActive?"✎  ":"▧  ")+nodeName;rightPadding:38;highlighted:editor.selectedNode===nodeId
      background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
-     onClicked:editor.selectedNode=modelData.id
+     onClicked:editor.selectedNode=nodeId
      Button {
       id:eyeButton
-      objectName:"eye_"+node.modelData.id
+      objectName:"eye_"+node.nodeId
       anchors.right:parent.right;anchors.verticalCenter:parent.verticalCenter;width:32;height:30
       flat:true;enabled:!editor.assetBusy
-      property bool shown:node.modelData.visible
+      property bool shown:node.nodeVisible
       onShownChanged:eyeDrawing.requestPaint()
       contentItem:Canvas {
        id:eyeDrawing
        onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=eyeButton.shown?"#b5d8e8":"#6e7c8e";c.lineWidth=1.5;var x=width/2,y=height/2;c.beginPath();c.moveTo(x-9,y);c.quadraticCurveTo(x,y-10,x+9,y);c.quadraticCurveTo(x,y+10,x-9,y);c.stroke();c.beginPath();c.arc(x,y,3,0,Math.PI*2);c.stroke();if(!eyeButton.shown){c.beginPath();c.moveTo(x-10,y+9);c.lineTo(x+10,y-9);c.stroke()}}
       }
-      ToolTip.visible:hovered;ToolTip.text:node.modelData.kind==="environment"?(node.modelData.visible?"关闭此预览效果":"开启此预览效果"):(node.modelData.visible?"隐藏（同时停用生成）":"显示并启用")
-      onClicked:editor.setNodeVisible(node.modelData.id,!node.modelData.visible)
+      ToolTip.visible:hovered;ToolTip.text:node.nodeKind==="environment"?(node.nodeVisible?"关闭此预览效果":"开启此预览效果"):(node.nodeVisible?"隐藏（同时停用生成）":"显示并启用")
+      onClicked:editor.setNodeVisible(node.nodeId,!node.nodeVisible)
      }
     }
    }

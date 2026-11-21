@@ -131,13 +131,33 @@ int main(int argc, char **argv) {
             }
             auto elapsed = timer.elapsed();
             check(vertices < 8000000, "far vertex working set bounded");
+            std::vector<qint64> pickTimes;
+            for (int i = 0; i < 200; ++i) {
+                const int x = w.originX + (i * 7919 + 13) % w.width,
+                          z = w.originZ + (i * 104729 + 37) % w.depth;
+                int top = wb::World::MaxY - 1;
+                while (top > wb::World::MinY && w.block(x, top, z) == wb::Air)
+                    --top;
+                timer.restart();
+                const auto hit = w.raycast({x + .5f, 35000, z + .5f}, {0, -1, 0}, 40000);
+                pickTimes.push_back(timer.nsecsElapsed());
+                check(hit.valid && hit.x == x && hit.z == z && hit.y == top,
+                      "overview picks exact composed top across whole map");
+            }
+            std::sort(pickTimes.begin(), pickTimes.end());
+            timer.restart();
+            const auto emptyRay = w.raycast({float(w.originX - 100), 319.5f, .5f}, {1, 0, 0}, 20000);
+            const auto horizontalMicros = timer.nsecsElapsed() / 1000.;
+            check(!emptyRay.valid, "long horizontal empty ray does not select a coarse envelope");
             reports.append(QJsonObject{{"asset_load_ms", double(assetMs)},
                                        {"width", w.width},
                                        {"depth", w.depth},
                                        {"tiles", int(plan.size())},
                                        {"far_vertices", double(vertices)},
                                        {"far_mesh_mib", vertices * sizeof(wb::Vertex) / 1048576.},
-                                       {"serial_far_ms", double(elapsed)}});
+                                       {"serial_far_ms", double(elapsed)},
+                                       {"pick_vertical_p95_us", pickTimes[189] / 1000.},
+                                       {"pick_horizontal_miss_us", horizontalMicros}});
             auto path = output + QString("/scene-%1x%2.wbench").arg(w.width).arg(w.depth);
             check(wb::saveProject(path, w, error), "save large fixture");
             wb::World loaded;

@@ -8,8 +8,9 @@ void main(){
     vec3 color=u.envFlags.x>.5 ? mix(u.horizonColor.rgb,u.skyColor.rgb,height) : vec3(.06,.08,.11);
     if(ray.y<0.0 && u.envFlags.x>.5)color=mix(u.horizonColor.rgb,u.groundColor.rgb,clamp(-ray.y*3.0,0.0,1.0));
     if(u.envFlags.z>.5){
-        float horizon=exp(-abs(ray.y)*8.0)*u.horizonColor.w;
-        float glow=pow(max(0.0,dot(ray,u.sunDirection.xyz)),16.0)*u.sunDirection.w*.22;
+        float haze=u.horizonColor.w;
+        float horizon=exp(-abs(ray.y)*mix(8.0,1.5,haze))*haze;
+        float glow=pow(max(0.0,dot(ray,u.sunDirection.xyz)),16.0)*u.sunDirection.w*.22*haze;
         color=mix(color,u.horizonColor.rgb,horizon)+u.sunColor.rgb*glow;
     }
     if(u.envFlags.y>.5){
