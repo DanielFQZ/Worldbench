@@ -1,4 +1,4 @@
-#include "Project.h"
+#include "ProjectFormat.h"
 #include <QCryptographicHash>
 #include <QFile>
 #include <QJsonArray>
@@ -11,20 +11,17 @@
 #include <climits>
 #include <cmath>
 namespace wb {
-bool saveProject(const QString &path, const World &w, QString &error) {
-    if (!validateTheme(w.theme, w.palette.size(), error) || !validateTerrain(w.heights.instances, error))
-        return false;
-    Environment checked;
-    if (!loadEnvironment(saveEnvironment(w.environment), checked, error))
-        return false;
+QJsonObject projectMetadata(const World &w, bool inlinePayload) {
     QJsonArray heights, cells;
-    if (w.heights.dense)
+    if (inlinePayload && w.heights.dense)
         for (int h : *w.heights.dense)
             heights.append(h);
-    std::vector<std::pair<uint64_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
-    std::sort(ordered.begin(), ordered.end());
-    for (auto [k, v] : ordered)
-        cells.append(QJsonArray{double(k), int(v)});
+    if (inlinePayload) {
+        std::vector<std::pair<uint64_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
+        std::sort(ordered.begin(), ordered.end());
+        for (auto [k, v] : ordered)
+            cells.append(QJsonArray{double(k), int(v)});
+    }
     QJsonArray palette, paths;
     for (const auto &state : w.palette) {
         QJsonObject props;
@@ -37,11 +34,12 @@ bool saveProject(const QString &path, const World &w, QString &error) {
     QJsonArray layers;
     for (const auto &l : w.heights.layers) {
         QJsonArray edits;
-        for (auto [i, h] : *l.deltas)
-            edits.append(QJsonArray{i, h});
+        if (inlinePayload)
+            for (auto [i, h] : *l.deltas)
+                edits.append(QJsonArray{i, h});
         layers.append(QJsonObject{{"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"deltas", edits}});
     }
-    QJsonObject root{{"format", 8},
+    QJsonObject root{{"format", inlinePayload ? 8 : 9},
                      {"environment", saveEnvironment(w.environment)},
                      {"surfaceTheme", saveTheme(w.theme)},
                      {"sculptLayers", layers},
@@ -51,7 +49,7 @@ bool saveProject(const QString &path, const World &w, QString &error) {
                      {"terrain", QJsonObject{{"baseHeight", w.heights.baseHeight},
                                              {"variation", w.heights.variation},
                                              {"flat", w.heights.flat}}},
-                     {"terrainInstances", saveTerrain(w.heights.instances)},
+                     {"terrainInstances", saveTerrain(w.heights.instances, inlinePayload)},
                      {"originX", w.originX},
                      {"originZ", w.originZ},
                      {"seed", w.seed},
@@ -61,29 +59,9 @@ bool saveProject(const QString &path, const World &w, QString &error) {
                      {"palette", palette},
                      {"resources", paths},
                      {"resourceVersion", w.resourceVersion}};
-    QByteArray data = QJsonDocument(root).toJson(QJsonDocument::Compact);
-    if (data.size() > 64 * 1024 * 1024) {
-        error = "工程数据超过 P0 格式的 64 MiB 解压上限，未覆盖原文件";
-        return false;
-    }
-    const QByteArray bytes = QByteArray("WBENCH01", 8) +
-                             QCryptographicHash::hash(data, QCryptographicHash::Sha256) + qCompress(data, 6);
-    if (bytes.size() > 16 * 1024 * 1024) {
-        error = "工程超过 P0 格式的 16 MiB 文件上限，未覆盖原文件";
-        return false;
-    }
-    QSaveFile f(path);
-    if (!f.open(QIODevice::WriteOnly)) {
-        error = f.errorString();
-        return false;
-    }
-    if (f.write(bytes) != bytes.size() || !f.commit()) {
-        error = f.errorString();
-        return false;
-    }
-    return true;
+    return root;
 }
-bool loadProject(const QString &path, World &world, QString &error) {
+bool loadLegacyProject(const QString &path, World &world, QString &error) {
     auto fail = [&](QString msg) {
         error = msg;
         return false;
@@ -99,21 +77,27 @@ bool loadProject(const QString &path, World &world, QString &error) {
     const uint32_t size = qFromBigEndian<uint32_t>(b.constData() + 40);
     if (size > 64 * 1024 * 1024)
         return fail("解压后工程超过首版上限");
-    const QByteArray data = qUncompress(b.mid(40));
-    if (uint32_t(data.size()) != size ||
+    QByteArray data;
+    if (!unpackProjectBlock(b.mid(40), 64 * 1024 * 1024, data) || uint32_t(data.size()) != size ||
         QCryptographicHash::hash(data, QCryptographicHash::Sha256) != b.mid(8, 32))
         return fail("工程校验失败，未替换当前世界");
     QJsonParseError parse;
     auto doc = QJsonDocument::fromJson(data, &parse);
     if (parse.error != QJsonParseError::NoError || !doc.isObject())
         return fail("工程 JSON 无效");
-    const auto o = doc.object();
+    return decodeProjectMetadata(doc.object(), world, error);
+}
+bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, ProjectPayload *payload) {
+    auto fail = [&](QString message) {
+        error = message;
+        return false;
+    };
     World w;
     auto integer = [&](const QJsonValue &v, int lo, int hi) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };
     const int format = o["format"].toInt();
-    if (!integer(o["format"], 1, 8))
+    if (!integer(o["format"], 1, 9) || (format == 9) != bool(payload))
         return fail("不支持的工程版本");
     const auto widthValue = o[format >= 3 ? "width" : "size"];
     const auto depthValue = format >= 3 ? o["depth"] : widthValue;
@@ -155,7 +139,20 @@ bool loadProject(const QString &path, World &world, QString &error) {
         }
         w.heights.assign(std::move(values));
     }
-    if (format >= 4 && !loadTerrain(o["terrainInstances"].toObject(), w.heights.instances, error))
+    if (payload) {
+        if (!hs.isEmpty() || payload->deltas.size() != size_t(o["sculptLayers"].toArray().size()))
+            return fail("分块工程元数据与负载不一致");
+        if (payload->dense) {
+            if (payload->dense->size() != size_t(w.width) * w.depth)
+                return fail("分块高度基底大小错误");
+            for (int h : *payload->dense)
+                if (h < -63 || h > 318)
+                    return fail("分块高度基底越界");
+            w.heights.dense = payload->dense;
+        }
+    }
+    if (format >= 4 && !loadTerrain(o["terrainInstances"].toObject(), w.heights.instances, error,
+                                    payload ? &payload->images : nullptr))
         return false;
     if (format < 7 && std::any_of(
                           w.heights.instances.begin(), w.heights.instances.end(),
@@ -192,13 +189,18 @@ bool loadProject(const QString &path, World &world, QString &error) {
             for (const auto &instance : w.heights.instances)
                 if (instance.id == layer.id)
                     return fail("场景标识重复");
+            std::set<int> seenDeltas;
+            if (payload && !l["deltas"].toArray().isEmpty())
+                return fail("分块工程含重复内联差量");
             for (auto edit : l["deltas"].toArray()) {
                 auto a = edit.toArray();
                 if (a.size() != 2 || !integer(a[0], 0, w.width * w.depth - 1) ||
-                    !integer(a[1], -1000000, 1000000) ||
-                    !layer.deltas->emplace(a[0].toInt(), a[1].toInt()).second)
+                    !integer(a[1], -1000000, 1000000) || !seenDeltas.insert(a[0].toInt()).second)
                     return fail("地形层差量无效");
+                layer.deltas->set(a[0].toInt(), a[1].toInt());
             }
+            if (payload)
+                layer.deltas = payload->deltas[w.heights.layers.size()];
             w.heights.layers.push_back(std::move(layer));
         }
         if (w.heights.layers.front().id != "terrain-base-1")
@@ -260,6 +262,15 @@ bool loadProject(const QString &path, World &world, QString &error) {
             return fail("基岩保护层不允许包含体素差量");
         if (!w.overrides.emplace(uint64_t(a[0].toDouble()), Block(a[1].toInt())).second)
             return fail("重复的体素键");
+    }
+    if (payload) {
+        if (!o["overrides"].toArray().isEmpty())
+            return fail("分块工程含重复内联体素");
+        for (auto [key, block] : payload->overrides)
+            if (key < uint64_t(w.width) * w.depth || key >= uint64_t(w.width) * w.depth * 384 ||
+                block >= w.palette.size())
+                return fail("分块体素差量越界");
+        w.overrides = std::move(payload->overrides);
     }
     if (format >= 8 && !loadEnvironment(o["environment"].toObject(), w.environment, error))
         return false;

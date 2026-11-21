@@ -1,6 +1,7 @@
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/ProjectFormat.h"
 #include "core/World.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -175,7 +176,7 @@ int main(int argc, char **argv) {
             check(wb::saveProject(base + "/legacy.wbench", legacy, error), "legacy fixture source");
             QFile source(base + "/legacy.wbench");
             source.open(QIODevice::ReadOnly);
-            auto root = QJsonDocument::fromJson(qUncompress(source.readAll().mid(40))).object();
+            auto root = wb::projectMetadata(legacy, true);
             source.close();
             root["format"] = 4;
             root.remove("sculptLayers");

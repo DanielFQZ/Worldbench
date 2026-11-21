@@ -4,6 +4,7 @@
 #include <QSet>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 namespace wb {
 double HeightmapData::sample(double u, double v) const {
     const double px = std::clamp(u, 0.0, 1.0) * (width - 1), pz = std::clamp(v, 0.0, 1.0) * (depth - 1);
@@ -105,19 +106,22 @@ bool TerrainInstance::operator==(const TerrainInstance &o) const {
            rotationY == o.rotationY && rotationZ == o.rotationZ && scaleX == o.scaleX && scaleY == o.scaleY &&
            scaleZ == o.scaleZ;
 }
-std::shared_ptr<const HeightmapData> loadHeightmap(const QString &path, QString &error) {
+std::shared_ptr<const HeightmapData> loadHeightmap(const QString &path, QString &error) try {
     auto fail = [&](const QString &message) -> std::shared_ptr<const HeightmapData> {
         error = message;
         return {};
     };
     const QFileInfo file(path);
-    if (!file.isFile() || file.size() > 32 * 1024 * 1024)
-        return fail("请选择不超过 32 MiB 的灰度 PNG 文件");
+    if (!file.isFile() || file.size() > 256 * 1024 * 1024)
+        return fail("请选择不超过256 MiB的灰度PNG文件");
+    static std::once_flag imageBudget;
+    std::call_once(imageBudget, [] { QImageReader::setAllocationLimit(512); });
     QImageReader reader(path);
     const QSize size = reader.size();
-    if (reader.format().toLower() != "png" || size.width() < 1 || size.height() < 1 || size.width() > 4096 ||
-        size.height() > 4096 || qint64(size.width()) * size.height() > qint64(MaxTerrainPixels))
-        return fail("本版支持 8/16 位灰度 PNG，单边最多 4096，总像素最多 4194304");
+    if (reader.format().toLower() != "png" || size.width() < 1 || size.height() < 1 ||
+        size.width() > MaxHeightmapEdge || size.height() > MaxHeightmapEdge ||
+        qint64(size.width()) * size.height() > qint64(MaxTerrainPixels))
+        return fail("支持8/16位灰度PNG，单边最多8192；共享高度图/蒙版最多64M像素并受256 MiB驻留预算限制");
     auto image = reader.read();
     if (image.isNull())
         return fail("高度图读取失败：" + reader.errorString());
@@ -130,10 +134,19 @@ std::shared_ptr<const HeightmapData> loadHeightmap(const QString &path, QString 
             const auto *line = reinterpret_cast<const quint16 *>(image.constScanLine(z));
             data->values.insert(data->values.end(), line, line + data->width);
         }
-    } else {
-        image = image.convertToFormat(QImage::Format_RGBA64);
+    } else if (image.format() == QImage::Format_Grayscale8) {
         for (int z = 0; z < data->depth; ++z) {
-            const auto *line = reinterpret_cast<const QRgba64 *>(image.constScanLine(z));
+            const auto *line = image.constScanLine(z);
+            for (int x = 0; x < data->width; ++x)
+                data->values.push_back(uint16_t(line[x]) * 257);
+        }
+    } else {
+        // Convert one row, not a second full RGBA64 copy of an 8K image.
+        for (int z = 0; z < data->depth; ++z) {
+            const QImage row = image.copy(0, z, data->width, 1).convertToFormat(QImage::Format_RGBA64);
+            if (row.isNull())
+                return fail("高度图像素转换内存不足，工程未改动");
+            const auto *line = reinterpret_cast<const QRgba64 *>(row.constScanLine(0));
             for (int x = 0; x < data->width; ++x) {
                 if (line[x].red() != line[x].green() || line[x].red() != line[x].blue() ||
                     line[x].alpha() != 65535)
@@ -144,6 +157,21 @@ std::shared_ptr<const HeightmapData> loadHeightmap(const QString &path, QString 
     }
     data->buildBounds();
     return data;
+} catch (const std::bad_alloc &) {
+    error = "高度图转换内存不足，请关闭其他重型任务或使用较小图像；工程未改动";
+    return {};
+}
+uint64_t terrainMemoryBytes(const std::vector<TerrainInstance> &instances) {
+    QSet<const HeightmapData *> seen;
+    uint64_t bytes = 0;
+    for (const auto &i : instances)
+        for (const auto &image : {i.image, i.mask})
+            if (image && !seen.contains(image.get())) {
+                seen.insert(image.get());
+                bytes += image->values.capacity() * sizeof(uint16_t) +
+                         image->bounds.capacity() * sizeof(HeightmapData::Bounds);
+            }
+    return bytes;
 }
 bool validateTerrain(const std::vector<TerrainInstance> &instances, QString &error) {
     QSet<QString> ids;
@@ -170,7 +198,8 @@ bool validateTerrain(const std::vector<TerrainInstance> &instances, QString &err
         for (auto image : {i.image, i.mask}) {
             if (!image || images.contains(image.get()))
                 continue;
-            if (image->width < 1 || image->depth < 1 || image->width > 4096 || image->depth > 4096 ||
+            if (image->width < 1 || image->depth < 1 || image->width > MaxHeightmapEdge ||
+                image->depth > MaxHeightmapEdge ||
                 image->values.size() != size_t(image->width) * image->depth) {
                 error = "高度图数据不合法";
                 return false;
@@ -179,8 +208,10 @@ bool validateTerrain(const std::vector<TerrainInstance> &instances, QString &err
             pixels += image->values.size();
         }
     }
-    if (pixels > MaxTerrainPixels) {
-        error = "本版高度图与蒙版合计最多 4194304 像素";
+    if (pixels > MaxTerrainPixels || terrainMemoryBytes(instances) > MaxTerrainBytes) {
+        error = QString("高度图/蒙版资源超出预算：%1M像素，约%2 MiB；上限64M像素/256 MiB（相同内容导入共享）")
+                    .arg(pixels / 1048576., 0, 'f', 1)
+                    .arg(terrainMemoryBytes(instances) / 1048576., 0, 'f', 1);
         return false;
     }
     return true;

@@ -34,6 +34,6 @@ ColumnLayout {
  Label{text:"作用于当前雕刻层；正数抬升、负数降低。单次最多"+editor.regionColumnLimit+"列（1024×1024），快照估算预算256 MiB。后台按区块计算，可从底栏取消；完成后统一应用为一次撤销。独立方块保持原位。"+(area.valid&&area.width*area.depth>editor.regionColumnLimit?"\n当前选区超出上限，请缩小范围。全图选区仍可用于导出。":"");Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#91a8ba"}
  WorkbenchSpinBox{returnFocusToViewport:true;id:heightOffset;objectName:"selectionHeightOffset";from:-381;to:381;value:4;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12}
  Button{objectName:"applySelectionHeight";text:"应用到选区";enabled:area.valid&&area.width*area.depth<=editor.regionColumnLimit&&!editor.assetBusy&&!editor.exportBusy&&heightOffset.value!==0;Layout.fillWidth:true;Layout.margins:12;onClicked:editor.adjustSelectedHeight(heightOffset.value)}
- Label{text:"大范围操作会占用撤销预算，旧历史可能被淘汰。当前工程仍为v8单文件；接近容量上限时请先另存备份。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#b9a781"}
+ Label{text:"大范围操作会占用撤销预算，旧历史可能被淘汰。工程使用v9分块存储；覆盖旧格式前自动保留迁移备份。保存和打开大工程时仍需等待。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#b9a781"}
  Label{text:"选好后可切换地形工具继续编辑。导出窗口可仅导出此选区覆盖的完整区块；未导出的区域不含自定义地形。选区只在本次会话中保存。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#91a8ba"}
 }

@@ -4,7 +4,7 @@
 #include <QtEndian>
 #include <climits>
 namespace wb {
-QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances) {
+QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances, bool inlinePixels) {
     QJsonArray images, entries;
     QMap<const HeightmapData *, int> indices;
     auto index = [&](const auto &image) {
@@ -15,12 +15,14 @@ QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances) {
             return it.value();
         const int id = int(images.size());
         indices.insert(image.get(), id);
-        QByteArray bytes(qsizetype(image->values.size() * 2), Qt::Uninitialized);
-        for (size_t i = 0; i < image->values.size(); ++i)
-            qToLittleEndian(image->values[i], bytes.data() + i * 2);
-        images.append(QJsonObject{{"width", image->width},
-                                  {"depth", image->depth},
-                                  {"pixels", QString::fromLatin1(bytes.toBase64())}});
+        QJsonObject entry{{"width", image->width}, {"depth", image->depth}};
+        if (inlinePixels) {
+            QByteArray bytes(qsizetype(image->values.size() * 2), Qt::Uninitialized);
+            for (size_t i = 0; i < image->values.size(); ++i)
+                qToLittleEndian(image->values[i], bytes.data() + i * 2);
+            entry["pixels"] = QString::fromLatin1(bytes.toBase64());
+        }
+        images.append(entry);
         return id;
     };
     for (const auto &i : instances)
@@ -51,7 +53,8 @@ QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances) {
                                    {"enabled", i.enabled}});
     return {{"images", images}, {"instances", entries}};
 }
-bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QString &error) {
+bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QString &error,
+                 const std::vector<std::shared_ptr<const HeightmapData>> *externalImages) {
     auto fail = [&] {
         error = "工程地貌实例或高度图数据无效";
         return false;
@@ -66,12 +69,26 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
     size_t totalPixels = 0;
     for (auto value : o["images"].toArray()) {
         const auto a = value.toObject();
-        if (!integer(a["width"], 1, 4096) || !integer(a["depth"], 1, 4096) || !a["pixels"].isString())
+        if (!integer(a["width"], 1, MaxHeightmapEdge) || !integer(a["depth"], 1, MaxHeightmapEdge) ||
+            (!externalImages && !a["pixels"].isString()))
             return fail();
         const size_t count = size_t(a["width"].toInt()) * a["depth"].toInt();
         totalPixels += count;
-        if (totalPixels > MaxTerrainPixels ||
-            size_t(a["pixels"].toString().size()) != (count * 2 + 2) / 3 * 4)
+        if (totalPixels > MaxTerrainPixels)
+            return fail();
+        if (externalImages) {
+            if (a.contains("pixels"))
+                return fail();
+            if (images.size() >= externalImages->size())
+                return fail();
+            const auto &image = (*externalImages)[images.size()];
+            if (!image || image->width != a["width"].toInt() || image->depth != a["depth"].toInt() ||
+                image->values.size() != count)
+                return fail();
+            images.push_back(image);
+            continue;
+        }
+        if (size_t(a["pixels"].toString().size()) != (count * 2 + 2) / 3 * 4)
             return fail();
         const auto bytes = QByteArray::fromBase64Encoding(a["pixels"].toString().toLatin1(),
                                                           QByteArray::AbortOnBase64DecodingErrors);
@@ -86,6 +103,8 @@ bool loadTerrain(const QJsonObject &o, std::vector<TerrainInstance> &out, QStrin
         image->buildBounds();
         images.push_back(std::move(image));
     }
+    if (externalImages && images.size() != externalImages->size())
+        return fail();
     std::vector<TerrainInstance> next;
     for (auto value : o["instances"].toArray()) {
         const auto a = value.toObject();

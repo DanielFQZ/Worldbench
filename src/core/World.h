@@ -1,9 +1,10 @@
 #pragma once
 #include "Assets.h"
 #include "Environment.h"
+#include "HeightDeltas.h"
 #include "Heightmap.h"
-#include <QString>
 #include <QRect>
+#include <QString>
 #include <QVector3D>
 #include <algorithm>
 #include <cstdint>
@@ -47,7 +48,7 @@ struct CellChange {
 struct SculptLayer {
     QString id = "terrain-base-1", name = "基础地形层1";
     bool enabled = true;
-    std::shared_ptr<std::map<int, int>> deltas = std::make_shared<std::map<int, int>>();
+    std::shared_ptr<HeightDeltas> deltas = std::make_shared<HeightDeltas>();
     bool operator==(const SculptLayer &o) const {
         return id == o.id && name == o.name && enabled == o.enabled && *deltas == *o.deltas;
     }
@@ -78,7 +79,7 @@ struct Command {
     QString heightLayer;
     // Large region edits publish a prepared immutable-by-sharing layer snapshot.
     // Subsequent writes use HeightField's existing copy-on-write contract.
-    std::shared_ptr<std::map<int, int>> deltaBefore, deltaAfter;
+    std::shared_ptr<HeightDeltas> deltaBefore, deltaAfter;
     QRect heightArea;
     std::shared_ptr<const std::vector<SculptLayer>> layersBefore, layersAfter;
     QString label;
@@ -112,7 +113,7 @@ class HeightField {
     void restore(int index, int value, bool overridden);
     void fill(int value);
     void assign(std::vector<int16_t> values);
-    const std::map<int, int> &changes() const {
+    const HeightDeltas &changes() const {
         return *layers.at(size_t(std::max(0, layerIndex(activeLayer)))).deltas;
     }
     bool operator==(const HeightField &other) const;

@@ -107,6 +107,22 @@ QJsonArray toolList() {
         {"changes", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",
         {{"expected_revision", revision}}, {"expected_revision"}, false);
+    const QJsonObject column{{"type", "array"}, {"items", integer}, {"minItems", 2}, {"maxItems", 2}};
+    add("height_region",
+        "Start asynchronous height offset on the active sculpt layer. Inclusive min/max [x,z], up to "
+        "1048576 columns and a 256 MiB workspace estimate. Offset -381..381 excluding zero. Returns "
+        "job_id immediately; poll/cancel with region_job. Atomic commit with one undo; leaves selection "
+        "unchanged.",
+        {{"min", column}, {"max", column}, {"offset", integer}, {"expected_revision", revision}},
+        {"min", "max", "offset", "expected_revision"}, false);
+    add("region_job",
+        "Inspect or cancel the latest height-region job by exact job_id, even while busy. "
+        "action=status/cancel. "
+        "Cancel is a request, not confirmation: poll until cancelled/completed/failed. Completed jobs cannot "
+        "be cancelled. IDs expire on new/open project or a newer job; stale IDs never cancel newer work.",
+        {{"job_id", str},
+         {"action", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"status", "cancel"}}}}},
+        {"job_id", "action"}, false);
     add("redo", "Redo the latest undone shared command.", {{"expected_revision", revision}},
         {"expected_revision"}, false);
     add("camera",

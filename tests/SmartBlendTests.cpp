@@ -1,6 +1,7 @@
 #include "ReferenceMesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/ProjectFormat.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -146,9 +147,10 @@ int main(int argc, char **argv) {
         }
         QFile project(output + "/smart-roundtrip.wbench");
         check(project.open(QIODevice::ReadOnly), "read project envelope");
-        auto root = QJsonDocument::fromJson(qUncompress(project.readAll().mid(40))).object();
+        check(project.read(8) == "WBENCH09", "indexed v9 envelope");
+        auto root = wb::projectMetadata(world, true);
         project.close();
-        check(root["format"].toInt() == 8, "new format prevents old clients silently dropping settings");
+        check(root["format"].toInt() == 8, "legacy metadata fixture preserves smart parameters");
         auto writeRoot = [&] {
             const auto bytes = QJsonDocument(root).toJson(QJsonDocument::Compact);
             check(project.open(QIODevice::WriteOnly), "write migration fixture");

@@ -1,6 +1,7 @@
 #include "ReferenceMesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/ProjectFormat.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -116,7 +117,7 @@ int main(int argc, char **argv) {
               "v6 theme project roundtrip");
         QFile input(project);
         check(input.open(QIODevice::ReadOnly), "read migration fixture");
-        auto root = QJsonDocument::fromJson(qUncompress(input.readAll().mid(40))).object();
+        auto root = wb::projectMetadata(world, true);
         auto writeRoot = [&](QString path, const QJsonObject &object) {
             const auto data = QJsonDocument(object).toJson(QJsonDocument::Compact);
             QFile file(path);

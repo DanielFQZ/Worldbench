@@ -197,6 +197,8 @@ class Editor : public QObject {
     void regionProgressChanged();
 
   private:
+    bool startHeightRegion(const QRect &area, int offset, QString &error);
+    QJsonObject regionJobInfo() const;
     void dirtyAll();
     void dirtyCommand(const wb::Command &command);
     void startMesh();
@@ -256,6 +258,9 @@ class Editor : public QObject {
     QTimer m_regionTimer;
     std::shared_ptr<RegionControl> m_regionControl;
     uint64_t m_regionRevision = 0;
+    uint64_t m_regionResultRevision = 0;
+    QString m_regionId, m_regionState = "idle", m_regionError;
+    int m_regionChanged = 0, m_regionClipped = 0;
     bool m_regionLoading = false;
     bool m_heightmapLoading = false;
     std::unique_ptr<McpServer> m_mcp;

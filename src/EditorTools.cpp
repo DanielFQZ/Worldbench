@@ -414,6 +414,7 @@ QJsonObject Editor::worldInfo() const {
             {"palette_states", int(m_world.palette.size())},
             {"override_cells", int(m_world.overrides.size())},
             {"busy", commandBusy()},
+            {"region_job", regionJobInfo()},
             {"mesh_busy", meshBusy()},
             {"environment", wb::saveEnvironment(m_world.environment)},
             {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
@@ -443,6 +444,16 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     };
     if (name == "world_info")
         return worldInfo();
+    if (name == "region_job") {
+        const auto action = args["action"].toString();
+        if (m_regionId.isEmpty() || args["job_id"].toString() != m_regionId)
+            throw std::runtime_error("区域任务不存在或已被新任务替换");
+        if (action == "cancel")
+            cancelRegion();
+        else if (action != "status")
+            throw std::runtime_error("action 必须为 status 或 cancel");
+        return regionJobInfo();
+    }
     if (name == "catalog") {
         QString query = args["query"].toString();
         int limit = args.contains("limit") ? integer(args["limit"], 1, 200) : 50;
@@ -522,6 +533,20 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         throw std::runtime_error("用户正在编辑或加载资源，请稍后重试");
     if (!args["expected_revision"].isDouble() || args["expected_revision"].toDouble() != double(m_revision))
         throw std::runtime_error("revision 已过期；请先读取 world_info，不得盲目重试写入");
+    if (name == "height_region") {
+        const auto a = args["min"].toArray(), b = args["max"].toArray();
+        if (a.size() != 2 || b.size() != 2)
+            throw std::runtime_error("坐标必须为 [x,z]");
+        const int x = integer(a[0], m_world.originX, m_world.originX + m_world.width - 1);
+        const int z = integer(a[1], m_world.originZ, m_world.originZ + m_world.depth - 1);
+        const int mx = integer(b[0], x, m_world.originX + m_world.width - 1);
+        const int mz = integer(b[1], z, m_world.originZ + m_world.depth - 1);
+        const int offset = integer(args["offset"], -381, 381);
+        QString error;
+        if (!startHeightRegion(QRect(QPoint(x, z), QPoint(mx, mz)), offset, error))
+            throw std::runtime_error(error.toStdString());
+        return regionJobInfo();
+    }
     if (name == "environment") {
         if (!args["changes"].isObject())
             throw std::runtime_error("changes must be an object");

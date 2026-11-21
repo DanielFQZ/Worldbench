@@ -1,6 +1,7 @@
 #include "core/FarMesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/ProjectFormat.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -217,7 +218,10 @@ int main(int argc, char **argv) {
         QFile originalFile(projectPath);
         originalFile.open(QIODevice::ReadOnly);
         auto bytes = originalFile.readAll();
-        auto root = QJsonDocument::fromJson(qUncompress(bytes.mid(40))).object();
+        wb::World savedWorld;
+        check(wb::loadProject(projectPath, savedWorld, error),
+              "read current indexed project for migration fixture");
+        auto root = wb::projectMetadata(savedWorld, true);
         auto writeRoot = [&](const QJsonObject &object, const QString &path) {
             auto data = QJsonDocument(object).toJson(QJsonDocument::Compact);
             QFile f(path);

@@ -94,7 +94,7 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
 void Editor::initializeTerrainImporter() {
     connect(&m_heightmapWatcher, &QFutureWatcherBase::finished, this, [this] {
         m_heightmapLoading = false;
-        const auto result = m_heightmapWatcher.result();
+        const auto result = m_heightmapWatcher.future().takeResult();
         if (!result.image) {
             m_status = "高度图导入失败，工程未改动";
             emit failure(result.error);
@@ -155,12 +155,20 @@ void Editor::importHeightmap(const QUrl &url, bool mask) {
     m_heightmapLoading = true;
     m_status = mask ? "正在后台读取地貌蒙版…" : "正在后台读取高度图…";
     const auto path = url.toLocalFile(), targetId = m_selectedNode;
-    m_heightmapWatcher.setFuture(QtConcurrent::run([path, targetId, mask] {
+    const auto sources = m_world.heights.instances;
+    m_heightmapWatcher.setFuture(QtConcurrent::run([path, targetId, mask, sources] {
         HeightmapResult r;
         r.fileName = QFileInfo(path).fileName();
         r.targetId = targetId;
         r.mask = mask;
         r.image = wb::loadHeightmap(path, r.error);
+        if (r.image)
+            for (const auto &instance : sources)
+                for (const auto &image : {instance.image, instance.mask})
+                    if (image && *image == *r.image) {
+                        r.image = image;
+                        return r;
+                    }
         return r;
     }));
     emit changed();

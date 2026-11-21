@@ -90,9 +90,8 @@ int main(int argc, char **argv) {
         const auto cancelled =
             wb::prepareHeightRegion(world.heights, area, 5, [](int, int) { return false; });
         check(cancelled.cancelled && !cancelled.command.deltaAfter, "pre-cancel has no published command");
-        const auto midTile = wb::prepareHeightRegion(world.heights, area, 5, [&](int done, int) {
-            return done < int(world.heights.changes().size()) + 256;
-        });
+        const auto midTile =
+            wb::prepareHeightRegion(world.heights, area, 5, [&](int done, int) { return done < 256; });
         check(midTile.cancelled && midTile.changed > 0 && !midTile.command.deltaAfter,
               "tile cancellation discards partial result");
         QString error;
@@ -140,33 +139,40 @@ int main(int argc, char **argv) {
         check(large.height(5000, 3000) == 30 && large.height(6023, 4023) == 30 &&
                   large.height(6024, 4023) == 24 && large.heights.changes().size() == 1048576,
               "million-column atomic publication respects inclusive bounds");
-        const auto midCopy = wb::prepareHeightRegion(large.heights, QRect(0, 0, 1, 1), 1,
+        const auto midCopy = wb::prepareHeightRegion(large.heights, QRect(0, 0, 256, 256), 1,
                                                      [](int done, int) { return done < 8192; });
-        check(midCopy.cancelled && midCopy.changed == 0 && !midCopy.command.deltaAfter &&
+        check(midCopy.cancelled && midCopy.changed > 0 && !midCopy.command.deltaAfter &&
                   large.height(0, 0) == 24,
-              "large existing-layer copy is cancellable before evaluation");
+              "shared existing-layer transaction remains cancellable during evaluation");
         timer.restart();
         check(wb::saveProject(temp.filePath("million.wbench"), large, error), "million-column v8 save");
         const qint64 saveMs = timer.elapsed();
         wb::World loaded;
         check(wb::loadProject(temp.filePath("million.wbench"), loaded, error) &&
                   loaded.heights == large.heights && loaded.width == 16384 && loaded.depth == 12289,
-              "million-column v8 exact round trip");
+              "million-column v9 exact round trip");
         large.apply(result.command, false);
         check(large.heights.changes().empty() && large.height(5000, 3000) == 24,
               "million-column undo restores original shared map");
         large.apply(result.command, true);
         check(large.heights.layers[0].deltas == result.command.deltaAfter,
               "million-column redo uses already computed snapshot");
-        // Test the budget at its exact conservative limit, independently of the area cap.
-        auto budgetWorld = wb::World::create(wb::WorldOptions{16384, 42, -60, 24, 0, true});
-        auto &budgetMap = *budgetWorld.heights.layers[0].deltas;
-        for (int i = 0; i < 1572864; ++i)
-            budgetMap.emplace_hint(budgetMap.end(), i, 1);
-        check(wb::validateHeightRegion(budgetWorld.heights, million, 1, error), "256MiB estimate accepted");
-        budgetMap.emplace(1572864, 1);
-        check(!wb::validateHeightRegion(budgetWorld.heights, million, 1, error) && error.contains("256"),
-              "workspace over budget rejected before allocating staging");
+        check(large.heights.layers[0].deltas->allocatedBytes() < 6 * 1024 * 1024,
+              "million dense deltas use compact pages instead of a node per column");
+        const auto retained = large.heights.layers[0].deltas;
+        auto local = std::make_shared<wb::HeightDeltas>(*retained);
+        std::set<const void *> memory;
+        retained->uniqueBytes(memory);
+        local->set(large.column(5000, 3000), 8);
+        check(local->uniqueBytes(memory) < 128 * 1024 && retained->get(large.column(5000, 3000)) == 6,
+              "editing one column copies only a root, one group and one value page");
+        const auto overhead = wb::heightRegionWorkspaceBytes(0, million);
+        check(overhead < wb::HeightRegionBudget &&
+                  wb::heightRegionWorkspaceBytes(wb::HeightRegionBudget - overhead, million) ==
+                      wb::HeightRegionBudget &&
+                  wb::heightRegionWorkspaceBytes(wb::HeightRegionBudget - overhead + 1, million) >
+                      wb::HeightRegionBudget,
+              "workspace estimate handles exact budget boundary");
         std::cout << "1M / 16Kx12289: prepare " << prepareMs << " ms, publish " << commitNs << " ns, save "
                   << saveMs << " ms\n";
         std::cout << "Region edit checks: " << checks << "\n";

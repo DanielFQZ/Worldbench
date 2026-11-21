@@ -37,17 +37,13 @@ int HeightField::layerIndex(const QString &id) const {
     return -1;
 }
 int HeightField::delta(int i) const {
-    const auto &edits = changes();
-    const auto it = edits.find(i);
-    return it == edits.end() ? 0 : it->second;
+    return changes().get(i);
 }
 int16_t HeightField::operator[](int i) const {
     int value = base(i);
     for (const auto &layer : layers)
         if (layer.enabled) {
-            const auto it = layer.deltas->find(i);
-            if (it != layer.deltas->end())
-                value += it->second;
+            value += layer.deltas->get(i);
         }
     return int16_t(std::clamp(value, -63, 318));
 }
@@ -57,11 +53,8 @@ void HeightField::restoreDelta(const QString &id, int i, int value) {
         return;
     auto &edits = layers[n].deltas;
     if (edits.use_count() != 1)
-        edits = std::make_shared<std::map<int, int>>(*edits);
-    if (value == 0)
-        edits->erase(i);
-    else
-        (*edits)[i] = value;
+        edits = std::make_shared<HeightDeltas>(*edits);
+    edits->set(i, value);
 }
 void HeightField::set(int i, int v) {
     const int n = layerIndex(activeLayer);
@@ -70,9 +63,7 @@ void HeightField::set(int i, int v) {
     int other = base(i);
     for (const auto &l : layers)
         if (l.enabled && l.id != activeLayer) {
-            const auto it = l.deltas->find(i);
-            if (it != l.deltas->end())
-                other += it->second;
+            other += l.deltas->get(i);
         }
     restoreDelta(activeLayer, i, std::clamp(v - other, -1000000, 1000000));
 }

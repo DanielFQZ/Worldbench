@@ -2,6 +2,7 @@
 #include "core/Mesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/ProjectFormat.h"
 #include "core/Search.h"
 #include "core/World.h"
 #include <QCoreApplication>
@@ -82,7 +83,7 @@ int main(int argc, char **argv) {
         {
             QFile saved(tmp.filePath("large.wbench"));
             check(saved.open(QIODevice::ReadOnly), "open v3 validation fixture");
-            const auto valid = QJsonDocument::fromJson(qUncompress(saved.readAll().mid(40))).object();
+            const auto valid = projectMetadata(large, true);
             auto rejects = [&](QJsonObject invalid) {
                 const auto json = QJsonDocument(invalid).toJson(QJsonDocument::Compact);
                 QFile file(tmp.filePath("invalid-v3.wbench"));
@@ -366,7 +367,7 @@ int main(int argc, char **argv) {
             QFile current(path);
             check(current.open(QIODevice::ReadOnly), "read v2 migration fixture");
             auto bytes = current.readAll();
-            auto root = QJsonDocument::fromJson(qUncompress(bytes.mid(40))).object();
+            auto root = projectMetadata(w, true);
             root["format"] = 1;
             root["size"] = w.width;
             QJsonArray legacyHeights;

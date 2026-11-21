@@ -11,6 +11,7 @@ struct HeightRegionResult {
     int changed = 0, clipped = 0;
     bool cancelled = false;
 };
+uint64_t heightRegionWorkspaceBytes(uint64_t residentBytes, QRect area);
 bool validateHeightRegion(const HeightField &field, QRect area, int offset, QString &error);
 // Runs on a snapshot. Returning false from progress cancels without publishing
 // any world data. Work is processed in 16x16 tiles; callback is never a UI call.

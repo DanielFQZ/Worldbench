@@ -40,9 +40,13 @@ struct TerrainInstance {
     double apply(double base, int worldX, int worldZ) const;
     bool operator==(const TerrainInstance &other) const;
 };
-inline constexpr size_t MaxTerrainPixels = 4 * 1024 * 1024;
+inline constexpr int MaxHeightmapEdge = 8192;
+inline constexpr size_t MaxTerrainPixels = 64 * 1024 * 1024;
+inline constexpr uint64_t MaxTerrainBytes = 256ull * 1024 * 1024;
+uint64_t terrainMemoryBytes(const std::vector<TerrainInstance> &instances);
 std::shared_ptr<const HeightmapData> loadHeightmap(const QString &path, QString &error);
 bool validateTerrain(const std::vector<TerrainInstance> &instances, QString &error);
-QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances);
-bool loadTerrain(const QJsonObject &object, std::vector<TerrainInstance> &instances, QString &error);
+QJsonObject saveTerrain(const std::vector<TerrainInstance> &instances, bool inlinePixels = true);
+bool loadTerrain(const QJsonObject &object, std::vector<TerrainInstance> &instances, QString &error,
+                 const std::vector<std::shared_ptr<const HeightmapData>> *externalImages = nullptr);
 } // namespace wb

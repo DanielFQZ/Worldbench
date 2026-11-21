@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QThreadPool>
+#include <QUuid>
 #include <QtConcurrent>
 #include <algorithm>
 
@@ -28,6 +29,8 @@ Editor::Editor(QObject *parent)
         auto result = m_regionWatcher.future().takeResult();
         emit regionProgressChanged();
         if (result.cancelled || m_regionControl->cancelled.load()) {
+            m_regionState = "cancelled";
+            m_regionResultRevision = m_revision;
             m_status = "已取消区域高度调整 · 工程与撤销历史未改变";
             emit changed();
             return;
@@ -35,6 +38,9 @@ Editor::Editor(QObject *parent)
         if (m_regionRevision != m_revision)
             result.error = "计算期间工程状态已变化，区域结果已丢弃，请重新执行";
         if (!result.error.isEmpty()) {
+            m_regionState = "failed";
+            m_regionError = result.error;
+            m_regionResultRevision = m_revision;
             m_status = result.error;
             emit failure(result.error);
             emit changed();
@@ -48,6 +54,10 @@ Editor::Editor(QObject *parent)
             pushCommand(std::move(result.command));
         }
         m_status = QString("选区高度调整完成 · %1 列改变 · %2 列触及高度边界").arg(count).arg(result.clipped);
+        m_regionState = "completed";
+        m_regionResultRevision = m_revision;
+        m_regionChanged = count;
+        m_regionClipped = result.clipped;
         emit changed();
     });
     m_meshTimer.setSingleShot(true);
@@ -139,28 +149,38 @@ bool Editor::acceptsProjectDrop(const QList<QUrl> &urls) const {
            QFileInfo(urls.front().toLocalFile()).suffix().compare("wbench", Qt::CaseInsensitive) == 0;
 }
 bool Editor::adjustSelectedHeight(int offset) {
-    if (commandBusy() || exportBusy())
-        return false;
     QString error;
-    if (!wb::validateHeightRegion(m_world.heights, m_selection, offset, error)) {
+    const bool ok = startHeightRegion(m_selection, offset, error);
+    if (!ok && !error.isEmpty())
         emit failure(error);
+    return ok;
+}
+bool Editor::startHeightRegion(const QRect &area, int offset, QString &error) {
+    if (commandBusy() || exportBusy()) {
+        error = "当前操作尚未结束";
         return false;
     }
+    if (!wb::validateHeightRegion(m_world.heights, area, offset, error))
+        return false;
     auto snapshot = m_world.heights;
-    const auto area = m_selection;
     m_regionLoading = true;
     m_regionRevision = m_revision;
+    m_regionResultRevision = m_revision;
+    m_regionId = QUuid::createUuid().toString(QUuid::Id128);
+    m_regionState = "running";
+    m_regionError.clear();
+    m_regionChanged = m_regionClipped = 0;
     m_regionControl = std::make_shared<RegionControl>();
     m_status = "正在分块计算选区高度 · 可继续观察场景或取消";
     m_regionTimer.start();
-    m_regionWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), area, offset,
-                                                control = m_regionControl]() {
-        return wb::prepareHeightRegion(snapshot, area, offset, [control](int done, int total) {
-            control->total = total;
-            control->done = done;
-            return !control->cancelled.load();
-        });
-    }));
+    m_regionWatcher.setFuture(
+        QtConcurrent::run([snapshot = std::move(snapshot), area, offset, control = m_regionControl]() {
+            return wb::prepareHeightRegion(snapshot, area, offset, [control](int done, int total) {
+                control->total = total;
+                control->done = done;
+                return !control->cancelled.load();
+            });
+        }));
     emit regionProgressChanged();
     emit changed();
     return true;
@@ -168,22 +188,36 @@ bool Editor::adjustSelectedHeight(int offset) {
 int Editor::regionProgress() const {
     if (!m_regionControl)
         return 0;
-    return int(std::min<int64_t>(m_regionLoading ? 99 : 100,
-              int64_t(m_regionControl->done.load()) * 100 / std::max(1, m_regionControl->total.load())));
+    return int(std::min<int64_t>(m_regionLoading ? 99 : 100, int64_t(m_regionControl->done.load()) * 100 /
+                                                                 std::max(1, m_regionControl->total.load())));
 }
 QString Editor::regionStatus() const {
     if (!m_regionControl)
         return {};
     if (m_regionControl->cancelled.load())
         return "正在取消区域操作…";
-    return QString("分块计算 %1% · %2 / %3 项").arg(regionProgress())
-        .arg(m_regionControl->done.load()).arg(m_regionControl->total.load());
+    return QString("分块计算 %1% · %2 / %3 项")
+        .arg(regionProgress())
+        .arg(m_regionControl->done.load())
+        .arg(m_regionControl->total.load());
 }
 void Editor::cancelRegion() {
     if (m_regionLoading && m_regionControl) {
         m_regionControl->cancelled = true;
+        m_regionState = "cancelling";
         emit regionProgressChanged();
     }
+}
+QJsonObject Editor::regionJobInfo() const {
+    return {{"job_id", m_regionId},
+            {"state", m_regionState},
+            {"progress", regionProgress()},
+            {"source_revision", double(m_regionRevision)},
+            {"result_revision", double(m_regionResultRevision)},
+            {"revision", double(m_revision)},
+            {"changed_columns", m_regionChanged},
+            {"clipped_columns", m_regionClipped},
+            {"error", m_regionError}};
 }
 void Editor::setTool(int v) {
     endStroke();
@@ -272,7 +306,14 @@ void Editor::pushCommand(wb::Command c) {
         auto bytes = [&] {
             size_t b = 0;
             std::set<const wb::HeightmapData *> images;
-            std::set<const std::map<int, int> *> layerMaps;
+            std::set<const void *> layerMaps;
+            // Only charge history for retained data beyond the live world.
+            for (const auto &layer : m_world.heights.layers)
+                layer.deltas->uniqueBytes(layerMaps);
+            for (const auto &instance : m_world.heights.instances)
+                for (const auto &image : {instance.image, instance.mask})
+                    if (image)
+                        images.insert(image.get());
             for (const auto &e : m_history) {
                 for (const auto &theme : {e.command.themeBefore, e.command.themeAfter})
                     if (theme)
@@ -280,13 +321,12 @@ void Editor::pushCommand(wb::Command c) {
                 b += e.command.cells.size() * sizeof(wb::CellChange) +
                      e.command.heights.size() * sizeof(wb::HeightChange);
                 for (const auto &map : {e.command.deltaBefore, e.command.deltaAfter})
-                    if (map && layerMaps.insert(map.get()).second)
-                        b += map->size() * 64;
+                    if (map)
+                        b += map->uniqueBytes(layerMaps);
                 for (const auto &list : {e.command.layersBefore, e.command.layersAfter})
                     if (list)
                         for (const auto &l : *list)
-                            if (layerMaps.insert(l.deltas.get()).second)
-                                b += l.deltas->size() * 48;
+                            b += l.deltas->uniqueBytes(layerMaps);
                 for (const auto &list : {e.command.terrainBefore, e.command.terrainAfter})
                     if (list)
                         for (const auto &instance : *list)
@@ -337,6 +377,12 @@ void Editor::redo() {
     emit changed();
 }
 void Editor::resetHistory() {
+    m_regionControl.reset();
+    m_regionId.clear();
+    m_regionState = "idle";
+    m_regionError.clear();
+    m_regionChanged = m_regionClipped = 0;
+    m_regionRevision = m_regionResultRevision = 0;
     m_selectedNode = m_world.heights.activeLayer;
     m_terrainStart.reset();
     m_environmentStart.reset();

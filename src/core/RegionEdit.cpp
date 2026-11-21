@@ -2,6 +2,12 @@
 #include <new>
 
 namespace wb {
+uint64_t heightRegionWorkspaceBytes(uint64_t residentBytes, QRect area) {
+    // Worst-case alignment and group copies; unchanged value pages stay shared.
+    const uint64_t pages = (uint64_t(area.width() + 255) / 256 + 1) * area.height();
+    return residentBytes +
+           pages * (sizeof(HeightDeltas::Page) + 96 + sizeof(HeightDeltas::Group) + 64 * 64 + 96);
+}
 bool validateHeightRegion(const HeightField &field, QRect area, int offset, QString &error) {
     if (!area.isValid() || !QRect(field.originX, field.originZ, field.width, field.depth).contains(area) ||
         int64_t(area.width()) * area.height() > MaxHeightRegionColumns || offset == 0 || offset < -381 ||
@@ -14,11 +20,7 @@ bool validateHeightRegion(const HeightField &field, QRect area, int offset, QStr
         error = "请先显示当前雕刻层";
         return false;
     }
-    // Conservative map-node estimate for source, staged copy and added columns.
-    // This is an edit workspace guard, not a claim about total process memory.
-    const uint64_t nodes =
-        2 * uint64_t(field.layers[layer].deltas->size()) + uint64_t(area.width()) * area.height();
-    if (nodes * 64 > HeightRegionBudget) {
+    if (heightRegionWorkspaceBytes(field.layers[layer].deltas->allocatedBytes(), area) > HeightRegionBudget) {
         error = "本次区域操作的图层快照估算超过256 MiB预算，请缩小范围或使用新的雕刻层";
         return false;
     }
@@ -31,23 +33,14 @@ HeightRegionResult prepareHeightRegion(const HeightField &field, QRect area, int
         return result;
     try {
         const auto before = field.layers[field.layerIndex(field.activeLayer)].deltas;
-        const int total = int(before->size()) + area.width() * area.height();
+        const int total = area.width() * area.height();
         int done = 0;
         auto keepGoing = [&] { return !progress || progress(done, total); };
         if (!keepGoing()) {
             result.cancelled = true;
             return result;
         }
-        auto after = std::make_shared<std::map<int, int>>();
-        // Copy in bounded batches too: cancelling a large existing layer must
-        // not wait for an uninterruptible std::map copy constructor.
-        for (const auto &entry : *before) {
-            after->emplace_hint(after->end(), entry);
-            if (++done % 4096 == 0 && !keepGoing()) {
-                result.cancelled = true;
-                return result;
-            }
-        }
+        auto after = std::make_shared<HeightDeltas>(*before);
         for (int tz = area.top(); tz <= area.bottom(); tz += World::ChunkSize)
             for (int tx = area.left(); tx <= area.right(); tx += World::ChunkSize) {
                 for (int z = tz; z <= std::min(tz + World::ChunkSize - 1, area.bottom()); ++z)
@@ -56,22 +49,16 @@ HeightRegionResult prepareHeightRegion(const HeightField &field, QRect area, int
                         int other = field.base(index);
                         for (const auto &layer : field.layers)
                             if (layer.enabled && layer.id != field.activeLayer) {
-                                const auto it = layer.deltas->find(index);
-                                if (it != layer.deltas->end())
-                                    other += it->second;
+                                other += layer.deltas->get(index);
                             }
-                        const auto old = before->find(index);
-                        const int oldDelta = old == before->end() ? 0 : old->second;
+                        const int oldDelta = before->get(index);
                         const int height = std::clamp(other + oldDelta, -63, 318);
                         const int raw = height + offset, target = std::clamp(raw, -63, 318);
                         result.clipped += raw != target;
                         if (height != target) {
                             const int delta = std::clamp(target - other, -1000000, 1000000);
                             if (delta != oldDelta) {
-                                if (delta == 0)
-                                    after->erase(index);
-                                else
-                                    (*after)[index] = delta;
+                                after->set(index, delta);
                                 ++result.changed;
                             }
                         }
