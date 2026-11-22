@@ -7,7 +7,7 @@ struct Vertex {
     float x, y, z, nx, ny, nz, r, g, b, a, u, v;
 };
 struct ChunkMesh {
-    std::vector<Vertex> opaque, transparent;
+    std::vector<Vertex> opaque, transparent, water;
     std::vector<uint32_t> opaqueIndices;
     QImage surfaceColors; // One resolved top-face color per column, including a one-column halo.
     uint64_t surfaceColorBytes() const {
@@ -26,7 +26,8 @@ struct ChunkMesh {
     float surfaceError = 0;
     uint64_t sampleCount = 0;
     uint64_t revision = 0;
-    int skirtMask = 0;
+    QRect surfaceCutout;
+    size_t referenceVertices = 0;
     QVector3D center;
     QVector3D lower, upper;
 };
@@ -47,11 +48,14 @@ struct MeshScene {
     qint64 farMilliseconds = 0;
     int updatedFarTiles = 0;
     std::shared_ptr<const AssetLibrary> assets;
-    bool surfacePreview = false;
+    QRect exactArea;
+    QRect worldArea;
+    float seaSurface = 0;
+    size_t waterVertices = 0;
     uint64_t sourceRevision = 0, sampleCount = 0, bufferBytes = 0;
     uint64_t updatedSamples = 0, colorBytes = 0;
     float surfaceError = 0;
     QString error;
 };
-MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision, int skirtMask = 0);
+MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision);
 } // namespace wb

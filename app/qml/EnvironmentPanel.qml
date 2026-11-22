@@ -10,7 +10,7 @@ ColumnLayout {
  function change(key,value){var data={};data[key]=value;editor.setEnvironment(data)}
  Label {text:"环境预览";font.pixelSize:16;Layout.margins:12}
  CheckBox {objectName:"environmentEnabled";text:"启用光照预览";checked:panel.env.enabled;Layout.leftMargin:8;onToggled:panel.change("enabled",checked)}
- Label {text:"影响视口显示，不改变地形或 Minecraft 导出。关闭后恢复编辑照明。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
+ Label {text:"光照与水面效果只影响预览，不改变地形或 Minecraft 导出。关闭光照后恢复编辑照明；水面可单独开关。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  Repeater {
   model:[{key:"sky",title:"天光"},{key:"sun",title:"太阳 · 平行光"},{key:"atmosphere",title:"大气 · 空气透视"}]
   ColumnLayout {
@@ -18,6 +18,7 @@ ColumnLayout {
    Layout.fillWidth:true;spacing:8
    visible:panel.selected==="environment" || panel.selected==="environment-"+modelData.key
    CheckBox {text:modelData.title;checked:panel.env[modelData.key];Layout.leftMargin:8;onToggled:panel.change(modelData.key,checked)}
+   CheckBox {objectName:"environment_shadows";visible:modelData.key==="sun";text:"太阳投影阴影";checked:panel.env.shadows;Layout.leftMargin:16;onToggled:panel.change("shadows",checked)}
    Repeater {
     model:modelData.key==="sky" ? [{key:"skyIntensity",label:"天光强度 %",lo:0,hi:200}] : modelData.key==="sun" ? [{key:"azimuth",label:"方位角 °",lo:-180,hi:180},{key:"elevation",label:"仰角 °",lo:0,hi:90},{key:"sunIntensity",label:"太阳强度 %",lo:0,hi:300}] : [{key:"haze",label:"大气浓度 %",lo:0,hi:100}]
     RowLayout {
@@ -41,11 +42,23 @@ ColumnLayout {
    }
   }
  }
+ ColumnLayout {
+  visible:panel.selected==="environment" || panel.selected==="environment-water"
+  Layout.fillWidth:true;spacing:8
+  CheckBox {objectName:"environment_water";text:"显示水面";checked:panel.env.water;Layout.leftMargin:8;onToggled:panel.change("water",checked)}
+  CheckBox {objectName:"environment_waterWaves";text:"水面波纹";checked:panel.env.waterWaves;Layout.leftMargin:16;onToggled:panel.change("waterWaves",checked)}
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"波纹强度 %";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveStrength";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waveStrength;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveStrength",value)}
+  }
+  CheckBox {objectName:"environment_waterReflections";text:"水面反射";checked:panel.env.waterReflections;Layout.leftMargin:16;onToggled:panel.change("waterReflections",checked)}
+  Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹仅扰动法线，静止场景复用反射。不同高度的独立水方块仅使用天空反射。关闭反射可减少移动时开销。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
+ }
  RowLayout {Layout.fillWidth:true;Layout.margins:12
   Label{text:"曝光 · 0.1 EV";Layout.fillWidth:true}
   WorkbenchSpinBox{returnFocusToViewport:true;objectName:"environment_exposure";Layout.preferredWidth:130;from:-30;to:30;value:panel.env.exposure;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("exposure",value)}
  }
  Label{text:"大气浓度采用渐进曲线：低值适合全图观察，高值在近景也明显。0% 无雾，50% 约3606格衰减至37%，100% 约250格。需开启光照预览与大气。";visible:panel.selected==="environment"||panel.selected==="environment-atmosphere";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
- Label{text:"本版为半球天光、直接太阳光和简化大气。投影阴影、体积云和体积雾将在后续版本加入。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
+ Label{text:"太阳阴影采用局部＋全图两级2048贴图与PCF过滤。大型地图远处小结构的阴影会变软；阴影不影响地形精度。未实现间接光照GI、体积云雾和流体模拟。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  ColorDialog{id:colorPicker;property string targetKey;title:"选择环境颜色";options:ColorDialog.DontUseNativeDialog;onAccepted:panel.change(targetKey,selectedColor.toString())}
 }

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <stdexcept>
 
 namespace wb {
@@ -55,6 +56,185 @@ struct Tree {
         out.indices.insert(out.indices.end(), {uint32_t(index(a)), uint32_t(index(b)), uint32_t(index(c))});
     }
 };
+
+// Subtract the READY exact rectangle from the continuous surface. Each clipped
+// boundary segment is joined to the adjacent voxel's actual terrain top, rather
+// than drawing a world-depth skirt or letting the heightfield cover a cave.
+// Both representations are published together by Editor, so there is no frame
+// with a cutout but missing chunks. Navigation only invalidates affected patches.
+void cutExactArea(ChunkMesh &mesh, const World &w, const QRect &area) {
+    mesh.referenceVertices = mesh.opaque.size();
+    mesh.surfaceCutout = area;
+    if (area.isEmpty())
+        return;
+    const float left = float(area.x()), right = float(area.x() + area.width());
+    const float top = float(area.y()), bottom = float(area.y() + area.height());
+    auto interpolate = [](const Vertex &a, const Vertex &b, float t) {
+        auto mix = [t](float x, float y) { return x + (y - x) * t; };
+        const auto n = QVector3D(mix(a.nx, b.nx), mix(a.ny, b.ny), mix(a.nz, b.nz)).normalized();
+        return Vertex{mix(a.x, b.x), mix(a.y, b.y), mix(a.z, b.z), n.x(),
+                      n.y(),         n.z(),         mix(a.r, b.r), mix(a.g, b.g),
+                      mix(a.b, b.b), mix(a.a, b.a), mix(a.u, b.u), mix(a.v, b.v)};
+    };
+    auto distance = [&](const Vertex &v, int side) {
+        switch (side) {
+        case 0:
+            return v.x - left;
+        case 1:
+            return right - v.x;
+        case 2:
+            return v.z - top;
+        default:
+            return bottom - v.z;
+        }
+    };
+    auto clip = [&](const std::vector<Vertex> &p, int side, bool inside) {
+        std::vector<Vertex> out;
+        if (p.empty())
+            return out;
+        auto a = p.back();
+        float da = distance(a, side) * (inside ? 1 : -1);
+        for (const auto &b : p) {
+            const float db = distance(b, side) * (inside ? 1 : -1);
+            if ((da >= 0) != (db >= 0))
+                out.push_back(interpolate(a, b, da / (da - db)));
+            if (db >= 0)
+                out.push_back(b);
+            a = b;
+            da = db;
+        }
+        return out;
+    };
+    auto append = [&](const std::vector<Vertex> &p) {
+        if (p.size() < 3)
+            return;
+        double twiceArea = 0;
+        for (size_t i = 0; i < p.size(); ++i) {
+            const auto &a = p[i], &b = p[(i + 1) % p.size()];
+            twiceArea += double(a.x - p[0].x) * (b.z - p[0].z) - double(b.x - p[0].x) * (a.z - p[0].z);
+        }
+        if (std::abs(twiceArea) < .000001)
+            return;
+        const auto first = uint32_t(mesh.opaque.size());
+        mesh.opaque.insert(mesh.opaque.end(), p.begin(), p.end());
+        for (uint32_t i = 1; i + 1 < p.size(); ++i)
+            mesh.opaqueIndices.insert(mesh.opaqueIndices.end(), {first, first + i, first + i + 1});
+        for (size_t i = 0; i < p.size(); ++i) {
+            auto a = p[i], b = p[(i + 1) % p.size()];
+            for (int side = 0; side < 4; ++side) {
+                if (std::abs(distance(a, side)) > .0001f || std::abs(distance(b, side)) > .0001f)
+                    continue;
+                float start = side < 2 ? a.z : a.x, end = side < 2 ? b.z : b.x;
+                if (start > end) {
+                    std::swap(start, end);
+                    std::swap(a, b);
+                }
+                if (end - start < .0001f)
+                    continue;
+                float cursor = std::max(start, side < 2 ? top : left),
+                      stop = std::min(end, side < 2 ? bottom : right);
+                while (cursor < stop - .0001f) {
+                    const int column = int(std::floor(cursor + .00001f));
+                    const float next = std::min(stop, float(column + 1));
+                    const int x = side < 2 ? (side == 0 ? area.left() : area.right()) : column;
+                    const int z = side >= 2 ? (side == 2 ? area.top() : area.bottom()) : column;
+                    const float height = float(w.height(x, z) + 1);
+                    auto p0 = interpolate(a, b, (cursor - start) / (end - start));
+                    auto p1 = interpolate(a, b, (next - start) / (end - start));
+                    auto p2 = p1, p3 = p0;
+                    p2.y = p3.y = height;
+                    for (auto *v : {&p0, &p1, &p2, &p3}) {
+                        v->nx = side == 0 ? -1.f : side == 1 ? 1.f : 0.f;
+                        v->ny = 0;
+                        v->nz = side == 2 ? -1.f : side == 3 ? 1.f : 0.f;
+                    }
+                    const auto k = uint32_t(mesh.opaque.size());
+                    mesh.opaque.insert(mesh.opaque.end(), {p0, p1, p2, p3});
+                    mesh.opaqueIndices.insert(mesh.opaqueIndices.end(), {k, k + 1, k + 2, k, k + 2, k + 3});
+                    cursor = next;
+                }
+            }
+        }
+    };
+    auto indices = std::move(mesh.opaqueIndices);
+    mesh.opaqueIndices.clear();
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        const auto a = mesh.opaque[indices[i]], b = mesh.opaque[indices[i + 1]],
+                   c = mesh.opaque[indices[i + 2]];
+        if (std::max({a.x, b.x, c.x}) < left || std::min({a.x, b.x, c.x}) > right ||
+            std::max({a.z, b.z, c.z}) < top || std::min({a.z, b.z, c.z}) > bottom) {
+            mesh.opaqueIndices.insert(mesh.opaqueIndices.end(), {indices[i], indices[i + 1], indices[i + 2]});
+            continue;
+        }
+        std::vector<Vertex> remaining{a, b, c};
+        for (int side = 0; side < 4 && !remaining.empty(); ++side) {
+            append(clip(remaining, side, false));
+            remaining = clip(remaining, side, true);
+        }
+    }
+}
+
+// Match authoritative sea-level cells exactly, including explicit air/solid
+// overrides. Merge identical row runs instead of emitting two triangles per
+// submerged column. The exact region owns its own water faces at every height.
+bool appendSeaSurface(ChunkMesh &mesh, const World &w, const FarTile &tile, const SurfaceGrid &grid,
+                      const QVector4D &color, const QRect &exactArea, const std::atomic_bool *cancelled) {
+    const auto r = tile.area;
+    const int width = r.width() + (r.x() + r.width() == w.originX + w.width - 1);
+    const int depth = r.height() + (r.y() + r.height() == w.originZ + w.depth - 1);
+    const int side = grid.size + 1;
+    using Run = std::pair<int, int>;
+    std::map<Run, QRect> previous;
+    auto append = [&](const QRect &rect) {
+        const float y = float(w.seaLevel + 1);
+        const float x0 = float(rect.x()), x1 = float(rect.x() + rect.width());
+        const float z0 = float(rect.y()), z1 = float(rect.y() + rect.height());
+        auto v = [&](float x, float z) {
+            return Vertex{x, y, z, 0, 1, 0, color.x(), color.y(), color.z(), .76f, -1, -1};
+        };
+        mesh.water.insert(mesh.water.end(), {v(x0, z0), v(x1, z1), v(x1, z0),
+                                             v(x0, z0), v(x0, z1), v(x1, z1)});
+    };
+    for (int z = 0; z < depth; ++z) {
+        if (cancelled && cancelled->load())
+            return false;
+        std::map<Run, QRect> current;
+        auto wet = [&](int x) {
+            const int wx = r.x() + x, wz = r.y() + z;
+            if (exactArea.contains(wx, wz))
+                return false;
+            const int h = int(grid.heights[size_t(z) * side + x]) - 1;
+            const auto above = w.blockAtHeight(wx, w.seaLevel + 1, wz, h);
+            return w.blockAtHeight(wx, w.seaLevel, wz, h) == Water && above != Water &&
+                   (above == Air || w.models[above]->translucent);
+        };
+        for (int x = 0; x < width;) {
+            if (!wet(x)) {
+                ++x;
+                continue;
+            }
+            const int start = x++;
+            while (x < width && wet(x))
+                ++x;
+            const Run key{start, x};
+            auto found = previous.find(key);
+            if (found == previous.end())
+                current.emplace(key, QRect(r.x() + start, r.y() + z, x - start, 1));
+            else {
+                auto rect = found->second;
+                rect.setHeight(rect.height() + 1);
+                current.emplace(key, rect);
+                previous.erase(found);
+            }
+        }
+        for (const auto &[key, rect] : previous)
+            append(rect);
+        previous = std::move(current);
+    }
+    for (const auto &[key, rect] : previous)
+        append(rect);
+    return true;
+}
 } // namespace
 SurfaceTopology triangulateSurface(const SurfaceGrid &grid, float tolerance, bool fullBoundary) {
     if (grid.size < 1 || grid.size > 1024 || (grid.size & (grid.size - 1)) ||
@@ -100,8 +280,8 @@ std::vector<FarTile> planSurfaceTiles(const World &w, int patchSize) {
         }
     return result;
 }
-MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &in, uint64_t revision,
-                         float tolerance, const std::atomic_bool *cancelled) {
+MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMaterials &in, uint64_t revision,
+                         float tolerance, const std::atomic_bool *cancelled, const QRect &exactArea) {
     const auto r = tile.area;
     const int n = tile.step, side = n + 1;
     SurfaceGrid grid{n, std::vector<float>(size_t(side) * side)};
@@ -247,9 +427,17 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &i
             }
             mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, a + 1, a + 2, a, a + 2, a + 3});
         }
+    cutExactArea(*mesh, w, exactArea);
+    if (mesh->opaqueIndices.empty()) {
+        mesh->opaque.clear();
+        mesh->referenceVertices = 0;
+    }
+    if (!appendSeaSurface(*mesh, w, tile, grid, in.colors.at(Water), exactArea, cancelled))
+        return {};
     mesh->lower = {float(r.x()), float(World::MaxY), float(r.y())};
     mesh->upper = {float(r.x() + r.width() + 1), float(World::MinY), float(r.y() + r.height() + 1)};
-    for (const auto &v : mesh->opaque) {
+    for (const auto *vertices : {&mesh->opaque, &mesh->water})
+      for (const auto &v : *vertices) {
         mesh->lower.setY(std::min(mesh->lower.y(), v.y));
         mesh->upper.setY(std::max(mesh->upper.y(), v.y));
     }

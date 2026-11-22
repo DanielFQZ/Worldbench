@@ -1,7 +1,7 @@
-#include "core/FarMesh.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
 #include "core/ProjectFormat.h"
+#include "core/TerrainSurface.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -85,53 +85,35 @@ int main(int argc, char **argv) {
             auto w = fixture(size.width(), size.height());
             if (assets)
                 w.setAssets(assets);
-            for (QPoint focus : {QPoint(0, 0), QPoint(w.originX, w.originZ),
-                                 QPoint(w.originX + w.width - 1, w.originZ + w.depth - 1)}) {
-                auto exact = exactChunks(w, focus.x(), focus.y());
-                auto plan = wb::planFarTiles(w, exact, focus.x(), focus.y());
-                std::vector<QRect> regions;
-                const QRect bounds(w.originX, w.originZ, w.width, w.depth);
-                for (int id : exact)
-                    regions.push_back(
-                        QRect(w.originX + id % w.chunksX() * 16, w.originZ + id / w.chunksX() * 16, 16, 16)
-                            .intersected(bounds));
-                for (const auto &t : plan)
-                    regions.push_back(t.area);
-                int64_t area = 0;
-                for (size_t i = 0; i < regions.size(); ++i) {
-                    check(bounds.contains(regions[i]), "tile stays inside rectangular map");
-                    area += int64_t(regions[i].width()) * regions[i].height();
-                    for (size_t j = 0; j < i; ++j)
-                        check(!regions[i].intersects(regions[j]), "exact and far partitions do not overlap");
-                }
-                check(area == int64_t(w.width) * w.depth,
-                      "partition covers every column with no blank rings");
-                check(plan.size() < 1024, "bounded tile count independent of full chunk count");
+            auto plan = wb::planSurfaceTiles(w, std::max(w.width, w.depth) > 4096 ? 256 : 128);
+            int64_t area = 0;
+            const QRect bounds(w.originX, w.originZ, w.width - 1, w.depth - 1);
+            std::set<std::pair<int, int>> origins;
+            for (const auto &tile : plan) {
+                check(bounds.contains(tile.area),
+                      "surface interval tile stays inside rectangular source lattice");
+                check(origins.emplace(tile.area.x(), tile.area.y()).second, "unique regular tile origin");
+                area += int64_t(tile.area.width()) * tile.area.height();
             }
-            auto plan = wb::planFarTiles(w, exactChunks(w, 0, 0), 0, 0);
+            check(area == int64_t(w.width - 1) * (w.depth - 1), "complete reference lattice coverage");
             QElapsedTimer timer;
             timer.start();
-            const auto inputs = wb::farInputs(w);
+            const auto inputs = wb::surfaceMaterials(w);
             if (assets)
-                check(inputs.colors[wb::Grass] != wb::farInputs(fixture(w.width, w.depth)).colors[wb::Grass],
-                      "far color summary follows real resource atlas");
+                check(inputs.colors[wb::Grass] !=
+                          wb::surfaceMaterials(fixture(w.width, w.depth)).colors[wb::Grass],
+                      "surface colors follow loaded resources");
             size_t vertices = 0;
-            for (auto &t : plan) {
-                t.mesh = wb::buildFarMesh(w, t, inputs, 1);
-                const auto &v = t.mesh->opaque;
-                vertices += v.size();
-                check(v.size() <= 7680, "tile bounded to 16x16 columns and five faces each");
-                for (size_t n = 0; n < v.size(); n += 6) {
-                    const auto &a = v[n];
-                    check(std::abs(a.nx) + std::abs(a.ny) + std::abs(a.nz) == 1,
-                          "voxel normals remain axis aligned");
-                    check(a.x >= t.area.left() && a.x <= t.area.right() + 1 && a.z >= t.area.top() &&
-                              a.z <= t.area.bottom() + 1,
-                          "far geometry remains in owned tile");
-                }
+            std::set<size_t> samples{0, plan.size() / 2, plan.size() - 1};
+            for (size_t i : samples) {
+                auto &tile = plan[i];
+                tile.mesh = wb::buildSurfaceMesh(w, tile, inputs, 1, 1.f);
+                vertices += tile.mesh->opaqueIndices.size();
+                check(tile.mesh->surfaceError <= 1, "sampled surface meets reference error bound");
+                check(tile.mesh->sampleCount == uint64_t(tile.area.width() + 1) * (tile.area.height() + 1),
+                      "every sample in each evaluated patch participates");
             }
             auto elapsed = timer.elapsed();
-            check(vertices < 8000000, "far vertex working set bounded");
             std::vector<qint64> pickTimes;
             for (int i = 0; i < 200; ++i) {
                 const int x = w.originX + (i * 7919 + 13) % w.width,
@@ -154,9 +136,9 @@ int main(int argc, char **argv) {
                                        {"width", w.width},
                                        {"depth", w.depth},
                                        {"tiles", int(plan.size())},
-                                       {"far_vertices", double(vertices)},
-                                       {"far_mesh_mib", vertices * sizeof(wb::Vertex) / 1048576.},
-                                       {"serial_far_ms", double(elapsed)},
+                                       {"sampled_surface_indices", double(vertices)},
+                                       {"evaluated_tiles", int(samples.size())},
+                                       {"sampled_surface_ms", double(elapsed)},
                                        {"pick_vertical_p95_us", pickTimes[189] / 1000.},
                                        {"pick_horizontal_miss_us", horizontalMicros}});
             auto path = output + QString("/scene-%1x%2.wbench").arg(w.width).arg(w.depth);
@@ -173,24 +155,21 @@ int main(int argc, char **argv) {
             view.lookAt({0, 20000, 10000}, {0, 24, 0}, {0, 1, 0});
             projection.perspective(60, 1.6f, 20, 60000);
             for (const auto &t : plan)
-                check(wb::visibleMesh(*t.mesh, projection * view), "whole map camera keeps every tile");
+                if (t.mesh)
+                    check(wb::visibleMesh(*t.mesh, projection * view),
+                          "whole map camera keeps evaluated tiles");
         }
-        // Sparse edits between regular samples, removal of top blocks, and local
-        // caves are resolved against the authoritative column at refinement.
         auto flat = wb::World::create({512, 1, -60, 24, 0, true, 512});
-        wb::FarTile tile{QRect(0, 0, 64, 64), 4, {}};
+        wb::FarTile tile{QRect(0, 0, 64, 64), 64, {}};
         flat.setBlock(2, 150, 2, wb::Glass);
-        auto mesh = wb::buildFarMesh(flat, tile, wb::farInputs(flat), 1);
-        check(mesh->upper.y() == 151, "sparse translucent model contributes to distant envelope");
+        auto mesh = wb::buildSurfaceMesh(flat, tile, wb::surfaceMaterials(flat), 1);
+        check(mesh->upper.y() == 25, "non-heightfield structure does not spread into a distant envelope");
+        auto exact = wb::buildChunkMesh(flat, 0, 0, 2);
+        check(exact->transparent.size() > 0, "real translucent structure retained in exact geometry");
         flat.setBlock(2, 150, 2, wb::Air);
-        mesh = wb::buildFarMesh(flat, tile, wb::farInputs(flat), 2);
-        check(mesh->upper.y() == 25, "removed floating geometry no longer remains in far summary");
         flat.heights.restoreDelta(flat.heights.activeLayer, flat.column(2, 2), 100);
-        mesh = wb::buildFarMesh(flat, tile, wb::farInputs(flat), 3);
-        check(mesh->upper.y() == 125, "sparse sculpt spike between samples survives");
-        auto exact = wb::buildChunkMesh(flat, 0, 0, 4, 15);
-        check(exact->skirtMask == 15 && exact->lower.y() == wb::World::MinY,
-              "exact boundary skirts span terrain depth");
+        mesh = wb::buildSurfaceMesh(flat, tile, wb::surfaceMaterials(flat), 3);
+        check(mesh->upper.y() == 125, "single-column sculpt spike retained without sparse sampling");
         auto extended = std::make_shared<wb::BlockModel>(*flat.models[wb::Planks]);
         for (auto &face : extended->faces)
             for (auto &point : face.points)

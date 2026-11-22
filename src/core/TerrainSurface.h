@@ -1,5 +1,5 @@
 #pragma once
-#include "FarMesh.h"
+#include "RenderSupport.h"
 #include <atomic>
 #include <functional>
 #include <span>
@@ -18,9 +18,10 @@ struct SurfaceTopology {
     float certifiedError = 0;
 };
 SurfaceTopology triangulateSurface(const SurfaceGrid &grid, float tolerance, bool fullBoundary = true);
-// Reference/prototype path: sample every column, not five samples per LOD cell.
+// Full-resolution source samples feed the error-bounded terrain surface.
 // Patches own sample intervals; adjacent patches share their endpoint samples.
 std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 128);
-MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const FarInputs &inputs, uint64_t revision,
-                         float tolerance = .5f, const std::atomic_bool *cancelled = nullptr);
+MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const SurfaceMaterials &inputs,
+                         uint64_t revision, float tolerance = .5f,
+                         const std::atomic_bool *cancelled = nullptr, const QRect &exactArea = {});
 } // namespace wb

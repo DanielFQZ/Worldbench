@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.15.0");
+    app.setApplicationVersion("0.16.0");
     const auto local = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir().mkpath(local);
     logPath = local + "/Worldbench.log";
@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.15.0 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.16.0 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -61,14 +61,12 @@ int main(int argc, char **argv) {
         return 1;
     // CI smoke path uses the same renderer and window; it does not replace manual tests.
     const auto args = app.arguments();
-    if (args.contains("--surface-preview"))
-        editor.setSurfacePreview(true);
     const int openIndex = args.indexOf("--open");
     if (openIndex >= 0 && !args.value(openIndex + 1).isEmpty())
         editor.open(QUrl::fromLocalFile(args.value(openIndex + 1)));
     else
         editor.initializeResources();
-    if (args.contains("--surface-preview"))
+    if (args.contains("--frame-world"))
         if (auto *viewport = engine.rootObjects().first()->findChild<Viewport *>("voxelViewport"))
             viewport->frameWorld();
     if (args.contains("--model-preview")) {

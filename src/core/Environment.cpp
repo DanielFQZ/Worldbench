@@ -13,6 +13,11 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"sky", e.sky},
             {"sun", e.sun},
             {"atmosphere", e.atmosphere},
+            {"water", e.water},
+            {"waterWaves", e.waterWaves},
+            {"waterReflections", e.waterReflections},
+            {"shadows", e.shadows},
+            {"waveStrength", e.waveStrength},
             {"skyIntensity", e.skyIntensity},
             {"sunIntensity", e.sunIntensity},
             {"azimuth", e.azimuth},
@@ -50,6 +55,20 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
         target = int(n);
         return true;
     };
+    // These preview-only fields were added within project v9. Older files keep
+    // their strict original validation and receive the new effect defaults.
+    for (auto [name, target] : {std::pair{"water", &next.water},
+                               {"waterWaves", &next.waterWaves},
+                               {"waterReflections", &next.waterReflections},
+                               {"shadows", &next.shadows}}) {
+        if (!o.contains(name))
+            continue;
+        if (!o[name].isBool())
+            return fail();
+        *target = o[name].toBool();
+    }
+    if (o.contains("waveStrength") && !number("waveStrength", next.waveStrength, 0, 100))
+        return fail();
     if (!number("skyIntensity", next.skyIntensity, 0, 200) ||
         !number("sunIntensity", next.sunIntensity, 0, 300) || !number("azimuth", next.azimuth, -180, 180) ||
         !number("elevation", next.elevation, 0, 90) || !number("haze", next.haze, 0, 100) ||

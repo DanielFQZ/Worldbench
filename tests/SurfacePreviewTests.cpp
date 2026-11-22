@@ -161,8 +161,12 @@ int main(int argc, char **argv) {
         auto rejected =
             request("tools/call", {{"name", "camera"},
                                    {"arguments", QJsonObject{{"surface_preview", true}, {"pitch", 1000}}}});
-        check(rejected["isError"].toBool() && !editor.surfacePreview() && viewport->camera() == initialCamera,
-              "invalid combined camera request leaves mode and camera unchanged");
+        check(rejected["isError"].toBool() && viewport->camera() == initialCamera,
+              "invalid combined camera request leaves camera unchanged");
+        rejected = request("tools/call",
+                           {{"name", "camera"}, {"arguments", QJsonObject{{"surface_preview", false}}}});
+        check(rejected["isError"].toBool() && viewport->camera() == initialCamera,
+              "retired prototype parameter cannot select a legacy renderer");
         auto call = [&](QString name, QJsonObject arguments) {
             auto result = request("tools/call", {{"name", name}, {"arguments", arguments}});
             if (result["isError"].toBool())
@@ -213,22 +217,25 @@ int main(int argc, char **argv) {
             check(image.loadFromData(data, "PNG"), "MCP PNG decodes");
             check(image.save(out + "/" + name + ".png"), "save MCP screenshot evidence");
         };
-        capture("legacy-overview");
+        capture("default-overview");
         QElapsedTimer build;
         build.start();
-        call("camera", {{"surface_preview", true}});
         settle();
         const auto initialMs = build.elapsed();
         check(editor.world().heights == authoritative && !editor.modified(),
               "preview never bakes or modifies project");
-        check(editor.scene()->surfacePreview && editor.scene()->surfaceError <= 1,
-              "adaptive preview active with bounded residual");
+        check(!editor.scene()->farTiles.empty() && !editor.scene()->chunks.empty() &&
+                  editor.scene()->surfaceError <= 1,
+              "default terrain combines bounded surface and ready local voxels");
         capture("surface-overview");
         auto initial = info();
         const auto beforeNavigation = editor.scene();
         call("camera", {{"position", QJsonArray{0, 350, width * 1.15}}, {"yaw", 0}, {"pitch", -14}});
         capture("surface-ridges");
-        check(editor.scene() == beforeNavigation, "navigation reuses unchanged surface geometry and colors");
+        size_t navigationReuse = 0;
+        for (size_t i = 0; i < beforeNavigation->farTiles.size(); ++i)
+            navigationReuse += beforeNavigation->farTiles[i].mesh == editor.scene()->farTiles[i].mesh;
+        check(navigationReuse > 0, "navigation reuses terrain away from the moving exact cutout");
         const auto target = editor.world().heights.instances.back();
         const int x = std::clamp(target.x + target.width / 2, editor.world().originX,
                                  editor.world().originX + editor.world().width - 1);
@@ -272,13 +279,9 @@ int main(int argc, char **argv) {
         capture("surface-rotated");
         write("undo", {});
         settle();
-        call("camera", {{"surface_preview", false}});
-        settle();
+        check(editor.scene()->chunks.size() > 0 && !editor.scene()->exactArea.isEmpty(),
+              "exact voxel inspection is part of the default view without a mode switch");
         capture("voxel-inspection");
-        check(!editor.scene()->surfacePreview && editor.scene()->chunks.size() > 0,
-              "voxel inspection still renders");
-        call("camera", {{"surface_preview", true}});
-        settle();
         write("environment", {{"changes", QJsonObject{{"enabled", true},
                                                       {"sun", true},
                                                       {"sky", true},
@@ -333,13 +336,24 @@ int main(int argc, char **argv) {
             QTest::qWait(15);
         }
         check(!publications.empty(), "continuous gesture publishes visible updates before mouse-up");
+        check(window->grabWindow().save(out + "/editing-active.png"),
+              "capture actual UI during open brush gesture");
+        auto *statusItem = qobject_cast<QQuickItem *>(window->findChild<QObject *>("terrainUpdateStatus"));
+        check(statusItem && statusItem->isVisible() &&
+                  statusItem->mapToItem(viewport, {0, 0}).y() > viewport->height() * .5,
+              "background build feedback stays at bottom during sculpting");
+        check(!editor.property("surfacePreview").isValid(), "retired prototype switch is not exposed");
+        for (auto *item : window->findChildren<QQuickItem *>())
+            check(!item->property("text").toString().contains("正在构建初始体素网格"),
+                  "no centered initial-build popup is present while sculpting");
         editor.endStroke();
         settle();
         QObject::disconnect(connection);
         check(ordered && editor.scene()->sourceRevision == editor.revision(),
               "intermediate snapshots advance monotonically and finish at current revision");
         for (const auto &tile : editor.scene()->farTiles)
-            for (const auto &vertex : tile.mesh->opaque) {
+            for (size_t vi = 0; vi < tile.mesh->referenceVertices; ++vi) {
+                const auto &vertex = tile.mesh->opaque[vi];
                 const int wx = std::clamp(int(std::floor(vertex.x)), editor.world().originX,
                                           editor.world().originX + editor.world().width - 1);
                 const int wz = std::clamp(int(std::floor(vertex.z)), editor.world().originZ,
@@ -361,7 +375,8 @@ int main(int argc, char **argv) {
                            {"continuous_publications", publications},
                            {"source_sha256", QString(sourceHash.toHex())},
                            {"transcript", transcript},
-                           {"scope", "R1a local update and color pages; not complete R1/R2/R3 acceptance"}};
+                           {"scope", "Default precision terrain and local voxel integration; complex 8K/16K "
+                                     "and distant non-heightfield geometry remain pending"}};
         QFile file(out + "/report.json");
         check(file.open(QIODevice::WriteOnly), "write evidence report");
         file.write(QJsonDocument(report).toJson());

@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
         check(brushPanel && brushPanel->isVisible() &&
                   brushPanel->mapToScene({0, 0}).x() < v->mapToScene({0, 0}).x(),
               "brush settings expand to left of viewport");
-        check(editor.sceneNodes().size() == 5 && editor.sceneNodes()[0].toMap()["name"] == "基础地形层1",
+        check(editor.sceneNodes().size() == 6 && editor.sceneNodes()[0].toMap()["name"] == "基础地形层1",
               "outliner contains terrain and environment scene components");
         editor.setTool(-1);
         QTest::qWait(40);
@@ -300,7 +300,7 @@ int main(int argc, char **argv) {
         auto sceneInfo = QJsonDocument::fromJson(
                              sceneResult["content"].toArray()[0].toObject()["text"].toString().toUtf8())
                              .object();
-        check(sceneInfo["scene_nodes"].toArray().size() == 5 &&
+        check(sceneInfo["scene_nodes"].toArray().size() == 6 &&
                   sceneInfo["scene_nodes"].toArray()[0].toObject()["id"] == "terrain-base-1",
               "MCP uses same actual scene nodes as outliner");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "environment test mesh ready");
@@ -310,11 +310,14 @@ int main(int argc, char **argv) {
         const auto envBefore = editor.world().environment;
         auto envResult = call(
             "environment",
-            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}}},
+            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}}},
              {"expected_revision", double(editor.revision())}});
         check(!envResult["isError"].toBool() && editor.world().environment.enabled &&
                   editor.world().environment.azimuth == 75,
               "stdio MCP environment change");
+        check(!editor.world().environment.waterWaves && !editor.world().environment.waterReflections &&
+              !editor.world().environment.shadows && editor.world().environment.waveStrength==62,
+              "real stdio MCP accepts water and shadow controls");
         check(editor.scene() == envScene && !editor.meshBusy() && editor.world().overrides == envBlocks &&
                   editor.world().heights == envHeights,
               "lighting does not rebuild or mutate world");
@@ -484,7 +487,7 @@ int main(int argc, char **argv) {
         const auto cameraBeforeImport = v->viewProjection();
         editor.importHeightmap(QUrl::fromLocalFile(tmp.filePath("hill.png")));
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
-                  editor.sceneNodes().size() == 6 && editor.world().height(0, 0) > beforeImport,
+                  editor.sceneNodes().size() == 7 && editor.world().height(0, 0) > beforeImport,
               "heightmap imported as a composed scene component");
         auto instanceId = editor.selectedNode();
         auto *instancePanel = win->findChild<QQuickItem *>("terrainInstanceControls");
@@ -555,7 +558,7 @@ int main(int argc, char **argv) {
                                 instanceScene["content"].toArray()[0].toObject()["text"].toString().toUtf8())
                                 .object();
         check(instanceInfo["terrain_instances"].toArray().size() == 1 &&
-                  instanceInfo["scene_nodes"].toArray().size() == 6,
+                  instanceInfo["scene_nodes"].toArray().size() == 7,
               "MCP reports actual terrain instances");
         const int composed = editor.world().height(0, 0);
         result = call("terrain_instance", {{"id", instanceId},
@@ -622,7 +625,7 @@ int main(int argc, char **argv) {
         check(editor.world().height(0, 0) > beforeImport, "remove mask restores contribution");
         editor.importHeightmap(QUrl::fromLocalFile(tmp.filePath("hill.png")));
         check(QTest::qWaitFor([&] { return !editor.assetBusy() && !editor.meshBusy(); }, 15000) &&
-                  editor.sceneNodes().size() == 7,
+                  editor.sceneNodes().size() == 8,
               "multiple instances in outliner");
         check(v->viewProjection() == cameraBeforeImport, "heightmap imports preserve the current camera");
         const auto topId = editor.selectedNode();
@@ -631,14 +634,14 @@ int main(int argc, char **argv) {
         editor.undo();
         check(editor.world().heights.instances[1].id == topId, "instance ordering undo");
         editor.removeTerrain();
-        check(editor.sceneNodes().size() == 6, "remove instance");
+        check(editor.sceneNodes().size() == 7, "remove instance");
         editor.undo();
-        check(editor.sceneNodes().size() == 7, "undo removal restores instance");
+        check(editor.sceneNodes().size() == 8, "undo removal restores instance");
         check(editor.save(QUrl::fromLocalFile(tmp.filePath("terrain.wbench"))), "save instance project");
         QFile::remove(tmp.filePath("hill.png"));
         QFile::remove(tmp.filePath("mask.png"));
         check(editor.open(QUrl::fromLocalFile(tmp.filePath("terrain.wbench"))) &&
-                  editor.sceneNodes().size() == 7,
+                  editor.sceneNodes().size() == 8,
               "embedded terrain reopens without PNGs");
         editor.setSelectedNode(topId);
         editor.setTool(-1);
@@ -918,6 +921,9 @@ int main(int argc, char **argv) {
         v->setSnapEnabled(false);
         v->forceActiveFocus();
         QTest::keyClick(win, Qt::Key_Delete);
+        std::cout << "Delete instance count " << editor.world().heights.instances.size()
+                  << " selected=" << editor.selectedNode().toStdString()
+                  << " top=" << topId.toStdString() << std::endl;
         check(editor.world().heights.instances.size() == 1, "Delete removes selected instance");
         editor.undo();
         check(editor.world().heights.instances.size() == 2, "Delete participates in undo");
@@ -1347,7 +1353,7 @@ int main(int argc, char **argv) {
         QMetaObject::invokeMethod(manualSettings, "close");
         QElapsedTimer largeTimer;
         largeTimer.start();
-        check(editor.createWorld(16384, 42, 24, 12, -60, false, 12289), "large rectangular creation");
+        check(editor.createWorld(16384, 42, 24, 0, -60, true, 12289), "large rectangular creation");
         const auto creationMs = largeTimer.elapsed();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
                   editor.scene()->chunks.size() <= 81 && !editor.scene()->farTiles.empty(),
@@ -1402,7 +1408,9 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000), "return to full map");
         QTest::qWait(550);
         const auto fullScene = editor.scene();
-        check(!fullScene->farTiles.empty() && fullScene->vertices < 8000000, "bounded 16k overview geometry");
+        check(!fullScene->farTiles.empty() &&
+                  fullScene->bufferBytes + fullScene->colorBytes <= 512ull * 1024 * 1024,
+              "bounded precision 16k flat overview geometry");
         editor.setTool(0);
         editor.setRadius(16);
         editor.setStrength(4);
@@ -1506,8 +1514,19 @@ int main(int argc, char **argv) {
                     top = t.mesh->upper.y();
             return top;
         };
-        check(distantTop() >= 301 && editor.scene()->updatedFarTiles > 0,
-              "far summary includes sparse structure between samples");
+        check(distantTop() < 301 && editor.world().block(7000, 300, 5000) == wb::Planks,
+              "distant heightfield does not distort terrain into an artificial structure envelope");
+        v->jumpTo(7000, 5000);
+        check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
+                  editor.previewContains(7000, 5000),
+              "structure is available in automatic exact inspection");
+        bool structureVisible = false;
+        for (const auto &mesh : editor.scene()->chunks)
+            for (const auto &vertex : mesh->opaque)
+                structureVisible |= vertex.x >= 7000 && vertex.x <= 7001 && vertex.z >= 5000 &&
+                                    vertex.z <= 5001 && vertex.y == 301;
+        check(structureVisible,
+              "local exact mesh includes the real structure without spreading its footprint");
         editor.undo();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) && distantTop() < 301,
               "undo invalidates distant summary");
@@ -1749,7 +1768,7 @@ int main(int argc, char **argv) {
             editor.addSculptLayer();
         QTest::qWait(100);
         auto *list = win->findChild<QQuickItem *>("sceneNodeList");
-        check(list && list->property("count").toInt() == 27, "stable model contains all scene nodes");
+        check(list && list->property("count").toInt() == 28, "stable model contains all scene nodes");
         list->setProperty("contentY", 360);
         QTest::qWait(80);
         const auto nodeId = editor.sceneNodes()[12].toMap()["id"].toString();

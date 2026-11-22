@@ -1,16 +1,17 @@
 #include "Mesh.h"
+#include "RenderSupport.h"
 #include <algorithm>
 #include <bitset>
 namespace wb {
-MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, int skirtMask) {
+MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
     auto mesh = std::make_shared<ChunkMesh>();
     mesh->revision = rev;
-    mesh->skirtMask = skirtMask;
     mesh->center = {float(cx * 16 + 8), 20, float(cz * 16 + 8)};
     mesh->lower = {float(cx * 16), float(World::MinY), float(cz * 16)};
     mesh->upper = {float(cx * 16 + 16), float(World::MaxY), float(cz * 16 + 16)};
     const int normals[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     const int tri[6] = {0, 1, 2, 0, 2, 3};
+    const auto waterColor = surfaceColor(w, Water);
     // Evaluate procedural heights once for this chunk and its face-neighbour border.
     int heights[18][18];
     for (int z = 0; z < 18; ++z)
@@ -70,7 +71,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, int skirtMa
                 if (b == Air)
                     continue;
                 const auto &m = *w.models[b];
-                auto &vertices = m.translucent ? mesh->transparent : mesh->opaque;
+                auto &vertices = b == Water ? mesh->water : m.translucent ? mesh->transparent : mesh->opaque;
                 for (const auto &face : m.faces) {
                     if (face.cull >= 0) {
                         const auto &n = normals[face.cull];
@@ -83,48 +84,16 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, int skirtMa
                     for (int t : tri) {
                         const auto &p = face.points[t];
                         const auto &n = face.normal;
-                        const auto &c = face.color;
+                        const auto &c = b == Water ? waterColor : face.color;
                         vertices.push_back({x + p.x(), y + p.y(), z + p.z(), n.x(), n.y(), n.z(), c.x(),
                                             c.y(), c.z(), c.w(), face.uv[t].x(), face.uv[t].y()});
                     }
                 }
             }
         }
-    // Close the near/coarse boundary underneath the true terrain edge. This is
-    // outside the editable data and is omitted on exact-to-exact interfaces.
-    for (int side = 0; side < 4; ++side)
-        if (skirtMask & (1 << side))
-            for (int t = 0; t < 16; ++t) {
-                const int x = cx * 16 + (side < 2 ? (side == 0 ? 0 : 15) : t);
-                const int z = cz * 16 + (side >= 2 ? (side == 2 ? 0 : 15) : t);
-                if (!w.contains(x, 0, z))
-                    continue;
-                const float h = float(std::max(w.height(x, z), w.seaLevel) + 1), low = float(World::MinY);
-                QVector3D a(float(x), low, float(z)), b = a;
-                if (side < 2) {
-                    a.setX(float(x + (side == 1)));
-                    b = a;
-                    b.setZ(z + 1.f);
-                } else {
-                    a.setZ(float(z + (side == 3)));
-                    b = a;
-                    b.setX(x + 1.f);
-                }
-                QVector3D points[4]{a, b, {b.x(), h, b.z()}, {a.x(), h, a.z()}};
-                QVector3D n(side == 0   ? -1.f
-                            : side == 1 ? 1.f
-                                        : 0.f,
-                            0,
-                            side == 2   ? -1.f
-                            : side == 3 ? 1.f
-                                        : 0.f);
-                for (int i : tri)
-                    mesh->opaque.push_back({points[i].x(), points[i].y(), points[i].z(), n.x(), n.y(), n.z(),
-                                            .35f, .32f, .27f, 1, -1, -1});
-            }
     // JSON elements can overhang their owning cell/chunk (for example leaves).
     // Culling uses the rendered geometry, never just the nominal chunk footprint.
-    for (const auto *vertices : {&mesh->opaque, &mesh->transparent})
+    for (const auto *vertices : {&mesh->opaque, &mesh->transparent, &mesh->water})
         for (const auto &v : *vertices) {
             mesh->lower.setX(std::min(mesh->lower.x(), v.x));
             mesh->lower.setY(std::min(mesh->lower.y(), v.y));

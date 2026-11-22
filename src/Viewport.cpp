@@ -1,5 +1,5 @@
 #include "Viewport.h"
-#include "core/FarMesh.h"
+#include "ViewportRenderer.h"
 #include <QCoreApplication>
 #include <QCursor>
 #include <QJsonArray>
@@ -18,346 +18,6 @@
 #include <array>
 #include <cstring>
 #include <rhi/qrhi.h>
-
-namespace {
-QShader shader(const char *name) {
-    QFile f(name);
-    if (!f.open(QIODevice::ReadOnly))
-        qFatal("Missing shader %s", name);
-    return QShader::fromSerialized(f.readAll());
-}
-struct GpuChunk {
-    std::unique_ptr<QRhiBuffer> opaque, transparent, opaqueIndices;
-    std::unique_ptr<QRhiTexture> surfaceColors;
-    std::unique_ptr<QRhiShaderResourceBindings> surfaceBindings;
-    size_t colorBytes = 0;
-    int indexCount = 0;
-    int opaqueCount = 0, transparentCount = 0;
-    uint64_t revision = 0;
-};
-class Renderer final : public QQuickRhiItemRenderer {
-    QRhi *m_rhi = nullptr;
-    std::unique_ptr<QRhiBuffer> m_uniform;
-    std::unique_ptr<QRhiShaderResourceBindings> m_bindings, m_skyBindings;
-    std::unique_ptr<QRhiTexture> m_texture;
-    std::unique_ptr<QRhiSampler> m_sampler, m_surfaceSampler;
-    std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
-    bool m_textureReady = false;
-    std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha, m_sky;
-    std::map<wb::MeshPtr, GpuChunk, std::owner_less<wb::MeshPtr>> m_chunks;
-    wb::Environment m_environment;
-    std::shared_ptr<RenderMetrics> m_metrics;
-    std::shared_ptr<const wb::MeshScene> m_scene;
-    QMatrix4x4 m_matrix;
-    QVector3D m_camera;
-    wb::Hit m_hit;
-    int m_radius = 4, m_tool = 0, m_brushShape = 0;
-    double m_decay = 0;
-    QRect m_selection;
-    std::shared_ptr<std::atomic_int> m_frames;
-    void initialize(QRhiCommandBuffer *) override {
-        if (m_rhi != rhi()) {
-            m_chunks.clear();
-            m_opaque.reset();
-            m_alpha.reset();
-            m_sky.reset();
-            m_bindings.reset();
-            m_skyBindings.reset();
-            m_uniform.reset();
-            m_texture.reset();
-            m_sampler.reset();
-            m_surfaceSampler.reset();
-            m_uploadedAssets.reset();
-            m_textureReady = false;
-            m_rhi = rhi();
-        }
-        if (!m_uniform) {
-            m_uniform.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 304));
-            if (!m_uniform->create())
-                qFatal("Unable to create uniform buffer");
-            m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
-            m_texture->create();
-            m_sampler.reset(rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
-                                              QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
-            m_sampler->create();
-            m_surfaceSampler.reset(rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Linear,
-                                                     QRhiSampler::Linear, QRhiSampler::ClampToEdge,
-                                                     QRhiSampler::ClampToEdge));
-            if (!m_surfaceSampler->create())
-                qFatal("Unable to create surface color sampler");
-            m_bindings.reset(rhi()->newShaderResourceBindings());
-            m_bindings->setBindings(
-                {QRhiShaderResourceBinding::uniformBuffer(
-                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                     m_uniform.get()),
-                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                           m_texture.get(), m_sampler.get())});
-            if (!m_bindings->create())
-                qFatal("Unable to create shader bindings");
-            // The sky has no atlas sampler. D3D11 caches native resource slots
-            // on the SRB using the first pipeline that binds it. Sharing the
-            // voxel SRB here can leave its texture unbound after an atlas swap.
-            m_skyBindings.reset(rhi()->newShaderResourceBindings());
-            m_skyBindings->setBindings({QRhiShaderResourceBinding::uniformBuffer(
-                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                m_uniform.get())});
-            if (!m_skyBindings->create())
-                qFatal("Unable to create sky bindings");
-        }
-        auto pipeline = [&](bool alpha) {
-            auto p = std::unique_ptr<QRhiGraphicsPipeline>(rhi()->newGraphicsPipeline());
-            p->setShaderStages({{QRhiShaderStage::Vertex, shader(":/shaders/voxel.vert.qsb")},
-                                {QRhiShaderStage::Fragment, shader(":/shaders/voxel.frag.qsb")}});
-            QRhiVertexInputLayout layout;
-            layout.setBindings({QRhiVertexInputBinding(sizeof(wb::Vertex))});
-            layout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
-                                  {0, 1, QRhiVertexInputAttribute::Float3, 12},
-                                  {0, 2, QRhiVertexInputAttribute::Float4, 24},
-                                  {0, 3, QRhiVertexInputAttribute::Float2, 40}});
-            p->setVertexInputLayout(layout);
-            p->setTopology(QRhiGraphicsPipeline::Triangles);
-            p->setCullMode(QRhiGraphicsPipeline::None);
-            p->setDepthTest(true);
-            p->setDepthWrite(!alpha);
-            p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-            if (alpha) {
-                QRhiGraphicsPipeline::TargetBlend b;
-                b.enable = true;
-                b.srcColor = QRhiGraphicsPipeline::SrcAlpha;
-                b.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-                p->setTargetBlends({b});
-            }
-            p->setSampleCount(renderTarget()->sampleCount());
-            p->setShaderResourceBindings(m_bindings.get());
-            p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-            if (!p->create())
-                qFatal("Unable to create voxel graphics pipeline");
-            return p;
-        };
-        m_opaque = pipeline(false);
-        m_alpha = pipeline(true);
-        m_sky.reset(rhi()->newGraphicsPipeline());
-        m_sky->setShaderStages({{QRhiShaderStage::Vertex, shader(":/shaders/sky.vert.qsb")},
-                                {QRhiShaderStage::Fragment, shader(":/shaders/sky.frag.qsb")}});
-        m_sky->setTopology(QRhiGraphicsPipeline::Triangles);
-        m_sky->setCullMode(QRhiGraphicsPipeline::None);
-        m_sky->setDepthTest(false);
-        m_sky->setDepthWrite(false);
-        m_sky->setSampleCount(renderTarget()->sampleCount());
-        m_sky->setShaderResourceBindings(m_skyBindings.get());
-        m_sky->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-        if (!m_sky->create())
-            qFatal("Unable to create sky pipeline");
-    }
-    void synchronize(QQuickRhiItem *item) override {
-        auto *v = static_cast<Viewport *>(item);
-        m_matrix = v->viewProjection();
-        m_camera = v->camera();
-        m_hit = v->hit();
-        m_frames = v->frameCounter();
-        m_metrics = v->renderMetrics();
-        if (v->editor()) {
-            m_scene = v->editor()->scene();
-            m_environment = v->editor()->world().environment;
-            m_radius = v->editor()->radius();
-            m_tool = v->editor()->tool();
-            m_brushShape = v->editor()->brushShape();
-            m_decay = v->editor()->brushDecay();
-            m_selection = v->editor()->selectionRect();
-        }
-    }
-    void render(QRhiCommandBuffer *cb) override {
-        QElapsedTimer submit;
-        submit.start();
-        size_t uploadBytes = 0, residentBytes = 0;
-        int draws = 0;
-        auto *updates = rhi()->nextResourceUpdateBatch();
-        auto assets = m_scene ? m_scene->assets : std::shared_ptr<const wb::AssetLibrary>{};
-        if (!m_textureReady || assets != m_uploadedAssets) {
-            QImage image = assets ? assets->atlas : wb::whiteAtlas();
-            m_texture.reset(rhi()->newTexture(QRhiTexture::RGBA8, image.size()));
-            if (!m_texture->create())
-                qFatal("Unable to allocate texture atlas");
-            m_bindings->setBindings(
-                {QRhiShaderResourceBinding::uniformBuffer(
-                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                     m_uniform.get()),
-                 QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                           m_texture.get(), m_sampler.get())});
-            if (!m_bindings->create())
-                qFatal("Unable to bind atlas");
-            updates->uploadTexture(m_texture.get(), image);
-            m_uploadedAssets = assets;
-            m_textureReady = true;
-        }
-        const QMatrix4x4 mvp = rhi()->clipSpaceCorrMatrix() * m_matrix;
-        std::array<float, 76> u{};
-        std::memcpy(u.data(), mvp.constData(), 64);
-        u[16] = m_camera.x();
-        u[17] = m_camera.y();
-        u[18] = m_camera.z();
-        u[20] = m_hit.x + .5f;
-        u[21] = m_hit.y + .5f;
-        u[22] = m_hit.z + .5f;
-        u[23] = float(m_radius);
-        u[24] = m_hit.valid && m_tool >= 0 && m_tool <= 5 ? 1.f : 0.f;
-        u[25] = m_tool == 5 ? 1.f : float(m_tool);
-        u[26] = float(m_brushShape);
-        u[27] = (m_tool == 0 || m_tool == 1 || m_tool == 5) ? float(1 - m_decay) : 1.f;
-        u[28] = float(m_selection.left());
-        u[29] = float(m_selection.top());
-        u[30] = float(m_selection.right() + 1);
-        u[31] = float(m_selection.bottom() + 1);
-        u[32] = m_selection.isValid() ? 1.f : 0.f;
-        auto sun = m_environment.sunDirection();
-        u[36] = sun.x();
-        u[37] = sun.y();
-        u[38] = sun.z();
-        u[39] = m_environment.sun ? m_environment.sunIntensity / 100.f : 0;
-        auto color = [&](int offset, const QString &name, float w) {
-            QColor c(name);
-            u[offset] = c.redF();
-            u[offset + 1] = c.greenF();
-            u[offset + 2] = c.blueF();
-            u[offset + 3] = w;
-        };
-        color(40, m_environment.skyColor, m_environment.sky ? m_environment.skyIntensity / 100.f : 0);
-        color(44, m_environment.groundColor, std::exp2(m_environment.exposure / 10.f));
-        color(48, m_environment.sunColor, m_environment.enabled ? 1.f : 0.f);
-        color(52, m_environment.horizonColor, m_environment.atmosphere ? m_environment.haze / 100.f : 0);
-        u[56] = m_environment.sky;
-        u[57] = m_environment.sun;
-        u[58] = m_environment.atmosphere;
-        u[59] = rhi()->clipSpaceCorrMatrix()(1, 1);
-        const auto inverse = m_matrix.inverted();
-        std::memcpy(u.data() + 60, inverse.constData(), 64);
-        updates->updateDynamicBuffer(m_uniform.get(), 0, 304, u.data());
-        std::set<wb::MeshPtr, std::owner_less<wb::MeshPtr>> retained;
-        std::vector<wb::MeshPtr> visible;
-        if (m_scene) {
-            auto add = [&](wb::MeshPtr src) {
-                if (!src)
-                    return;
-                retained.insert(src);
-                if (wb::visibleMesh(*src, m_matrix))
-                    visible.push_back(src);
-            };
-            for (auto src : m_scene->chunks)
-                add(src);
-            for (const auto &t : m_scene->farTiles)
-                add(t.mesh);
-        }
-        std::erase_if(m_chunks, [&](const auto &pair) { return !retained.contains(pair.first); });
-        for (auto src : visible) {
-            auto &dst = m_chunks[src];
-            if (src->revision == dst.revision)
-                continue;
-            auto upload = [&](const std::vector<wb::Vertex> &vertices, std::unique_ptr<QRhiBuffer> &buffer,
-                              int &count) {
-                count = int(vertices.size());
-                if (vertices.empty()) {
-                    buffer.reset();
-                    return;
-                }
-                const auto bytes = quint32(vertices.size() * sizeof(wb::Vertex));
-                buffer.reset(rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, bytes));
-                if (!buffer->create())
-                    qFatal("Unable to allocate voxel vertex buffer");
-                updates->uploadStaticBuffer(buffer.get(), 0, bytes, vertices.data());
-                uploadBytes += bytes;
-            };
-            upload(src->opaque, dst.opaque, dst.opaqueCount);
-            upload(src->transparent, dst.transparent, dst.transparentCount);
-            dst.indexCount = int(src->opaqueIndices.size());
-            if (dst.indexCount) {
-                const auto bytes = quint32(src->opaqueIndices.size() * sizeof(uint32_t));
-                dst.opaqueIndices.reset(
-                    rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::IndexBuffer, bytes));
-                if (!dst.opaqueIndices->create())
-                    qFatal("Unable to allocate terrain index buffer");
-                updates->uploadStaticBuffer(dst.opaqueIndices.get(), 0, bytes, src->opaqueIndices.data());
-                uploadBytes += bytes;
-            } else
-                dst.opaqueIndices.reset();
-            if (!src->surfaceColors.isNull()) {
-                dst.surfaceBindings.reset();
-                dst.surfaceColors.reset(
-                    rhi()->newTexture(QRhiTexture::RGBA8, src->surfaceColors.size(), 1,
-                                      QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips));
-                if (!dst.surfaceColors->create())
-                    qFatal("Unable to allocate surface color page");
-                updates->uploadTexture(dst.surfaceColors.get(), src->surfaceColors);
-                if (src->surfaceColors.width() > 1 || src->surfaceColors.height() > 1)
-                    updates->generateMips(dst.surfaceColors.get());
-                uploadBytes += src->surfaceColors.sizeInBytes();
-                dst.colorBytes = src->surfaceColorBytes();
-                dst.surfaceBindings.reset(rhi()->newShaderResourceBindings());
-                dst.surfaceBindings->setBindings(
-                    {QRhiShaderResourceBinding::uniformBuffer(
-                         0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                         m_uniform.get()),
-                     QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                               dst.surfaceColors.get(),
-                                                               m_surfaceSampler.get())});
-                if (!dst.surfaceBindings->create())
-                    qFatal("Unable to bind surface color page");
-            }
-            dst.revision = src->revision;
-        }
-        for (const auto &[src, gpu] : m_chunks)
-            residentBytes += (gpu.opaque ? gpu.opaque->size() : 0) +
-                             (gpu.transparent ? gpu.transparent->size() : 0) +
-                             (gpu.opaqueIndices ? gpu.opaqueIndices->size() : 0) + gpu.colorBytes;
-        cb->beginPass(renderTarget(), QColor("#202c3b"), {1.0f, 0}, updates);
-        const auto sz = renderTarget()->pixelSize();
-        cb->setViewport({0, 0, float(sz.width()), float(sz.height())});
-        if (m_environment.enabled) {
-            cb->setGraphicsPipeline(m_sky.get());
-            cb->setShaderResources(m_skyBindings.get());
-            cb->draw(3);
-        }
-        auto draw = [&](QRhiBuffer *buffer, int count) {
-            if (!buffer || !count)
-                return;
-            QRhiCommandBuffer::VertexInput binding(buffer, 0);
-            cb->setVertexInput(0, 1, &binding);
-            cb->draw(count);
-            ++draws;
-        };
-        cb->setGraphicsPipeline(m_opaque.get());
-        cb->setShaderResources(m_bindings.get());
-        for (auto src : visible) {
-            const auto &c = m_chunks.at(src);
-            cb->setShaderResources(c.surfaceBindings ? c.surfaceBindings.get() : m_bindings.get());
-            if (c.opaque && c.indexCount) {
-                QRhiCommandBuffer::VertexInput binding(c.opaque.get(), 0);
-                cb->setVertexInput(0, 1, &binding, c.opaqueIndices.get(), 0, QRhiCommandBuffer::IndexUInt32);
-                cb->drawIndexed(c.indexCount);
-                ++draws;
-            } else
-                draw(c.opaque.get(), c.opaqueCount);
-        }
-        cb->setGraphicsPipeline(m_alpha.get());
-        cb->setShaderResources(m_bindings.get());
-        std::sort(visible.begin(), visible.end(), [&](const auto &a, const auto &b) {
-            return (a->center - m_camera).lengthSquared() > (b->center - m_camera).lengthSquared();
-        });
-        for (auto src : visible) {
-            const auto &c = m_chunks.at(src);
-            draw(c.transparent.get(), c.transparentCount);
-        }
-        cb->endPass();
-        if (m_frames)
-            ++(*m_frames);
-        if (m_metrics) {
-            m_metrics->submitMicros = int(submit.nsecsElapsed() / 1000);
-            m_metrics->uploadKiB = int(uploadBytes / 1024);
-            m_metrics->residentKiB = int(residentBytes / 1024);
-            m_metrics->draws = draws;
-        }
-    }
-};
-} // namespace
 
 Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton | Qt::MiddleButton);
@@ -380,7 +40,7 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     QCoreApplication::instance()->installNativeEventFilter(this);
 }
 QQuickRhiItemRenderer *Viewport::createRenderer() {
-    return new Renderer;
+    return createTerrainRenderer();
 }
 void Viewport::setEditor(Editor *e) {
     if (m_editor == e)
@@ -505,11 +165,12 @@ void Viewport::resetCamera() {
     changedCamera();
 }
 QString Viewport::renderText() const {
-    return QString("CPU提交 %1 ms · 上传 %2 MiB · 网格/颜色驻留 %3 MiB · %4 次绘制")
+    return QString("CPU提交 %1 ms · 上传 %2 MiB · 网格/颜色 %3 MiB · %4 次绘制 · 光影目标 %5 MiB")
         .arg(m_metrics->submitMicros.load() / 1000., 0, 'f', 2)
         .arg(m_metrics->uploadKiB.load() / 1024., 0, 'f', 1)
         .arg(m_metrics->residentKiB.load() / 1024., 0, 'f', 1)
-        .arg(m_metrics->draws.load());
+        .arg(m_metrics->draws.load())
+        .arg(m_metrics->effectKiB.load() / 1024., 0, 'f', 1);
 }
 void Viewport::frameWorld() {
     if (!m_editor)
@@ -678,6 +339,12 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->ignore();
         return;
     }
+    if (e->key() == Qt::Key_Delete && !e->modifiers() && !m_editor->commandBusy() &&
+        !m_editor->exportBusy() && m_editor->terrainDetails()["valid"].toBool()) {
+        m_editor->removeTerrain();
+        e->accept();
+        return;
+    }
     if (e->key() == Qt::Key_Escape) {
         if (m_gizmoDragging)
             finishGizmo(true);
@@ -745,6 +412,12 @@ void Viewport::mouseUngrabEvent() {
 }
 void Viewport::tick() {
     const float dt = std::min(.05f, float(m_elapsed.restart()) * .001f);
+    // Animate shader normals without dirtying the world or rebuilding geometry.
+    if (m_editor && isVisible() && window() && window()->isVisible() &&
+        window()->visibility() != QWindow::Minimized && m_editor->scene()->waterVertices &&
+        m_metrics->visibleWater && m_editor->world().environment.water && m_editor->world().environment.waterWaves &&
+        m_editor->world().environment.waveStrength > 0)
+        update();
     if (!hasActiveFocus() || !window() || !window()->isActive()) {
         if (m_buttons != Qt::NoButton)
             stopInput();

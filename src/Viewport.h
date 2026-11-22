@@ -9,6 +9,8 @@
 
 struct RenderMetrics {
     std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
+    std::atomic_int effectKiB{0}, shadowUpdates{0}, reflectionUpdates{0};
+    std::atomic_bool visibleWater{false};
 };
 
 class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {

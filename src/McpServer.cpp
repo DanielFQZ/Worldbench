@@ -99,7 +99,7 @@ QJsonArray toolList() {
         {{"action", str}, {"id", str}, {"name", str}, {"enabled", boolean}, {"expected_revision", revision}},
         {"action", "expected_revision"}, false);
     add("environment",
-        "Change viewport environment only; shared undo and project persistence. Changes: "
+        "Change viewport environment only (water, waterWaves, waterReflections, shadows: bool; waveStrength: integer 0..100); shared undo and project persistence. Changes: "
         "enabled,sky,sun,atmosphere (bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth "
         "-180..180, elevation 0..90 degrees; haze 0..100, exposure -30..30 tenths EV; "
         "skyColor,horizonColor,groundColor,sunColor #RRGGBB. No shadows or volume effects yet.",
@@ -127,8 +127,8 @@ QJsonArray toolList() {
         {"expected_revision"}, false);
     add("camera",
         "Inspect or set preview camera. position is [x,y,z], yaw/pitch in degrees. reset=true frames the "
-        "world. surface_preview toggles the R0 adaptive HEIGHTFIELD-ONLY precision prototype (no "
-        "water, overrides or caves). world_info.preview reports scope/error/readiness. Does not alter world "
+        "world. The default renderer combines error-bounded terrain with ready local voxel chunks. "
+        "world_info.preview reports scope/error/readiness. Does not alter world "
         "data.",
         {{"position", QJsonObject{{"type", "array"},
                                   {"items", QJsonObject{{"type", "number"}}},
@@ -136,8 +136,7 @@ QJsonArray toolList() {
                                   {"maxItems", 3}}},
          {"yaw", QJsonObject{{"type", "number"}}},
          {"pitch", QJsonObject{{"type", "number"}}},
-         {"reset", boolean},
-         {"surface_preview", boolean}},
+         {"reset", boolean}},
         {}, false);
     add("screenshot",
         "Capture the editor window as PNG for visual feedback. Wait until world_info.mesh_busy=false. No "

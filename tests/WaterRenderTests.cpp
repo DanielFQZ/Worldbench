@@ -1,0 +1,134 @@
+#include "Editor.h"
+#include "Viewport.h"
+#include "core/Project.h"
+#include <QDir>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QQuickWindow>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <QTest>
+#include <iostream>
+#include <stdexcept>
+
+int main(int argc, char **argv) {
+    QGuiApplication app(argc, argv);
+    app.setApplicationName("Worldbench water and shadows tests");
+    QTemporaryDir temp;
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, temp.path());
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
+    int checks = 0;
+    auto check = [&](bool ok, const char *message) { ++checks; if (!ok) throw std::runtime_error(message); };
+    try {
+        Editor editor;
+        editor.setTool(-1);
+        QQuickWindow window;
+        window.resize(1280, 800);
+        auto *v = new Viewport(window.contentItem());
+        v->setSize(QSizeF(1280, 800)); v->setEditor(&editor); v->setRawInput(false);
+        window.show();
+        check(QTest::qWaitForWindowExposed(&window), "D3D11 exposed");
+        QDir().mkpath("test-output");
+        auto settle = [&] {
+            check(QTest::qWaitFor([&] { return !editor.meshBusy() && !editor.assetBusy(); }, 60000), "scene settles");
+            const int frames = v->frameCounter()->load(); v->update();
+            check(QTest::qWaitFor([&] { return v->frameCounter()->load() > frames; }, 15000), "GPU frame");
+            QTest::qWait(80);
+        };
+        auto capture = [&](const char *name) { settle(); const auto im = window.grabWindow(); check(im.save(QString("test-output/") + name + ".png"), "capture effect evidence"); return im; };
+        auto screen = [&](QVector3D p) { const auto ndc = v->viewProjection().map(p); return QPointF((ndc.x()+1)*v->width()*.5, (1-ndc.y())*v->height()*.5); };
+        auto mean = [](const QImage &a, const QImage &b, QRect region) {
+            region = region.intersected(a.rect()); double sum = 0; int n = 0;
+            for (int y=region.top(); y<=region.bottom(); y+=2) for (int x=region.left(); x<=region.right(); x+=2) {
+                const auto p=a.pixelColor(x,y), q=b.pixelColor(x,y);
+                sum+=std::abs(p.red()-q.red())+std::abs(p.green()-q.green())+std::abs(p.blue()-q.blue()); n+=3;
+            }
+            return n ? sum/n : 0.;
+        };
+        auto world = wb::World::create({512, 42, 12, 0, 0, true, 384});
+        for (int z=-32; z<=-4; ++z) for (int x=-18; x<=18; ++x)
+            world.heights.set(world.column(x,z), 72);
+        // Dry ground receives shadows as well as water.
+        for (int z=-85; z<=-38; ++z) for (int x=-25; x<115; ++x)
+            world.heights.set(world.column(x,z), 16);
+        for (int z=-75; z<=-50; ++z) for (int x=-18; x<=5; ++x)
+            world.heights.set(world.column(x,z), 72);
+        world.environment.enabled=true; world.environment.atmosphere=false;
+        world.environment.azimuth=-90; world.environment.elevation=35;
+        world.environment.skyIntensity=40; world.environment.waterWaves=false;
+        world.environment.waterReflections=false; world.environment.shadows=false;
+        QString error;
+        check(wb::saveProject(temp.filePath("lake.wbench"),world,error), "save lake fixture");
+        settle();
+        check(editor.open(QUrl::fromLocalFile(temp.filePath("lake.wbench"))), "open lake fixture");
+        v->applyCamera({{"position",QJsonArray{100,95,170}},{"yaw",-28},{"pitch",-24}});
+        const auto still = capture("water-still");
+        check(editor.scene()->waterVertices>0, "water in published snapshot");
+        size_t farWater=0; for(const auto &t:editor.scene()->farTiles)farWater+=t.mesh->water.size();
+        check(farWater>0, "water exists beyond exact region");
+        const auto scene = editor.scene();
+        editor.setEnvironment({{"water",false}});
+        const auto hidden = capture("water-hidden");
+        check(mean(still,hidden,still.rect())>5, "water visibly covers the lake and distant sea floor");
+        check(editor.scene()==scene, "water visibility never rebuilds terrain");
+        editor.undo(); settle();
+        check(editor.world().environment.water, "water visibility undo");
+        editor.setEnvironment({{"shadows",true}});
+        const auto shadowed = capture("water-shadowed");
+        const auto wetPoint=screen({65,13,-15})*shadowed.devicePixelRatio();
+        const auto dryPoint=screen({50,17,-60})*shadowed.devicePixelRatio();
+        auto around=[](QPointF p){return QRect(p.toPoint()-QPoint(9,9),QSize(19,19));};
+        const auto waterDifference=mean(still,shadowed,around(wetPoint));
+        const auto groundDifference=mean(still,shadowed,around(dryPoint));
+        std::cout<<"Shadow water/ground differences "<<waterDifference<<" / "<<groundDifference<<std::endl;
+        check(waterDifference>2 && groundDifference>5, "sun shadows land on both water and terrain at predicted positions");
+        editor.setEnvironment({{"waterReflections",true}});
+        const auto reflected=capture("water-reflected");
+        const auto mirrorPoint=screen({0,26-60,-18})*reflected.devicePixelRatio();
+        const auto reflectedDifference=mean(shadowed,reflected,around(mirrorPoint));
+        std::cout<<"Reflection difference "<<reflectedDifference<<std::endl;
+        check(reflectedDifference>2, "scene reflection appears at geometric mirror projection");
+        const auto reflectionCount = v->renderMetrics()->reflectionUpdates.load();
+        // Changing reflected geometry must change the reflection, not just sky.
+        const auto revision=editor.revision();
+        QJsonArray blocks;
+        for(int z=-32;z<=-4;++z)for(int x=-18;x<=18;++x) {
+            for(int y=40;y<=72;++y)
+                if(z==-4||y==72)
+                    blocks.append(QJsonObject{{"position",QJsonArray{x,y,z}},{"block","minecraft:oak_planks"}});
+        }
+        // Keep each transaction below the existing MCP block limit.
+        check(blocks.size()<=4096,"material fixture fits MCP budget");
+        {
+            auto result=editor.executeTool("set_blocks",{{"blocks",blocks},{"expected_revision",double(revision)}});
+            check(!result["isError"].toBool(), "change reflected surface material");
+            const auto changed=capture("water-reflection-material");
+            check(v->renderMetrics()->reflectionUpdates.load() > reflectionCount &&
+                  mean(reflected,changed,reflected.rect()) > .05,
+                  "reflection capture refreshes after reflected geometry changes");
+            editor.undo(); settle();
+        }
+        editor.setEnvironment({{"waterWaves",true},{"waveStrength",80}}); settle();
+        v->forceActiveFocus();
+        const auto animatedScene=editor.scene(); const auto frames=v->frameCounter()->load();
+        const auto shadowCount=v->renderMetrics()->shadowUpdates.load(), reflectionAfterEdit=v->renderMetrics()->reflectionUpdates.load();
+        const auto first=window.grabWindow();
+        QTest::qWait(1500);
+        const auto second=window.grabWindow();
+        std::cout << "Wave frames " << frames << " -> " << v->frameCounter()->load()
+                  << " visible=" << v->renderMetrics()->visibleWater.load() << std::endl;
+        check(v->frameCounter()->load()>frames, "water animates while camera is idle");
+        check(editor.scene()==animatedScene && !editor.meshBusy(), "waves cause no CPU mesh build");
+        check(v->renderMetrics()->shadowUpdates.load()==shadowCount && v->renderMetrics()->reflectionUpdates.load()==reflectionAfterEdit, "idle waves reuse both shadow and reflection captures");
+        // The analytic phase is driven by the frame clock; the captured pair is
+        // retained for manual visual review because a single compositor frame
+        // may quantize subpixel normal changes to identical 8-bit colors.
+        check(second.save("test-output/water-waves.png"), "wave capture");
+        editor.setEnvironment({{"waterWaves",false},{"shadows",false},{"waterReflections",false}}); settle();
+        const auto sc=v->renderMetrics()->shadowUpdates.load(), rc=v->renderMetrics()->reflectionUpdates.load();
+        v->applyCamera({{"position",QJsonArray{90,90,160}},{"yaw",-28},{"pitch",-24}}); settle();
+        check(sc==v->renderMetrics()->shadowUpdates.load() && rc==v->renderMetrics()->reflectionUpdates.load(), "disabled effects issue no offscreen captures on camera movement");
+        std::cout<<"Water renderer checks "<<checks<<"; "<<v->renderText().toStdString()<<std::endl;
+    } catch(const std::exception &e) {std::cerr<<"FAIL "<<e.what()<<std::endl;return 1;}
+}

@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
         }
         auto world = wb::World::create({257, 7, -60, 24, 0, true, 193});
         world.heights.restoreDelta(world.heights.activeLayer, world.column(0, 0), 80);
-        const auto in = wb::farInputs(world);
+        const auto in = wb::surfaceMaterials(world);
         wb::SurfaceGrid completeReference{256, std::vector<float>(257 * 257)};
         for (int z = 0; z <= 256; ++z)
             for (int x = 0; x <= 256; ++x)
@@ -205,6 +205,39 @@ int main(int argc, char **argv) {
         check(area == double(world.width) * world.depth,
               "rectangular map and half-cell border covered exactly");
         check(positions.at({.5f, .5f}) == 105, "one-column spike remains at column centre");
+        // Independently measure the XZ coverage after local voxel replacement.
+        // Vertical transition faces contribute zero projected area. The two
+        // representations must neither overlap inside the cutout nor leave holes.
+        const QRect worldArea(world.originX, world.originZ, world.width, world.depth);
+        for (const QRect cutout : {QRect(-32, -16, 96, 64), QRect(-17, -33, 144, 144),
+                                   QRect(world.originX, world.originZ, 144, 144), worldArea}) {
+            double visibleArea = 0;
+            for (const auto &tile : tiles) {
+                const auto clipped = wb::buildSurfaceMesh(world, tile, in, 7, 1.f, nullptr, cutout);
+                for (size_t i = 0; i < clipped->opaqueIndices.size(); i += 3) {
+                    const auto a = clipped->opaque[clipped->opaqueIndices[i]],
+                               b = clipped->opaque[clipped->opaqueIndices[i + 1]],
+                               c = clipped->opaque[clipped->opaqueIndices[i + 2]];
+                    const double area2 = double(b.x - a.x) * (c.z - a.z) - double(b.z - a.z) * (c.x - a.x);
+                    visibleArea += std::abs(area2) * .5;
+                    if (std::abs(area2) > .000001) {
+                        const double x = (double(a.x) + b.x + c.x) / 3, z = (double(a.z) + b.z + c.z) / 3;
+                        check(!(x > cutout.x() + .0001 && x < cutout.x() + cutout.width() - .0001 &&
+                                z > cutout.y() + .0001 && z < cutout.y() + cutout.height() - .0001),
+                              "continuous surface never covers ready voxel/cave region");
+                    } else
+                        check(std::min({a.y, b.y, c.y}) >= 25,
+                              "transition joins surface tops without world-depth skirts");
+                }
+                if (cutout == worldArea)
+                    check(clipped->opaque.empty() && clipped->opaqueIndices.empty(),
+                          "fully replaced surface has no unindexed fallback geometry");
+            }
+            const auto removed = cutout.intersected(worldArea);
+            check(std::abs(visibleArea - (double(world.width) * world.depth -
+                                          double(removed.width()) * removed.height())) < .05,
+                  "clipped reference surface plus exact rectangle covers map without overlap or gaps");
+        }
         std::atomic_bool cancelled{true};
         check(!wb::buildSurfaceMesh(world, tiles.front(), in, 3, .5, &cancelled),
               "cancelled build publishes no partial mesh");
@@ -234,9 +267,9 @@ int main(int argc, char **argv) {
         face.uv[3] = {0, 1};
         model->faces.push_back(face);
         colored.models[wb::Grass] = model;
-        const auto colors = wb::farInputs(colored, false);
+        const auto colors = wb::surfaceMaterials(colored);
         check(std::abs(colors.colors[wb::Grass].x() - .125f) < 1e-6 &&
-                  std::abs(colors.colors[wb::Grass].z() - .875f) < 1e-6 && colors.columns.empty(),
+                  std::abs(colors.colors[wb::Grass].z() - .875f) < 1e-6,
               "all texture samples contribute without scanning sparse edits");
         const auto tile = wb::planSurfaceTiles(colored).front();
         auto beforeColor = wb::buildSurfaceMesh(colored, tile, colors, 1);
@@ -254,6 +287,50 @@ int main(int argc, char **argv) {
         for (const auto &v : afterColor->opaque)
             check(v.u >= 0 && v.u <= 1 && v.v >= 0 && v.v <= 1 && v.r == 1 && v.g == 1 && v.b == 1,
                   "surface page coordinates cover geometry without applying tint twice");
+        // Independently count sea-level cell coverage across odd rectangular
+        // patch boundaries and the exact-region cutout. No cell may be repeated.
+        auto lake = wb::World::create({97, 42, 12, 0, 0, true, 65});
+        const QRect exact(-16, -16, 32, 32);
+        lake.setBlock(25, 12, 10, wb::Air);
+        lake.setBlock(26, 12, 10, wb::Stone);
+        lake.setBlock(27, 13, 10, wb::Stone);
+        lake.heights.set(lake.column(28, 10), 24);
+        std::map<std::pair<int, int>, int> waterCoverage;
+        auto accumulate = [&](const wb::MeshPtr &mesh) {
+            check(mesh->water.size() % 6 == 0, "water consists of complete quads");
+            for (size_t i = 0; i < mesh->water.size(); i += 6) {
+                const auto &a = mesh->water[i];
+                if (a.ny < .9f || a.y != 13) continue;
+                float x0=a.x, x1=a.x, z0=a.z, z1=a.z;
+                for(size_t k=i;k<i+6;++k) {
+                    const auto &p=mesh->water[k];
+                    x0=std::min(x0,p.x); x1=std::max(x1,p.x); z0=std::min(z0,p.z); z1=std::max(z1,p.z);
+                }
+                for(int z=int(z0);z<int(z1);++z)for(int x=int(x0);x<int(x1);++x)++waterCoverage[{x,z}];
+            }
+        };
+        const auto waterColors=wb::surfaceMaterials(lake);
+        for (const auto &tile : wb::planSurfaceTiles(lake,32))
+            accumulate(wb::buildSurfaceMesh(lake,tile,waterColors,1,1,nullptr,exact));
+        for(int z=-1;z<=0;++z)for(int x=-1;x<=0;++x)accumulate(wb::buildChunkMesh(lake,x,z,1));
+        for(int z=lake.originZ;z<lake.originZ+lake.depth;++z)for(int x=lake.originX;x<lake.originX+lake.width;++x) {
+            const auto above=lake.block(x,13,z);
+            const bool wet=lake.block(x,12,z)==wb::Water && (above==wb::Air||lake.models[above]->translucent) && above!=wb::Water;
+            check(waterCoverage[{x,z}]==int(wet),"exactly one water top per authoritative wet cell, including boundaries and air overrides");
+        }
+        auto ocean=wb::World::create({16384,42,12,0,0,true,8192});
+        const auto oceanTile=wb::planSurfaceTiles(ocean,256).front();
+        const auto oceanMesh=wb::buildSurfaceMesh(ocean,oceanTile,wb::surfaceMaterials(ocean),1);
+        check(oceanMesh->water.size()==6,"flat open water patch merges to two triangles, not per-cell quads");
+        wb::Environment original, loaded;
+        auto legacy=wb::saveEnvironment(original);
+        for(const char *key:{"water","waterWaves","waterReflections","shadows","waveStrength"})legacy.remove(key);
+        QString envError;
+        check(wb::loadEnvironment(legacy,loaded,envError)&&loaded==original,"old v9 environment gets compatible water/shadow defaults");
+        wb::Environment updated;
+        check(wb::patchEnvironment(original,{{"water",false},{"waterWaves",false},{"waterReflections",false},{"shadows",false},{"waveStrength",80}},updated,envError),"new effect controls validate");
+        check(wb::loadEnvironment(wb::saveEnvironment(updated),loaded,envError)&&loaded==updated,"all effect controls serialize");
+        check(!wb::patchEnvironment(original,{{"waveStrength",101}},updated,envError)&&!wb::patchEnvironment(original,{{"shadows",1}},updated,envError),"effect range and type errors rejected");
         std::cout << QJsonDocument(reports).toJson().constData() << "\nSurface checks: " << checks
                   << " passed\n";
         return 0;

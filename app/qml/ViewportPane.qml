@@ -14,7 +14,7 @@ Rectangle {
         height: 43; color: "#dd17212d"
         RowLayout {
             anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 10
-            Label { text: editor.surfacePreview?"透视 / 地表原型":"透视 / 体素"; color: "#e4edf6"; font.pixelSize: 12 }
+            Label { text: "透视 / 地形"; color: "#e4edf6"; font.pixelSize: 12 }
             Label { text: "  ·  " + editor.sceneStats; color: "#8297ad"; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
             Repeater {
                 model:[{glyph:"move",hint:"位移 · W"},{glyph:"rotate",hint:"旋转 · E"},{glyph:"scale",hint:"局部轴缩放 · R"}]
@@ -28,25 +28,14 @@ Rectangle {
         }
     }
     Rectangle {
-        visible:editor.surfacePreview
-        anchors.top:parent.top;anchors.topMargin:46;anchors.left:parent.left;anchors.leftMargin:12
-        width:Math.min(parent.width-24,prototypeLabel.implicitWidth+20);height:prototypeLabel.implicitHeight+14
-        color:"#e5263544";radius:4
-        Label{id:prototypeLabel;anchors.fill:parent;anchors.margins:7;text:editor.surfacePreviewStatus;color:"#f1cf8b";font.pixelSize:11;wrapMode:Text.WordWrap}
-    }
-    Rectangle {
         anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
-        height: 79; color: "#d9161f2b"
+        height: 99; color: "#d9161f2b"
         Column {
             anchors.left: parent.left; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; spacing: 5
+            Text { objectName:"terrainUpdateStatus"; text:editor.terrainUpdateStatus; color:editor.meshBusy?"#a6c6d8":"#8e9fb2";font.pixelSize:11;font.family:"Microsoft YaHei UI" }
             Text { text: viewport.hitText; color: "#8cdae5"; font.pixelSize: 12; font.family: "Microsoft YaHei UI" }
             Text { text: viewport.renderText; color:"#8e9fb2";font.pixelSize:11;font.family:"Microsoft YaHei UI" }
             Text { text: viewport.cameraText+"   ·   "+editor.meshUpdateSummary; color: "#8e9fb2"; font.pixelSize: 11; font.family: "Microsoft YaHei UI" }
         }
-    }
-    Rectangle {
-        visible: editor.meshBusy && editor.sceneStats.indexOf("0 区块") >= 0
-        anchors.centerIn: parent; width: 260; height: 70; radius: 8; color: "#e91b2633"
-        Label { anchors.centerIn: parent; text: "正在构建初始体素网格…"; color: "#d6e7f1" }
     }
 }

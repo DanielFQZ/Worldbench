@@ -56,7 +56,7 @@ QVariantList Editor::sceneNodes() const {
     const auto e = environmentDetails();
     nodes << QVariantMap{
         {"id", "environment"}, {"name", "环境"}, {"kind", "environment"}, {"visible", e["enabled"]}};
-    for (auto pair : {std::pair{"sky", "天光 / 天空"}, {"sun", "太阳 · 平行光"}, {"atmosphere", "大气"}})
+    for (auto pair : {std::pair{"sky", "天光 / 天空"}, {"sun", "太阳 · 平行光"}, {"atmosphere", "大气"}, {"water", "水面"}})
         nodes << QVariantMap{{"id", QString("environment-") + pair.first},
                              {"parent", "environment"},
                              {"name", QString("    ") + pair.second},
@@ -419,11 +419,10 @@ QJsonObject Editor::worldInfo() const {
         {"mesh_busy", meshBusy()},
         {"environment", wb::saveEnvironment(m_world.environment)},
         {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
-                                {"surface_preview_requested", m_surfacePreview},
-                                {"surface_preview_displayed", m_scene->surfacePreview},
+                                {"renderer", "adaptive_terrain_with_local_voxels"},
                                 {"surface_failure", m_surfaceFailure},
-                                {"surface_scope",
-                                 "heightfield with material colors; no water/override geometry/caves/models"},
+                                {"surface_scope", "error-bounded heightfield plus ready local voxel chunks; "
+                                                  "distant water/cave/model geometry pending"},
                                 {"surface_error_bound", m_scene->surfaceError},
                                 {"surface_samples", double(m_scene->sampleCount)},
                                 {"updated_surface_samples", double(m_scene->updatedSamples)},
@@ -435,6 +434,7 @@ QJsonObject Editor::worldInfo() const {
                                 {"source_revision", double(m_scene->sourceRevision)},
                                 {"far_tiles", int(m_scene->farTiles.size())},
                                 {"vertices", double(m_scene->vertices)},
+                                {"water_vertices", double(m_scene->waterVertices)},
                                 {"build_ms", double(m_scene->buildMilliseconds)},
                                 {"far_ms", double(m_scene->farMilliseconds)}}},
         {"can_undo", canUndo()},
@@ -529,18 +529,15 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         if (name == "camera") {
             if (!args.isEmpty() && (commandBusy() || v->rawActive()))
                 throw std::runtime_error("用户正在操作视口，请稍后重试");
-            if (args.contains("surface_preview")) {
-                if (!args["surface_preview"].isBool())
-                    throw std::runtime_error("surface_preview must be boolean");
-            }
-            auto cameraArgs = args;
-            cameraArgs.remove("surface_preview");
-            v->applyCamera(cameraArgs);
-            if (args.contains("surface_preview"))
-                setSurfacePreview(args["surface_preview"].toBool());
+            for (auto it = args.begin(); it != args.end(); ++it)
+                if (it.key() != "position" && it.key() != "yaw" && it.key() != "pitch" && it.key() != "reset")
+                    throw std::runtime_error(("Unknown camera parameter: " + it.key()).toStdString());
+            if (args.contains("reset") && !args["reset"].isBool())
+                throw std::runtime_error("reset must be boolean");
+            v->applyCamera(args);
             return {{"camera", v->cameraText()}};
         }
-        if (m_surfacePreview && !m_surfaceFailure.isEmpty())
+        if (!m_surfaceFailure.isEmpty())
             throw std::runtime_error(m_surfaceFailure.toStdString());
         if (meshBusy())
             throw std::runtime_error("网格仍在更新，请等待 world_info.mesh_busy=false 再截图");

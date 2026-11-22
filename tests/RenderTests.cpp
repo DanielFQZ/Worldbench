@@ -349,10 +349,9 @@ int main(int argc, char **argv) {
         // and without the sky pass and after changing the source resource pack.
         editor.setTool(-1);
         editor.clearSelection();
-        check(editor.createWorld(256, 42, 24, 0, -60, true, 192), "create rectangular color fixture");
-        settle(); // New-world resource restore must finish before switching preview modes.
-        editor.setSurfacePreview(true);
-        v->applyCamera({{"position", QJsonArray{0, 110, 1}}, {"yaw", 0}, {"pitch", -89}});
+        check(editor.createWorld(512, 42, 24, 0, -60, true, 384), "create rectangular color fixture");
+        settle(); // New-world resource restore must finish before checking colors.
+        v->applyCamera({{"position", QJsonArray{0, 500, 1}}, {"yaw", 0}, {"pitch", -89}});
         auto colorPack = [&](const QString &name, QColor color) {
             const auto path = temp.filePath(name + ".zip");
             QImage tile(32, 32, QImage::Format_RGBA8888);
@@ -374,16 +373,44 @@ int main(int argc, char **argv) {
         const auto redSurface = colorPack("surface-pack-red", QColor("#e03020"));
         editor.setEnvironment({{"enabled", true}, {"atmosphere", false}});
         const auto blueSurface = colorPack("surface-pack-blue-lit", QColor("#2040e0"));
-        const auto red = redSurface.pixelColor(redSurface.width() / 2, redSurface.height() / 2);
-        const auto blue = blueSurface.pixelColor(blueSurface.width() / 2, blueSurface.height() / 2);
+        const auto colorPoint = screen(160.5f, 25, 40.5f) * redSurface.devicePixelRatio();
+        check(!editor.previewContains(160, 40),
+              "color pixel checks actual adaptive surface outside exact chunks");
+        const auto red = redSurface.pixelColor(colorPoint.toPoint());
+        const auto blue = blueSurface.pixelColor(colorPoint.toPoint());
         check(red.red() > red.blue() * 2 && blue.blue() > blue.red() * 2,
               "GPU surface color follows resource-pack top texture across sky and SRB changes");
         const auto redLitSurface = colorPack("surface-pack-red-lit", QColor("#e03020"));
-        const auto redLit = redLitSurface.pixelColor(redLitSurface.width() / 2, redLitSurface.height() / 2);
+        const auto redLit = redLitSurface.pixelColor(colorPoint.toPoint());
         check(redLit.red() > redLit.blue() * 2 && difference(redLitSurface, blueSurface) > 20,
               "same lit scene changes color with resources; a blue sky cannot satisfy the color test");
-        check(editor.scene()->colorBytes > 0 && editor.scene()->surfacePreview,
+        check(editor.scene()->colorBytes > 0 && !editor.scene()->farTiles.empty(),
               "surface color pages have accounted residency");
+        // A cutout must expose edited voxel geometry, not leave the continuous
+        // grass plane covering it. Check actual D3D11 pixels over a shallow pit.
+        v->applyCamera({{"position", QJsonArray{0, 70, 1}}, {"yaw", 0}, {"pitch", -89}});
+        settle();
+        const auto flatImage = window.grabWindow();
+        QJsonArray holes;
+        for (int z = -5; z <= 5; ++z)
+            for (int x = -5; x <= 5; ++x)
+                for (int y = 23; y <= 24; ++y)
+                    holes.append(QJsonObject{{"position", QJsonArray{x, y, z}}, {"block", "minecraft:air"}});
+        editor.executeTool("set_blocks",
+                           {{"blocks", holes}, {"expected_revision", double(editor.revision())}});
+        settle();
+        const auto pitImage = window.grabWindow();
+        const auto pitPixel = screen(.5f, 23, .5f) * pitImage.devicePixelRatio();
+        const auto beforePit = flatImage.pixelColor(pitPixel.toPoint()),
+                   afterPit = pitImage.pixelColor(pitPixel.toPoint());
+        check(editor.world().block(0, 24, 0) == wb::Air && editor.previewContains(0, 0),
+              "pit is in ready exact region");
+        check(afterPit.green() > beforePit.green() + 12 && difference(flatImage, pitImage) > 1,
+              "actual pit floor is visible; continuous terrain does not cover the opening");
+        check(pitImage.save("test-output/default-terrain-pit.png"), "capture default terrain pit evidence");
+        editor.undo();
+        settle();
+        check(difference(flatImage, window.grabWindow()) < 1, "undo restores rendered surface above pit");
         std::cout << "Renderer checks " << checks << std::endl;
     } catch (const std::exception &e) {
         std::cerr << "FAIL " << e.what() << std::endl;
