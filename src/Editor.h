@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QThreadPool>
 #include <QUrl>
 #include <QVariantList>
 #include <set>
@@ -194,6 +195,7 @@ class Editor : public QObject {
     Q_INVOKABLE void cancelExport();
   signals:
     void changed();
+    void shortcutsChanged();
     void sceneChanged();
     void worldReset();
     void failure(const QString &message);
@@ -258,6 +260,7 @@ class Editor : public QObject {
     bool m_selectionOnly = false;
     QTimer m_meshTimer;
     QFutureWatcher<std::shared_ptr<wb::MeshScene>> m_meshWatcher;
+    QThreadPool m_surfaceWorkers;
     QFutureWatcher<wb::ExportResult> m_exportWatcher;
     struct AssetResult {
         std::shared_ptr<const wb::AssetLibrary> library;

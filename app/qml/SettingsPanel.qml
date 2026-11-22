@@ -110,10 +110,24 @@ Item {
                         ListElement { action: "translateGizmo"; label: "位移操纵器" }
                         ListElement { action: "rotateGizmo"; label: "旋转操纵器" }
                         ListElement { action: "scaleGizmo"; label: "缩放操纵器" }
+                        ListElement { action: "toolCycle"; label: "抬升 / 连续或长按循环工具" }
+                        ListElement { action: "toolFlatten"; label: "整平地表" }
+                        ListElement { action: "toolCarve"; label: "体积挖除" }
+                        ListElement { action: "toolFill"; label: "体积填充" }
+                        ListElement { action: "toolPaint"; label: "材质涂绘" }
+                        ListElement { action: "toolSmooth"; label: "平滑地形" }
+                        ListElement { action: "toolSelect"; label: "矩形选区" }
+                        ListElement { action: "toolNavigate"; label: "选择 / 导航" }
                     }
                     Repeater { model: shortcutModel; delegate: RowLayout { required property string action; required property string label; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20
                         Label { text: label; Layout.fillWidth: true; color: "#c9d5e2" }
-                        TextField { property string key: action; text: editor.shortcut(key); selectByMouse: true; Layout.preferredWidth: 170; onEditingFinished: editor.setShortcut(key, text) }
+                        TextField {
+                            id: shortcutInput
+                            property string key: action
+                            text: editor.shortcut(key); selectByMouse: true; Layout.preferredWidth: 170
+                            onEditingFinished: editor.setShortcut(key, text)
+                            Connections { target: editor; function onShortcutsChanged() { shortcutInput.text = editor.shortcut(shortcutInput.key) } }
+                        }
                     }}
                     Button { text: "恢复默认快捷键"; Layout.leftMargin: 20; onClicked: editor.resetShortcuts() }
                     Item { Layout.preferredHeight: 20 }

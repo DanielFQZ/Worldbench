@@ -280,6 +280,95 @@ std::vector<FarTile> planSurfaceTiles(const World &w, int patchSize) {
         }
     return result;
 }
+MeshPtr buildInteractiveSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMaterials &in,
+                                    uint64_t revision, const std::atomic_bool *cancelled, int stride) {
+    if (stride < 2 || stride > 32)
+        throw std::invalid_argument("Invalid interactive stride");
+    const auto r = tile.area;
+    auto mesh = std::make_shared<ChunkMesh>();
+    mesh->revision = revision;
+    mesh->provisional = true;
+    auto heights = w.heights;
+    std::erase_if(heights.instances, [&](const TerrainInstance &i) {
+        return !i.enabled || !i.bounds().intersects(QRectF(r.adjusted(-2, -2, 3, 3)));
+    });
+    const int side = r.width() + 1;
+    std::vector<int32_t> ids(size_t(side) * (r.height() + 1), -1);
+    const int cellsX = (r.width() + stride - 1) / stride;
+    const int cellsZ = (r.height() + stride - 1) / stride;
+    mesh->opaque.reserve((cellsX + 1) * (cellsZ + 1) + cellsX * cellsZ +
+                         2 * (r.width() + r.height()));
+    mesh->opaqueIndices.reserve(3 * (4 * cellsX * cellsZ + 2 * (r.width() + r.height())));
+    const bool left = r.x() == w.originX, right = r.x() + r.width() == w.originX + w.width - 1;
+    const bool top = r.y() == w.originZ, bottom = r.y() + r.height() == w.originZ + w.depth - 1;
+    auto vertex = [&](int x, int z) {
+        auto &id = ids[size_t(z) * side + x];
+        if (id >= 0) return uint32_t(id);
+        const int wx = r.x() + x, wz = r.y() + z;
+        const int h = heights[w.column(wx, wz)];
+        const auto color = in.colors.at(w.blockAtHeight(wx, h, wz, h));
+        const float px = wx + .5f + (x == 0 && left ? -.5f : x == r.width() && right ? .5f : 0.f);
+        const float pz = wz + .5f + (z == 0 && top ? -.5f : z == r.height() && bottom ? .5f : 0.f);
+        id = int32_t(mesh->opaque.size());
+        mesh->opaque.push_back({px, float(h + 1), pz, 0, 0, 0, color.x(), color.y(), color.z(), 1, -1, -1});
+        ++mesh->sampleCount;
+        return uint32_t(id);
+    };
+    auto triangle = [&](uint32_t a, uint32_t b, uint32_t c) {
+        mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, b, c});
+        const auto &va=mesh->opaque[a], &vb=mesh->opaque[b], &vc=mesh->opaque[c];
+        auto n = QVector3D::crossProduct({vb.x-va.x,vb.y-va.y,vb.z-va.z},
+                                         {vc.x-va.x,vc.y-va.y,vc.z-va.z});
+        if(n.y()<0) n=-n;
+        for(auto k:{a,b,c}) {auto &v=mesh->opaque[k];v.nx+=n.x();v.ny+=n.y();v.nz+=n.z();}
+    };
+    // Each coarse cell is a centre fan. Only cells touching the patch border
+    // add per-column edge vertices, matching the full-resolution neighbour.
+    for(int z=0;z<r.height();z+=stride) {
+        if(cancelled && cancelled->load()) return {};
+        const int z1=std::min(z+stride,r.height());
+        for(int x=0;x<r.width();x+=stride) {
+            const int x1=std::min(x+stride,r.width());
+            // At most four edges of the maximum supported stride. Reuse
+            // stack storage instead of allocating a vector for every cell.
+            std::array<uint32_t, 128> rim;
+            size_t rimCount = 0;
+            for(int xx=x;xx<x1;xx+=z==0?1:x1-x) rim[rimCount++]=vertex(xx,z);
+            for(int zz=z;zz<z1;zz+=x1==r.width()?1:z1-z) rim[rimCount++]=vertex(x1,zz);
+            for(int xx=x1;xx>x;xx-=z1==r.height()?1:x1-x) rim[rimCount++]=vertex(xx,z1);
+            for(int zz=z1;zz>z;zz-=x==0?1:z1-z) rim[rimCount++]=vertex(x,zz);
+            if(x1-x>1 && z1-z>1) {
+                const auto center=vertex((x+x1)/2,(z+z1)/2);
+                for(size_t i=0;i<rimCount;++i) triangle(center,rim[i],rim[(i+1)%rimCount]);
+            } else {
+                for(size_t i=1;i+1<rimCount;++i) triangle(rim[0],rim[i],rim[i+1]);
+            }
+            // Temporary water covers cells touching the sea; opaque terrain
+            // depth-clips the shoreline. Final per-column water replaces it.
+            bool wet=false;
+            for(size_t i=0;i<rimCount;++i) wet |= mesh->opaque[rim[i]].y<=w.seaLevel+1;
+            if(wet) {
+                const auto c=in.colors.at(Water);
+                auto v=[&](uint32_t k){auto p=mesh->opaque[k];p.y=float(w.seaLevel+1);p.nx=0;p.ny=1;p.nz=0;p.r=c.x();p.g=c.y();p.b=c.z();p.a=.76f;return p;};
+                auto a=v(vertex(x,z)), b=v(vertex(x1,z)), c0=v(vertex(x1,z1)), d=v(vertex(x,z1));
+                mesh->water.insert(mesh->water.end(),{a,b,c0,a,c0,d});
+            }
+        }
+    }
+    mesh->lower={float(r.x()),float(World::MaxY),float(r.y())};
+    mesh->upper={float(r.x()+r.width()+1),float(World::MinY),float(r.y()+r.height()+1)};
+    for(auto &v:mesh->opaque) {
+        auto n=QVector3D(v.nx,v.ny,v.nz).normalized();
+        if(n.isNull()) n={0,1,0};
+        v.nx=n.x();v.ny=n.y();v.nz=n.z();
+        mesh->lower.setY(std::min(mesh->lower.y(),v.y));
+        mesh->upper.setY(std::max(mesh->upper.y(),v.y));
+    }
+    if(!mesh->water.empty()) {mesh->lower.setY(std::min(mesh->lower.y(),float(w.seaLevel+1)));mesh->upper.setY(std::max(mesh->upper.y(),float(w.seaLevel+1)));}
+    mesh->referenceVertices=mesh->opaque.size();
+    mesh->center=(mesh->lower+mesh->upper)*.5f;
+    return mesh;
+}
 MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMaterials &in, uint64_t revision,
                          float tolerance, const std::atomic_bool *cancelled, const QRect &exactArea) {
     const auto r = tile.area;

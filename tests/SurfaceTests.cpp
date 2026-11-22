@@ -323,6 +323,41 @@ int main(int argc, char **argv) {
         const auto oceanMesh=wb::buildSurfaceMesh(ocean,oceanTile,wb::surfaceMaterials(ocean),1);
         check(oceanMesh->water.size()==6,"flat open water patch merges to two triangles, not per-cell quads");
         wb::Environment original, loaded;
+        auto previewWorld=wb::World::create({263,42,12,25,35,false,137});
+        const auto previewHeights=previewWorld.heights;
+        const auto previewColors=wb::surfaceMaterials(previewWorld);
+        for(int stride:{8,16,32}) for(const auto &t:wb::planSurfaceTiles(previewWorld,128)) {
+            const auto preview=wb::buildInteractiveSurfaceMesh(previewWorld,t,previewColors,2,nullptr,stride);
+            check(preview && preview->provisional,"interactive mesh is explicitly temporary");
+            double area=0;
+            for(size_t i=0;i<preview->opaqueIndices.size();i+=3) {
+                const auto &a=preview->opaque[preview->opaqueIndices[i]], &b=preview->opaque[preview->opaqueIndices[i+1]], &c=preview->opaque[preview->opaqueIndices[i+2]];
+                area+=std::abs((b.x-a.x)*(c.z-a.z)-(c.x-a.x)*(b.z-a.z))*.5;
+            }
+            const double w0=t.area.width()+.5*(t.area.x()==previewWorld.originX)+.5*(t.area.x()+t.area.width()==previewWorld.originX+previewWorld.width-1);
+            const double d0=t.area.height()+.5*(t.area.y()==previewWorld.originZ)+.5*(t.area.y()+t.area.height()==previewWorld.originZ+previewWorld.depth-1);
+            check(std::abs(area-w0*d0)<.01,"sparse preview covers rectangular patches without gaps or overlap");
+            for(const auto &v:preview->opaque) {
+                check(std::isfinite(v.nx) && std::isfinite(v.ny) && std::isfinite(v.nz) && v.ny>=0,
+                      "preview normals remain finite and point upward");
+            }
+            for(int edge=0;edge<4;++edge) {
+                const bool vertical=edge<2;
+                const int fixed=vertical?(edge==0?t.area.x():t.area.x()+t.area.width()):(edge==2?t.area.y():t.area.y()+t.area.height());
+                if((vertical && (fixed==previewWorld.originX || fixed==previewWorld.originX+previewWorld.width-1)) ||
+                   (!vertical && (fixed==previewWorld.originZ || fixed==previewWorld.originZ+previewWorld.depth-1))) continue;
+                for(int j=0;j<=(vertical?t.area.height():t.area.width());++j) {
+                    const int x=vertical?fixed:t.area.x()+j,z=vertical?t.area.y()+j:fixed;
+                    const float px=x+.5f+(x==previewWorld.originX?-.5f:x==previewWorld.originX+previewWorld.width-1?.5f:0.f);
+                    const float pz=z+.5f+(z==previewWorld.originZ?-.5f:z==previewWorld.originZ+previewWorld.depth-1?.5f:0.f);
+                    check(std::any_of(preview->opaque.begin(),preview->opaque.end(),[&](const auto &v){return v.x==px&&v.z==pz&&v.y==previewWorld.height(x,z)+1;}),
+                          "temporary border matches every full-resolution neighbour column");
+                }
+            }
+            if(t.area.width()==128 && t.area.height()==128)
+                check(preview->sampleCount<2000,"interactive work avoids dense per-column evaluation");
+        }
+        check(previewWorld.heights==previewHeights,"interactive sampling leaves authoritative data unchanged");
         auto legacy=wb::saveEnvironment(original);
         for(const char *key:{"water","waterWaves","waterReflections","shadows","waveStrength","waveDensity","waveSpeed"})legacy.remove(key);
         QString envError;

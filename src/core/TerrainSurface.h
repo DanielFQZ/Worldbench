@@ -21,6 +21,11 @@ SurfaceTopology triangulateSurface(const SurfaceGrid &grid, float tolerance, boo
 // Full-resolution source samples feed the error-bounded terrain surface.
 // Patches own sample intervals; adjacent patches share their endpoint samples.
 std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 128);
+// Gesture-only approximation. Interior uses sparse samples, perimeter remains
+// per-column to match unchanged reference patches. Never export/certify this.
+MeshPtr buildInteractiveSurfaceMesh(const World &world, const FarTile &tile,
+                                    const SurfaceMaterials &inputs, uint64_t revision,
+                                    const std::atomic_bool *cancelled = nullptr, int stride = 8);
 MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const SurfaceMaterials &inputs,
                          uint64_t revision, float tolerance = .5f,
                          const std::atomic_bool *cancelled = nullptr, const QRect &exactArea = {});

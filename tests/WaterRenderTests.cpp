@@ -137,6 +137,18 @@ int main(int argc, char **argv) {
                   << ", max/old " << mean(fine,oldMaximum,closeRegion) << std::endl;
         check(mean(fine,flat,closeRegion)>.5 && mean(fine,oldMaximum,closeRegion)>.5,
               "maximum-density fine ripples remain visible at player camera height");
+        // Grazing reflected water previously produced long bright interference
+        // stripes. Retain multiple distances/densities for actual visual review.
+        editor.setEnvironment({{"waterWaves",true},{"waterReflections",true},{"shadows",true}});
+        v->applyCamera({{"position",QJsonArray{20,20,180}},{"yaw",0},{"pitch",-9}});
+        capture("water-grazing-max-density");
+        editor.setEnvironment({{"waveDensity",40}});
+        capture("water-grazing-medium-density");
+        editor.setEnvironment({{"waveDensity",100},{"waveSpeed",65}});
+        QTest::qWait(600);
+        capture("water-grazing-animated");
+        v->applyCamera({{"position",QJsonArray{20,100,330}},{"yaw",0},{"pitch",-16}});
+        capture("water-distant-max-density");
         editor.setEnvironment({{"waterWaves",false},{"shadows",false},{"waterReflections",false}}); settle();
         const auto sc=v->renderMetrics()->shadowUpdates.load(), rc=v->renderMetrics()->reflectionUpdates.load();
         v->applyCamera({{"position",QJsonArray{90,90,160}},{"yaw",-28},{"pitch",-24}}); settle();

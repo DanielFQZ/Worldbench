@@ -8,6 +8,7 @@
 #include <QTimer>
 
 struct RenderMetrics {
+    std::atomic_uint64_t renderedSourceRevision{0};
     std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
     std::atomic_int effectKiB{0}, shadowUpdates{0}, reflectionUpdates{0};
     std::atomic_bool visibleWater{false};
@@ -115,6 +116,9 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     QPointF m_pointer, m_anchorGlobal;
     wb::Hit m_hit;
     QTimer m_timer, m_metricsTimer;
+    QElapsedTimer m_toolCycleClock;
+    bool m_toolCycleActive = false;
+    int m_toolCycleLast = -1;
     std::shared_ptr<RenderMetrics> m_metrics = std::make_shared<RenderMetrics>();
     QElapsedTimer m_elapsed, m_stampClock;
     QSet<int> m_keys;

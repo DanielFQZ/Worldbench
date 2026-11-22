@@ -421,9 +421,12 @@ QJsonObject Editor::worldInfo() const {
         {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
                                 {"renderer", "adaptive_terrain_with_local_voxels"},
                                 {"surface_failure", m_surfaceFailure},
-                                {"surface_scope", "error-bounded heightfield plus ready local voxel chunks; "
-                                                  "distant water/cave/model geometry pending"},
-                                {"surface_error_bound", m_scene->surfaceError},
+                                {"surface_scope", "formal error-bounded heightfield and sea plane plus local voxels; "
+                                                  "sparse interaction preview has no certified height bound; "
+                                                  "distant cave/model and independent water geometry pending"},
+                                {"provisional", m_scene->provisional},
+                                {"surface_error_bound", m_scene->provisional ? QJsonValue(QJsonValue::Null)
+                                                                            : QJsonValue(m_scene->surfaceError)},
                                 {"surface_samples", double(m_scene->sampleCount)},
                                 {"updated_surface_samples", double(m_scene->updatedSamples)},
                                 {"updated_surface_tiles", m_scene->updatedFarTiles},

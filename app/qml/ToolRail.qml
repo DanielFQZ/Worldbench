@@ -10,7 +10,10 @@ Rectangle {
    delegate:Button {
     required property var modelData
     width:40; height:42; checkable:true; checked:editor.tool===modelData.tool
-    ToolTip.visible:hovered; ToolTip.delay:500; ToolTip.text:modelData.name; Accessible.name:modelData.name
+    readonly property string toolKey: ["toolNavigate","toolCycle","toolFlatten","toolCarve","toolFill","toolPaint","toolSmooth","toolSelect"][modelData.tool+1]
+    property int shortcutRevision: 0
+    Connections {target:editor;function onShortcutsChanged(){shortcutRevision++}}
+    ToolTip.visible:hovered; ToolTip.delay:500; ToolTip.text:modelData.name+" · "+(shortcutRevision>=0?editor.shortcut(toolKey):"")+(modelData.tool===0?"（连续按循环工具）":""); Accessible.name:modelData.name
     onClicked:editor.tool=modelData.tool
     background:Rectangle {color:parent.checked?"#344957":parent.hovered?"#30353d":"transparent"; radius:5; border.width:parent.checked?1:0; border.color:"#6fbac5"}
     contentItem:Canvas {

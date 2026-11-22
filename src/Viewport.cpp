@@ -228,6 +228,7 @@ void Viewport::focusTarget() {
     changedCamera();
 }
 void Viewport::mousePressEvent(QMouseEvent *e) {
+    m_toolCycleActive = false;
     forceActiveFocus();
     if (e->buttons() == Qt::LeftButton && e->modifiers() == Qt::NoModifier && pressGizmo(e->position())) {
         e->accept();
@@ -350,6 +351,31 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->ignore();
         return;
     }
+    const bool cycleTool = matchesShortcut(e, m_editor->shortcut("toolCycle"));
+    if (!cycleTool) m_toolCycleActive = false;
+    if (m_buttons == Qt::NoButton && !m_editor->commandBusy() && !m_editor->exportBusy()) {
+        if (cycleTool) {
+            if (!e->isAutoRepeat() || !m_toolCycleClock.isValid() || m_toolCycleClock.elapsed() >= 220) {
+                const bool consecutive = m_toolCycleActive && m_toolCycleLast == m_editor->tool() &&
+                                         m_toolCycleClock.elapsed() < 1500;
+                m_editor->setTool(consecutive ? (m_editor->tool() == 6 ? -1 : m_editor->tool() + 1) : 0);
+                m_toolCycleLast = m_editor->tool();
+                m_toolCycleActive = true;
+                m_toolCycleClock.restart();
+            }
+            e->accept();
+            return;
+        }
+        const std::array<QString,7> actions{"toolNavigate","toolFlatten","toolCarve","toolFill",
+                                           "toolPaint","toolSmooth","toolSelect"};
+        for (int i=0;i<int(actions.size());++i) {
+            if (matchesShortcut(e,m_editor->shortcut(actions[i]))) {
+                m_editor->setTool(i==0 ? -1 : i);
+                e->accept();
+                return;
+            }
+        }
+    }
     if (matchesShortcut(e, m_editor->shortcut("deleteTerrain")) && !m_editor->commandBusy() &&
         !m_editor->exportBusy() && m_editor->terrainDetails()["valid"].toBool()) {
         m_editor->removeTerrain();
@@ -419,6 +445,7 @@ void Viewport::stopInput() {
     unsetCursor();
 }
 void Viewport::focusOutEvent(QFocusEvent *e) {
+    m_toolCycleActive = false;
     stopInput();
     QQuickRhiItem::focusOutEvent(e);
 }

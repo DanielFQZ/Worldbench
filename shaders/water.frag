@@ -36,52 +36,50 @@ float shadowVisibility(vec3 position, vec3 normal) {
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
-// Filtered Gerstner-style normal waves.  The wavelengths are deliberately
-// measured in world blocks, so they remain legible at editing distances.  A
-// screen-footprint coverage term suppresses waves smaller than a pixel and
-// prevents the directional bands from turning into moire in the far view.
-vec2 waterWaveDirection(int index){
-    if(index==0)return normalize(vec2(1.0,.18));
-    if(index==1)return normalize(vec2(-.42,1.0));
-    if(index==2)return normalize(vec2(.76,.65));
-    if(index==4)return normalize(vec2(.31,-.95));
-    if(index==5)return normalize(vec2(.91,.41));
-    if(index==6)return normalize(vec2(-.64,-.77));
-    return normalize(vec2(-.88,.31));
+// World-anchored, non-periodic gradient field. Quintic interpolation keeps
+// cell boundaries smooth; rotating each octave removes a common lattice axis.
+float hashWater(vec2 cell) {
+    vec2 p=mod(cell,4093.0);
+    vec3 q=fract(vec3(p.x,p.y,p.x+p.y)*vec3(.1031,.11369,.13787));
+    q+=dot(q,q.yzx+19.19);
+    return fract((q.x+q.y)*q.z);
+}
+vec2 waterGradient(vec2 p) {
+    vec2 c=floor(p), f=fract(p);
+    vec2 u0=f*f*f*(f*(f*6.0-15.0)+10.0);
+    vec2 du=30.0*f*f*(f*(f-2.0)+1.0);
+    float a=hashWater(c), b=hashWater(c+vec2(1,0));
+    float c0=hashWater(c+vec2(0,1)), d=hashWater(c+vec2(1,1));
+    return vec2(mix(b-a,d-c0,u0.y)*du.x,mix(c0-a,d-b,u0.x)*du.y);
 }
 
 void main(){
     vec3 n=normalize(faceNormal);
-    float heightWave=0.0;
-    // Multi-scale, band-limited normals: no CPU mesh rebuild, no movement of
-    // Minecraft coastlines, and distant water fades to a stable broad shape.
     if(n.y>.5 && u.water.y>0.0){
-        float footprint=max(length(fwidth(worldPos.xz)),.0001);
-        // The upper end reaches roughly five times the previous maximum
-        // density, so close camera views still expose fine ripples. The
-        // footprint filter below suppresses sub-pixel frequencies at distance.
         float density=mix(1.8,.116,clamp(u.effects.w,0.0,1.0));
-        float time=u.water.x;
+        const float scales[5]=float[5](36.0,14.0,5.8,3.4,1.9);
+        const float weights[5]=float[5](.18,.12,.085,.055,.035);
         vec2 gradient=vec2(0);
-        const float wavelengths[7]=float[7](72.0,47.0,29.0,18.0,5.8,3.4,1.9);
-        const float amplitudes[7]=float[7](.78,.48,.27,.13,.017,.010,.006);
-        const float speeds[7]=float[7](.55,.77,1.05,1.33,1.71,2.13,2.61);
-        for(int i=0;i<7;++i){
-            float wavelength=wavelengths[i]*density;
-            float frequency=6.2831853/max(wavelength,.05);
-            vec2 direction=waterWaveDirection(i);
-            float phase=dot(worldPos.xz,direction)*frequency+time*speeds[i];
-            float coverage=1.0-smoothstep(.35,1.15,footprint*frequency*2.0);
-            float amplitude=amplitudes[i]*coverage;
-            // Extra low-amplitude capillary detail becomes visible at player
-            // distance near the high-density end, then vanishes below a pixel.
-            if(i>=4)amplitude*=smoothstep(.65,1.0,u.effects.w);
-            gradient+=direction*(amplitude*frequency)*cos(phase);
-            heightWave+=amplitude*sin(phase);
+        mat2 rotation=mat2(.8,.6,-.6,.8);
+        for(int i=0;i<5;++i){
+            float cellSize=scales[i]*density;
+            vec2 p=rotation*worldPos.xz/cellSize;
+            // Attenuate before the normal field reaches the pixel Nyquist
+            // limit; do not rely on blurring the final bright specular peaks.
+            float footprint=max(length(dFdx(p)),length(dFdy(p)));
+            float coverage=1.0-smoothstep(.12,.5,footprint);
+            vec2 flow=vec2(.17+float(i)*.031,-.11+float(i)*.017)*u.water.x;
+            gradient+=transpose(rotation)*waterGradient(p+flow+float(i)*31.7)*weights[i]*coverage;
+            rotation=mat2(.362,.932,-.932,.362)*rotation;
         }
         gradient*=u.water.y;
         n=normalize(vec3(-gradient.x,1,-gradient.y));
     }
+    // Normal variance widens the sun lobe at grazing/minified views instead
+    // of letting a fixed narrow highlight sparkle between adjacent pixels.
+    vec3 nx=dFdx(n), ny=dFdy(n);
+    float variance=min(.3,dot(nx,nx)+dot(ny,ny));
+    float exponent=2.0/(2.0/64.0+variance*4.0);
     vec3 view=normalize(u.camera.xyz-worldPos);
     float fresnel=.025+.975*pow(1.0-clamp(dot(n,view),0.0,1.0),5.0);
     float lit=shadowVisibility(worldPos,n);
@@ -92,10 +90,8 @@ void main(){
         vec3 direct=u.sunColor.rgb*max(0.0,dot(n,u.sunDirection.xyz))*u.sunDirection.w*lit;
         col=tint*(ambient+direct*.55)*u.groundColor.w;
         vec3 halfVector=normalize(view+u.sunDirection.xyz);
-        float spec=pow(max(0.0,dot(n,halfVector)),64.0)*u.sunDirection.w*lit;
+        float spec=pow(max(0.0,dot(n,halfVector)),exponent)*(exponent/64.0)*u.sunDirection.w*lit;
         col+=u.sunColor.rgb*spec*.95*u.groundColor.w;
-        if(n.y>.5 && u.water.y>0.0)
-            col+=tint*heightWave*u.water.y*.018;
         col=col/(vec3(1)+col*.35);
     }
     // Only the common horizontal sea plane has a geometric reflection capture.
@@ -107,10 +103,11 @@ void main(){
         if(u.sunColor.w>.5){reflected*=u.groundColor.w;reflected=reflected/(vec3(1)+reflected*.35);}
         vec4 projected=u.reflectionMatrix*vec4(worldPos,1);
         vec2 uv=projected.xy/projected.w;
-        uv+=n.xz*.012;
+        uv+=n.xz*.005;
+        vec2 reflectionDx=dFdx(uv), reflectionDy=dFdy(uv);
         float edge=min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y));
         if(abs(worldPos.y-u.water.w)<.05 && projected.w>0.0 && edge>0.0)
-            reflected=mix(reflected,texture(reflectionColor,uv).rgb,smoothstep(0.0,.025,edge));
+            reflected=mix(reflected,textureGrad(reflectionColor,uv,reflectionDx*1.5,reflectionDy*1.5).rgb,smoothstep(0.0,.025,edge));
         col=mix(col,reflected,.20+.70*fresnel);
     }
     if(u.sunColor.w>.5 && u.envFlags.z>.5){

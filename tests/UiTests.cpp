@@ -72,6 +72,11 @@ int main(int argc, char **argv) {
                   chrome->mapToScene({0, 0}).y() == 0 &&
                   menus->mapToScene({0, 0}).y() >= chrome->height(),
               "custom dark title bar precedes menu and removes native frame");
+        auto *minimize=win->findChild<QQuickItem *>("windowMinimize");
+        auto *maximize=win->findChild<QQuickItem *>("windowMaximize");
+        auto *closeButton=win->findChild<QQuickItem *>("windowClose");
+        check(minimize && maximize && closeButton && minimize->width()==maximize->width() &&
+                  maximize->width()==closeButton->width(), "window controls have equal widths");
         std::function<QQuickItem *(QQuickItem *, const QString &)> visualItem =
             [&](QQuickItem *root, const QString &name) -> QQuickItem * {
             if (root->objectName() == name)
@@ -97,6 +102,29 @@ int main(int argc, char **argv) {
         editor.setTool(-1);
         QTest::qWait(40);
         check(!brushPanel->isVisible(), "navigation collapses brush settings");
+        v->forceActiveFocus();
+        QTest::keyClick(win,Qt::Key_1);
+        check(editor.tool()==0,"first 1 selects raise");
+        for(int expected:{1,2,3,4,5,6,-1,0}) {
+            QTest::keyClick(win,Qt::Key_1);
+            check(editor.tool()==expected,"repeated 1 cycles every tool including navigation");
+        }
+        QTest::keyClick(win,Qt::Key_5);
+        check(editor.tool()==4,"5 selects material painting");
+        QTest::keyClick(win,Qt::Key_1);
+        check(editor.tool()==0,"1 after another shortcut starts with raise");
+        QKeyEvent repeated(QEvent::KeyPress,Qt::Key_1,Qt::NoModifier,QString(),true);
+        QCoreApplication::sendEvent(v,&repeated);
+        check(editor.tool()==0,"held key repeat is throttled");
+        QTest::qWait(240);
+        QCoreApplication::sendEvent(v,&repeated);
+        check(editor.tool()==1,"held key cycles after repeat interval");
+        editor.setShortcut("toolPaint","9");
+        QTest::keyClick(win,Qt::Key_9);
+        check(editor.tool()==4,"tool shortcuts use saved preferences");
+        editor.resetShortcuts();
+        QTest::keyClick(win,Qt::Key_0);
+        check(editor.tool()==-1,"0 returns to navigation");
         editor.setTool(0);
         QTest::qWait(40);
         check(editor.selectedNode() == "terrain-base-1", "tool selection preserves scene selection");
@@ -1465,8 +1493,8 @@ int main(int argc, char **argv) {
                   v->viewProjection() == remoteMatrix,
               "stationary remote brush edits authoritative column without moving camera");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
-                  editor.previewContains(remoteHit.x, remoteHit.z),
-              "remote brush streams exact editing patch at its target");
+                  !editor.previewContains(remoteHit.x, remoteHit.z) && editor.scene()->exactArea == fullScene->exactArea,
+              "remote brush keeps continuous terrain and does not move exact residency");
         win->grabWindow().save("test-output/remote-brush-0.13.0.png");
         QTest::keyClick(win, Qt::Key_Z, Qt::ControlModifier);
         check(editor.world().heights == remoteBefore, "remote held stroke is one keyboard undo");

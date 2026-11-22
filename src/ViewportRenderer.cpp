@@ -24,11 +24,13 @@ struct Target {
     std::unique_ptr<QRhiRenderBuffer> depth;
     std::unique_ptr<QRhiTextureRenderTarget> target;
     std::unique_ptr<QRhiRenderPassDescriptor> pass;
-    void create(QRhi *rhi, QSize size, QRhiTexture::Format format) {
+    void create(QRhi *rhi, QSize size, QRhiTexture::Format format, bool mipmapped = false) {
         target.reset();
         pass.reset();
         depth.reset(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, size));
-        color.reset(rhi->newTexture(format, size, 1, QRhiTexture::RenderTarget));
+        auto flags = QRhiTexture::Flags(QRhiTexture::RenderTarget);
+        if (mipmapped) flags |= QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips;
+        color.reset(rhi->newTexture(format, size, 1, flags));
         if (!depth->create() || !color->create())
             qFatal("Unable to allocate preview effect target");
         target.reset(rhi->newTextureRenderTarget({QRhiColorAttachment(color.get()), depth.get()}));
@@ -176,14 +178,14 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_reflectOpaque.reset();
             m_reflectSky.reset();
             m_waterBindings.reset();
-            m_reflection.create(rhi(), reflectSize, QRhiTexture::RGBA8);
+            m_reflection.create(rhi(), reflectSize, QRhiTexture::RGBA8, true);
             m_reflectionReady = false;
             m_waterBindings.reset(rhi()->newShaderResourceBindings());
             m_waterBindings->setBindings({
                 QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_uniform.get()),
                 QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, m_shadows[0].color.get(), m_nearest.get()),
                 QRhiShaderResourceBinding::sampledTexture(3, QRhiShaderResourceBinding::FragmentStage, m_shadows[1].color.get(), m_nearest.get()),
-                QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage, m_reflection.color.get(), m_linear.get())});
+                QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage, m_reflection.color.get(), m_surfaceSampler.get())});
             if (!m_waterBindings->create()) qFatal("Unable to bind water effects");
             m_reflectOpaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_reflectionBindings.get(), m_reflection.target.get());
             m_reflectSky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb", m_reflectionSkyBindings.get(), m_reflection.target.get(), false, true);
@@ -428,6 +430,9 @@ class Renderer final : public QQuickRhiItemRenderer {
             cb->beginPass(m_reflection.target.get(), QColor("#202c3b"), {1, 0}); viewport(cb, m_reflection.target.get());
             if (m_environment.enabled) { cb->setGraphicsPipeline(m_reflectSky.get()); cb->setShaderResources(m_reflectionSkyBindings.get()); cb->draw(3); ++m_draws; }
             opaquePass(reflected, true); cb->endPass();
+            auto *mips = rhi()->nextResourceUpdateBatch();
+            mips->generateMips(m_reflection.color.get());
+            cb->resourceUpdate(mips);
             m_reflectedScene = m_scene; m_reflectedEnvironment = m_environment;
         }
         cb->beginPass(renderTarget(), QColor("#202c3b"), {1, 0}); viewport(cb, renderTarget());
@@ -443,12 +448,18 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->endPass();
         if (m_frames) ++(*m_frames);
         if (m_metrics) {
+            m_metrics->renderedSourceRevision = m_scene ? m_scene->sourceRevision : 0;
             size_t bytes = 0;
             for (const auto &[src, c] : m_chunks)
                 bytes += (c.opaque ? c.opaque->size() : 0) + (c.transparent ? c.transparent->size() : 0) +
                     (c.water ? c.water->size() : 0) + (c.indices ? c.indices->size() : 0) + c.colorBytes;
             const auto size = m_reflection.color->pixelSize();
-            const int effectBytes = 2 * ShadowSize * ShadowSize * 8 + size.width() * size.height() * 8;
+            int mipPixels = 0;
+            for (QSize mip = size;; mip = QSize(std::max(1,mip.width()/2),std::max(1,mip.height()/2))) {
+                mipPixels += mip.width()*mip.height();
+                if (mip == QSize(1,1)) break;
+            }
+            const int effectBytes = 2 * ShadowSize * ShadowSize * 8 + size.width() * size.height() * 4 + mipPixels * 4;
             m_metrics->submitMicros = int(timer.nsecsElapsed() / 1000); m_metrics->uploadKiB = int(m_uploadBytes / 1024);
             m_metrics->residentKiB = int(bytes / 1024); m_metrics->draws = m_draws;
             m_metrics->effectKiB = effectBytes / 1024;

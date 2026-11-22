@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.17.1");
+    app.setApplicationVersion("0.17.2");
     QPixmap logo(64, 64);
     logo.fill(Qt::transparent);
     {
@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.17.1 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.17.2 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);

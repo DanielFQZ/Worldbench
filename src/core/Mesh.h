@@ -3,6 +3,7 @@
 #include <QRect>
 #include <memory>
 namespace wb {
+struct SurfaceMaterials;
 struct Vertex {
     float x, y, z, nx, ny, nz, r, g, b, a, u, v;
 };
@@ -39,6 +40,7 @@ struct FarTile {
     MeshPtr mesh;
 };
 struct MeshScene {
+    std::shared_ptr<const SurfaceMaterials> surfaceMaterials;
     std::vector<MeshPtr> chunks;
     std::vector<int> chunkIds;
     std::vector<FarTile> farTiles;
