@@ -324,13 +324,13 @@ int main(int argc, char **argv) {
         check(oceanMesh->water.size()==6,"flat open water patch merges to two triangles, not per-cell quads");
         wb::Environment original, loaded;
         auto legacy=wb::saveEnvironment(original);
-        for(const char *key:{"water","waterWaves","waterReflections","shadows","waveStrength"})legacy.remove(key);
+        for(const char *key:{"water","waterWaves","waterReflections","shadows","waveStrength","waveDensity","waveSpeed"})legacy.remove(key);
         QString envError;
         check(wb::loadEnvironment(legacy,loaded,envError)&&loaded==original,"old v9 environment gets compatible water/shadow defaults");
         wb::Environment updated;
-        check(wb::patchEnvironment(original,{{"water",false},{"waterWaves",false},{"waterReflections",false},{"shadows",false},{"waveStrength",80}},updated,envError),"new effect controls validate");
+        check(wb::patchEnvironment(original,{{"water",false},{"waterWaves",false},{"waterReflections",false},{"shadows",false},{"waveStrength",80},{"waveDensity",72},{"waveSpeed",18}},updated,envError),"new effect controls validate");
         check(wb::loadEnvironment(wb::saveEnvironment(updated),loaded,envError)&&loaded==updated,"all effect controls serialize");
-        check(!wb::patchEnvironment(original,{{"waveStrength",101}},updated,envError)&&!wb::patchEnvironment(original,{{"shadows",1}},updated,envError),"effect range and type errors rejected");
+        check(!wb::patchEnvironment(original,{{"waveStrength",101}},updated,envError)&&!wb::patchEnvironment(original,{{"waveDensity",0}},updated,envError)&&!wb::patchEnvironment(original,{{"shadows",1}},updated,envError),"effect range and type errors rejected");
         std::cout << QJsonDocument(reports).toJson().constData() << "\nSurface checks: " << checks
                   << " passed\n";
         return 0;

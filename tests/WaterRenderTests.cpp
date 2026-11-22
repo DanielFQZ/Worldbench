@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
                   "reflection capture refreshes after reflected geometry changes");
             editor.undo(); settle();
         }
-        editor.setEnvironment({{"waterWaves",true},{"waveStrength",80}}); settle();
+        editor.setEnvironment({{"waterWaves",true},{"waveStrength",80},{"waveDensity",70},{"waveSpeed",65}}); settle();
         v->forceActiveFocus();
         const auto animatedScene=editor.scene(); const auto frames=v->frameCounter()->load();
         const auto shadowCount=v->renderMetrics()->shadowUpdates.load(), reflectionAfterEdit=v->renderMetrics()->reflectionUpdates.load();

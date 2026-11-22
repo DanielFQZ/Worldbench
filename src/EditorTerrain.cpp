@@ -246,11 +246,12 @@ void Editor::beginTerrainEdit() {
         return;
     endStroke();
     m_terrainStart = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
-    // Transform gestures can emit many intermediate instance states.  Keep
-    // their derived terrain mesh cheap until the pointer is released; the
-    // authoritative instance data and the single undo entry remain exact.
+    // Transform gestures can emit many intermediate instance states. Keep the
+    // last complete derived scene until release; the authoritative instance
+    // data and the single undo entry remain exact.
     m_interactiveMesh = true;
-    m_status = "交互预览 · 松开后恢复高精度地形";
+    m_rejectStaleMeshes = true;
+    m_status = "交互编辑 · 保持上一稳定画面，松开后更新高精度地形";
     emit changed();
 }
 void Editor::endTerrainEdit(bool cancel) {
@@ -264,8 +265,9 @@ void Editor::endTerrainEdit(bool cancel) {
     const bool wasInteractive = m_interactiveMesh;
     m_interactiveMesh = false;
     if (*c.terrainBefore == *c.terrainAfter) {
-        if (wasInteractive)
-            dirtyAll();
+        m_rejectStaleMeshes = false;
+        if (wasInteractive && m_meshCancel)
+            m_meshCancel->store(true);
         emit changed();
         return;
     }
@@ -276,8 +278,17 @@ void Editor::endTerrainEdit(bool cancel) {
         emit changed();
     } else
         pushCommand(std::move(c));
-    if (wasInteractive)
-        dirtyAll();
+    if (wasInteractive) {
+        if (m_meshCancel)
+            m_meshCancel->store(true);
+        // dirtyCommand has already coalesced the changed instance bounds. Do
+        // one formal rebuild after release instead of rebuilding every drag
+        // sample or forcing the entire world dirty.
+        m_farDirty = true;
+        if (!m_meshTimer.isActive())
+            m_meshTimer.start();
+        emit changed();
+    }
 }
 void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &label) {
     if (assetBusy())

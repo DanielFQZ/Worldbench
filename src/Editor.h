@@ -241,6 +241,10 @@ class Editor : public QObject {
     std::set<int> m_dirty;
     int m_previewX = 0, m_previewZ = 0;
     bool m_farDirty = true, m_farAllDirty = true;
+    // Terrain-instance gestures reject stale worker snapshots until their
+    // single post-release formal build has published. Brush strokes may still
+    // publish intermediate local snapshots for responsive painting.
+    bool m_rejectStaleMeshes = false;
     std::shared_ptr<std::atomic_bool> m_meshCancel;
     std::shared_ptr<std::atomic_int> m_surfaceCompleted;
     int m_surfaceTotal = 0;

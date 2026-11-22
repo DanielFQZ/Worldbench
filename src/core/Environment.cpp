@@ -18,6 +18,8 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"waterReflections", e.waterReflections},
             {"shadows", e.shadows},
             {"waveStrength", e.waveStrength},
+            {"waveDensity", e.waveDensity},
+            {"waveSpeed", e.waveSpeed},
             {"skyIntensity", e.skyIntensity},
             {"sunIntensity", e.sunIntensity},
             {"azimuth", e.azimuth},
@@ -68,6 +70,10 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
         *target = o[name].toBool();
     }
     if (o.contains("waveStrength") && !number("waveStrength", next.waveStrength, 0, 100))
+        return fail();
+    if (o.contains("waveDensity") && !number("waveDensity", next.waveDensity, 1, 100))
+        return fail();
+    if (o.contains("waveSpeed") && !number("waveSpeed", next.waveSpeed, 0, 100))
         return fail();
     if (!number("skyIntensity", next.skyIntensity, 0, 200) ||
         !number("sunIntensity", next.sunIntensity, 0, 300) || !number("azimuth", next.azimuth, -180, 180) ||

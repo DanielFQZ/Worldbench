@@ -51,6 +51,14 @@ ColumnLayout {
    Label{text:"波纹强度 %";Layout.fillWidth:true}
    WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveStrength";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waveStrength;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveStrength",value)}
   }
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"波纹密度 %";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveDensity";Layout.preferredWidth:130;from:1;to:100;value:panel.env.waveDensity;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveDensity",value)}
+  }
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"波动速度 %";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveSpeed";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waveSpeed;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveSpeed",value)}
+  }
   CheckBox {objectName:"environment_waterReflections";text:"水面反射";checked:panel.env.waterReflections;Layout.leftMargin:16;onToggled:panel.change("waterReflections",checked)}
   Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹仅扰动法线，静止场景复用反射。不同高度的独立水方块仅使用天空反射。关闭反射可减少移动时开销。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  }

@@ -276,11 +276,12 @@ class Renderer final : public QQuickRhiItemRenderer {
         for (int i = 0; i < 2; ++i)
             std::memcpy(u.data() + 76 + i * 16, m_shadowSample[i].constData(), 64);
         std::memcpy(u.data() + 108, m_reflectionSample.constData(), 64);
-        u[124] = float(std::fmod(m_clock.elapsed() * .001, 3600.));
+        u[124] = float(std::fmod(m_clock.elapsed() * .001 * m_environment.waveSpeed / 35.f, 3600.));
         u[125] = m_environment.waterWaves ? m_environment.waveStrength / 100.f : 0;
         u[126] = m_environment.waterReflections && m_reflectionReady;
         u[127] = m_scene ? m_scene->seaSurface : 0;
         u[128] = shadows; u[129] = 1.f / ShadowSize; u[130] = reflection;
+        u[131] = m_environment.waveDensity / 100.f;
         u[132] = shadowViews[0].bias; u[133] = shadowViews[1].bias;
         return u;
     }

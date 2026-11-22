@@ -99,7 +99,7 @@ QJsonArray toolList() {
         {{"action", str}, {"id", str}, {"name", str}, {"enabled", boolean}, {"expected_revision", revision}},
         {"action", "expected_revision"}, false);
     add("environment",
-        "Change viewport environment only (water, waterWaves, waterReflections, shadows: bool; waveStrength: integer 0..100); shared undo and project persistence. Changes: "
+        "Change viewport environment only (water, waterWaves, waterReflections, shadows: bool; waveStrength/waveDensity/waveSpeed: integer 0..100); shared undo and project persistence. Changes: "
         "enabled,sky,sun,atmosphere (bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth "
         "-180..180, elevation 0..90 degrees; haze 0..100, exposure -30..30 tenths EV; "
         "skyColor,horizonColor,groundColor,sunColor #RRGGBB. No shadows or volume effects yet.",

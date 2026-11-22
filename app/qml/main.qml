@@ -85,6 +85,8 @@ ApplicationWindow {
             Action { text: "重做    Ctrl+Y"; enabled: editor.canRedo && !editor.assetBusy; onTriggered: editor.redo() }
             Action {text:"清除选区    Ctrl+D";enabled:editor.selection.valid&&!editor.commandBusy;onTriggered:editor.clearSelection()}
             Action {text:"删除地貌实例    Delete";enabled:editor.terrainDetails.valid&&!editor.commandBusy&&!editor.exportBusy;onTriggered:editor.removeTerrain()}
+            MenuSeparator {}
+            Action { text: "偏好设置…"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
         }
         WorkbenchMenu {
             title: "工具"
@@ -103,9 +105,6 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
-            Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
-            Action { text: "性能设置"; onTriggered: { settingsContent.page = "performance"; settingsDialog.open() } }
-            Action { text: "快捷键绑定"; onTriggered: { settingsContent.page = "shortcuts"; settingsDialog.open() } }
             Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
             Action { text: "矩形选区"; onTriggered: editor.tool=6 }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
@@ -190,8 +189,8 @@ ApplicationWindow {
     }
     Dialog {
         id: settingsDialog; objectName: "editorSettingsDialog"
-        title: settingsContent.page === "camera" ? "相机与鼠标设置" : settingsContent.page === "performance" ? "性能与精度设置" : settingsContent.page === "shortcuts" ? "快捷键绑定" : "资源来源与导入诊断"
-        modal: false; width: Math.min(680, win.width - 60); height: Math.min(650, win.height - 100)
+        title: "偏好设置"
+        modal: false; width: Math.min(900, win.width - 60); height: Math.min(680, win.height - 100)
         anchors.centerIn: parent; standardButtons: Dialog.Close
         contentItem: SettingsPanel { id: settingsContent; objectName: "settingsContent" }
     }

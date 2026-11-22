@@ -36,51 +36,39 @@ float shadowVisibility(vec3 position, vec3 normal) {
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
-// Tile-free, low-frequency value noise for water normals.  The previous
-// directional sine bands were mathematically clean but produced screen-space
-// moire on large, shallow-angle sea surfaces.  This noise is deliberately
-// band-limited with the pixel footprint below and uses a small domain warp so
-// there is no repeated stripe direction to lock onto the display grid.
-float waterHash(vec2 p){
-    p=fract(p*vec2(127.1,311.7));
-    p+=dot(p,p+vec2(34.5,17.3));
-    return fract(p.x*p.y*43758.5453);
-}
-float waterNoise(vec2 p){
-    vec2 i=floor(p), f=fract(p);
-    f=f*f*(3.0-2.0*f);
-    float a=waterHash(i), b=waterHash(i+vec2(1,0));
-    float c=waterHash(i+vec2(0,1)), d=waterHash(i+vec2(1,1));
-    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
-}
-vec2 waterNoiseGradient(vec2 p){
-    const float e=.10;
-    return vec2(waterNoise(p+vec2(e,0))-waterNoise(p-vec2(e,0)),
-                waterNoise(p+vec2(0,e))-waterNoise(p-vec2(0,e)))/(2.0*e);
+// Filtered Gerstner-style normal waves.  The wavelengths are deliberately
+// measured in world blocks, so they remain legible at editing distances.  A
+// screen-footprint coverage term suppresses waves smaller than a pixel and
+// prevents the directional bands from turning into moire in the far view.
+vec2 waterWaveDirection(int index){
+    if(index==0)return normalize(vec2(1.0,.18));
+    if(index==1)return normalize(vec2(-.42,1.0));
+    if(index==2)return normalize(vec2(.76,.65));
+    return normalize(vec2(-.88,.31));
 }
 
 void main(){
     vec3 n=normalize(faceNormal);
+    float heightWave=0.0;
     // Multi-scale, band-limited normals: no CPU mesh rebuild, no movement of
     // Minecraft coastlines, and distant water fades to a stable broad shape.
     if(n.y>.5 && u.water.y>0.0){
         float footprint=max(length(fwidth(worldPos.xz)),.0001);
-        // Keep the base wavelength broad enough that a distant tile contains
-        // only a few lobes.  High-frequency detail is deliberately omitted:
-        // even filtered micro normals turn into moving stripes on a huge
-        // planar surface when the specular lobe is narrower than a pixel.
-        vec2 flow=u.water.x*vec2(.0025,-.0018);
-        vec2 p=worldPos.xz*.012+flow;
+        float density=mix(1.8,.58,clamp(u.effects.w,0.0,1.0));
+        float time=u.water.x;
         vec2 gradient=vec2(0);
-        const float scales[3]=float[3](1.0,1.7,2.4);
-        const float amplitudes[3]=float[3](.16,.075,.032);
-        for(int i=0;i<3;++i){
-            float frequency=scales[i];
-            float coverage=1.0-smoothstep(.20,.85,footprint*.012*frequency);
-            vec2 q=p*frequency+vec2(float(i)*17.31,-float(i)*9.17);
-            // A mild domain warp breaks up regular lattice contours.
-            q+=vec2(waterNoise(q*.21+vec2(2.1,4.7)),waterNoise(q*.21-vec2(5.4,1.8))-.5)*.22;
-            gradient+=waterNoiseGradient(q)*amplitudes[i]*coverage;
+        const float wavelengths[4]=float[4](72.0,47.0,29.0,18.0);
+        const float amplitudes[4]=float[4](.78,.48,.27,.13);
+        const float speeds[4]=float[4](.55,.77,1.05,1.33);
+        for(int i=0;i<4;++i){
+            float wavelength=wavelengths[i]*density;
+            float frequency=6.2831853/max(wavelength,1.0);
+            vec2 direction=waterWaveDirection(i);
+            float phase=dot(worldPos.xz,direction)*frequency+time*speeds[i];
+            float coverage=1.0-smoothstep(.35,1.15,footprint*frequency*2.0);
+            float amplitude=amplitudes[i]*coverage;
+            gradient+=direction*(amplitude*frequency)*cos(phase);
+            heightWave+=amplitude*sin(phase);
         }
         gradient*=u.water.y;
         n=normalize(vec3(-gradient.x,1,-gradient.y));
@@ -96,7 +84,9 @@ void main(){
         col=tint*(ambient+direct*.55)*u.groundColor.w;
         vec3 halfVector=normalize(view+u.sunDirection.xyz);
         float spec=pow(max(0.0,dot(n,halfVector)),64.0)*u.sunDirection.w*lit;
-        col+=u.sunColor.rgb*spec*.65*u.groundColor.w;
+        col+=u.sunColor.rgb*spec*.95*u.groundColor.w;
+        if(n.y>.5 && u.water.y>0.0)
+            col+=tint*heightWave*u.water.y*.018;
         col=col/(vec3(1)+col*.35);
     }
     // Only the common horizontal sea plane has a geometric reflection capture.

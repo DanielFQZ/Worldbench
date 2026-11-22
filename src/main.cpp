@@ -14,6 +14,11 @@
 #include <QTimer>
 #include <kddockwidgets/Config.h>
 #include <kddockwidgets/qtquick/Platform.h>
+#ifdef Q_OS_WIN
+#define NOMINMAX
+#include <windows.h>
+#include <dwmapi.h>
+#endif
 
 namespace {
 QString logPath;
@@ -30,6 +35,24 @@ void logMessage(QtMsgType type, const QMessageLogContext &, const QString &messa
     fflush(stderr);
 }
 } // namespace
+
+#ifdef Q_OS_WIN
+void applyDarkTitleBar(QWindow *window) {
+    if (!window)
+        return;
+    const auto hwnd = reinterpret_cast<HWND>(window->winId());
+    const BOOL dark = TRUE;
+    const DWORD caption = RGB(23, 28, 36);
+    const DWORD text = RGB(224, 230, 239);
+    // Keep the native frame (resize, snap, minimize/maximize and accessibility
+    // behavior) while matching the application's dark chrome. These attributes
+    // are ignored by older Windows builds.
+    DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark)); // DWMWA_USE_IMMERSIVE_DARK_MODE
+    DwmSetWindowAttribute(hwnd, 34, &caption, sizeof(caption)); // DWMWA_CAPTION_COLOR
+    DwmSetWindowAttribute(hwnd, 35, &text, sizeof(text)); // DWMWA_TEXT_COLOR
+}
+#endif
+
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
@@ -59,6 +82,11 @@ int main(int argc, char **argv) {
     engine.load(QUrl("qrc:/main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
+#ifdef Q_OS_WIN
+    QTimer::singleShot(0, &app, [&engine] {
+        applyDarkTitleBar(qobject_cast<QWindow *>(engine.rootObjects().first()));
+    });
+#endif
     // CI smoke path uses the same renderer and window; it does not replace manual tests.
     const auto args = app.arguments();
     const int openIndex = args.indexOf("--open");

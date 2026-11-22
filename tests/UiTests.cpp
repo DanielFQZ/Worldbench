@@ -310,13 +310,13 @@ int main(int argc, char **argv) {
         const auto envBefore = editor.world().environment;
         auto envResult = call(
             "environment",
-            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}}},
+            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}, {"waveDensity", 73}, {"waveSpeed", 22}}},
              {"expected_revision", double(editor.revision())}});
         check(!envResult["isError"].toBool() && editor.world().environment.enabled &&
                   editor.world().environment.azimuth == 75,
               "stdio MCP environment change");
         check(!editor.world().environment.waterWaves && !editor.world().environment.waterReflections &&
-              !editor.world().environment.shadows && editor.world().environment.waveStrength==62,
+              !editor.world().environment.shadows && editor.world().environment.waveStrength==62 && editor.world().environment.waveDensity==73 && editor.world().environment.waveSpeed==22,
               "real stdio MCP accepts water and shadow controls");
         check(editor.scene() == envScene && !editor.meshBusy() && editor.world().overrides == envBlocks &&
                   editor.world().heights == envHeights,
@@ -719,13 +719,11 @@ int main(int argc, char **argv) {
             editor.setTerrainOption("x", originalInstance.x + n + 1);
             QTest::qWait(16);
         }
-        check(QTest::qWaitFor([&] { return editor.scene()->provisional; }, 30000),
-              "active transform publishes a provisional low-cost mesh");
-        check(editor.scene()->revision > beforePreviewSerial,
-              "exact preview publishes during active transform");
+        check(editor.meshBusy() && !editor.scene()->provisional && editor.scene()->revision == beforePreviewSerial,
+              "active transform keeps the last stable scene instead of publishing mixed preview tiles");
         editor.endTerrainEdit();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000),
-              "latest exact transform preview settles");
+              "coalesced exact transform rebuild settles");
         check(!editor.scene()->provisional, "released transform replaces provisional mesh with exact mesh");
         std::cout << "Transform interaction 12 updates " << instanceLatency.elapsed() << " ms, final build "
                   << editor.scene()->buildMilliseconds << " ms; visibility " << visibilityMs << " ms\n";
