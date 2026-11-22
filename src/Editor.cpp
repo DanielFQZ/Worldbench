@@ -2,6 +2,7 @@
 #include "McpServer.h"
 #include "core/FarMesh.h"
 #include "core/Project.h"
+#include "core/TerrainSurface.h"
 #include <QBuffer>
 #include <QClipboard>
 #include <QDir>
@@ -61,15 +62,31 @@ Editor::Editor(QObject *parent)
         emit changed();
     });
     m_meshTimer.setSingleShot(true);
+    m_surfaceProgressTimer.setInterval(150);
+    connect(&m_surfaceProgressTimer, &QTimer::timeout, this, &Editor::changed);
     m_meshTimer.setInterval(8);
     connect(&m_meshTimer, &QTimer::timeout, this, &Editor::startMesh);
     connect(&m_meshWatcher, &QFutureWatcherBase::finished, this, [this] {
         m_meshActive = false;
-        if (m_jobEpoch == m_epoch) {
-            m_scene = m_meshWatcher.result();
+        m_surfaceProgressTimer.stop();
+        const auto result = m_meshWatcher.result();
+        if (result && !result->error.isEmpty() && m_jobEpoch == m_epoch &&
+            result->sourceRevision == m_revision) {
+            m_surfaceFailure = result->error;
+            m_dirty.clear();
+            m_farDirty = false;
+            m_farAllDirty = true;
+            emit failure(m_surfaceFailure);
+            emit changed();
+            return;
+        }
+        const bool valid = result && m_jobEpoch == m_epoch &&
+                           (!result->surfacePreview || result->sourceRevision == m_revision);
+        if (valid) {
+            m_scene = result;
             emit sceneChanged();
         }
-        if (m_jobEpoch != m_epoch) {
+        if (!valid) {
             m_dirty = desiredChunks();
             m_farDirty = m_farAllDirty = true;
         }
@@ -135,6 +152,8 @@ Editor::Editor(QObject *parent)
     dirtyAll();
 }
 Editor::~Editor() {
+    if (m_meshCancel)
+        m_meshCancel->store(true);
     if (m_regionControl)
         m_regionControl->cancelled = true;
     m_regionWatcher.waitForFinished();
@@ -273,6 +292,8 @@ void Editor::stamp(const wb::Hit &hit, bool reverse) {
     if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, options))
         return;
     m_strokeChanged = true;
+    if (m_surfacePreview && m_meshCancel)
+        m_meshCancel->store(true);
     m_farDirty = true;
     m_farRegions.emplace_back(hit.x - m_radius - 2, hit.z - m_radius - 2, m_radius * 2 + 5, m_radius * 2 + 5);
     ++m_revision;
@@ -487,6 +508,8 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
+    if (m_surfacePreview && m_meshCancel && !command.environmentAfter)
+        m_meshCancel->store(true);
     if (command.deltaAfter) {
         // Avoid scanning a million deltas on the UI thread at commit/undo.
         // Only resident exact chunks and intersecting far tiles are invalidated.
@@ -576,7 +599,30 @@ QString Editor::meshUpdateSummary() const {
         .arg(m_scene->farMilliseconds)
         .arg(m_scene->updatedChunks)
         .arg(m_scene->updatedFarTiles)
-        .arg(m_scene->vertices * sizeof(wb::Vertex) / 1048576., 0, 'f', 1);
+        .arg(m_scene->bufferBytes / 1048576., 0, 'f', 1);
+}
+QString Editor::surfacePreviewStatus() const {
+    if (!m_surfacePreview)
+        return {};
+    if (!m_surfaceFailure.isEmpty())
+        return "原型生成失败 · " + m_surfaceFailure + " · 当前画面不是新结果";
+    if (meshBusy())
+        return QString("地表精度原型正在更新 %1 / %2 地块 · 当前画面尚未收敛 · 视图菜单可关闭取消")
+            .arg(m_surfaceCompleted ? m_surfaceCompleted->load() : 0)
+            .arg(m_surfaceTotal);
+    return QString("地表精度原型 · 参考面误差上界 %1 格 · %2 个独立方块覆盖及水面未纳入；关闭原型可检查体素")
+        .arg(m_scene->surfaceError, 0, 'f', 2)
+        .arg(m_world.overrides.size());
+}
+void Editor::setSurfacePreview(bool enabled) {
+    if (m_surfacePreview == enabled || commandBusy())
+        return;
+    m_surfacePreview = enabled;
+    m_surfaceFailure.clear();
+    if (m_meshCancel)
+        m_meshCancel->store(true);
+    ++m_epoch;
+    dirtyAll();
 }
 std::set<int> Editor::desiredChunks() const {
     std::set<int> result;
@@ -608,6 +654,8 @@ void Editor::setPreviewCenter(int x, int z) {
     emit changed();
 }
 void Editor::dirtyAll() {
+    if (m_surfacePreview && m_meshCancel)
+        m_meshCancel->store(true);
     m_farDirty = m_farAllDirty = true;
     m_dirty = desiredChunks();
     if (!m_meshTimer.isActive())
@@ -630,6 +678,103 @@ void Editor::startMesh() {
     const auto serial = ++m_meshSerial;
     m_jobEpoch = m_epoch;
     m_meshActive = true;
+    m_meshCancel = std::make_shared<std::atomic_bool>(false);
+    if (m_surfacePreview) {
+        m_surfaceFailure.clear();
+        m_surfaceCompleted = std::make_shared<std::atomic_int>(0);
+        m_surfaceTotal = int(wb::planSurfaceTiles(m_world).size());
+        m_surfaceProgressTimer.start();
+        const auto completed = m_surfaceCompleted;
+        const auto sourceRevision = m_revision;
+        const auto cancel = m_meshCancel;
+        m_meshWatcher.setFuture(
+            QtConcurrent::run([snapshot = std::move(snapshot), old, serial, sourceRevision, allFar,
+                               regions = std::move(regions), cancel, completed]() {
+                QElapsedTimer timer;
+                timer.start();
+                auto next = std::make_shared<wb::MeshScene>();
+                next->revision = serial;
+                next->sourceRevision = sourceRevision;
+                next->surfacePreview = true;
+                next->assets = snapshot.assets;
+                try {
+                    next->farTiles = wb::planSurfaceTiles(snapshot);
+                    using Key = std::pair<int, int>;
+                    std::map<Key, wb::MeshPtr> cache;
+                    if (!allFar && old->surfacePreview && old->assets == snapshot.assets)
+                        for (const auto &tile : old->farTiles)
+                            cache[{tile.area.x(), tile.area.y()}] = tile.mesh;
+                    std::vector<int> jobs;
+                    for (int i = 0; i < int(next->farTiles.size()); ++i) {
+                        auto &tile = next->farTiles[i];
+                        auto found = cache.find({tile.area.x(), tile.area.y()});
+                        const bool changed = std::any_of(regions.begin(), regions.end(), [&](const QRect &r) {
+                            return tile.area.adjusted(-2, -2, 3, 3).intersects(r);
+                        });
+                        if (found != cache.end() && !changed) {
+                            tile.mesh = found->second;
+                            ++(*completed);
+                        } else
+                            jobs.push_back(i);
+                    }
+                    const auto inputs = wb::farInputs(snapshot);
+                    std::atomic_uint64_t bytes{0};
+                    std::atomic_bool overBudget{false};
+                    constexpr uint64_t limit = 512ull * 1024 * 1024;
+                    for (const auto &tile : next->farTiles)
+                        if (tile.mesh)
+                            bytes += tile.mesh->opaque.size() * sizeof(wb::Vertex) +
+                                     tile.mesh->opaqueIndices.size() * sizeof(uint32_t);
+                    QThreadPool pool;
+                    pool.setMaxThreadCount(std::clamp(QThread::idealThreadCount() - 2, 1, 4));
+                    const auto meshes =
+                        QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(&pool, jobs, [&](int i) {
+                            if (cancel->load())
+                                return wb::MeshPtr{};
+                            auto mesh = wb::buildSurfaceMesh(snapshot, next->farTiles[i], inputs, serial, 1.f,
+                                                             cancel.get());
+                            if (mesh) {
+                                const uint64_t cost = mesh->opaque.size() * sizeof(wb::Vertex) +
+                                                      mesh->opaqueIndices.size() * sizeof(uint32_t);
+                                if (bytes.fetch_add(cost) + cost > limit) {
+                                    overBudget = true;
+                                    cancel->store(true);
+                                    return wb::MeshPtr{};
+                                }
+                                ++(*completed);
+                            }
+                            return mesh;
+                        });
+                    if (overBudget.load()) {
+                        next->error = "当前精度的网格超过512 MiB原型预算，未降低精度；请关闭原型或缩小样本";
+                        return next;
+                    }
+                    if (cancel->load())
+                        return std::shared_ptr<wb::MeshScene>{};
+                    for (size_t i = 0; i < jobs.size(); ++i)
+                        next->farTiles[jobs[i]].mesh = meshes[i];
+                    for (const auto &tile : next->farTiles) {
+                        const auto &m = *tile.mesh;
+                        next->vertices += m.opaqueIndices.size();
+                        next->sampleCount += m.sampleCount;
+                        next->surfaceError = std::max(next->surfaceError, m.surfaceError);
+                        next->bufferBytes +=
+                            m.opaque.size() * sizeof(wb::Vertex) + m.opaqueIndices.size() * sizeof(uint32_t);
+                    }
+                    next->updatedFarTiles = int(jobs.size());
+                    next->farMilliseconds = next->buildMilliseconds = timer.elapsed();
+                    return next;
+                } catch (const std::exception &e) {
+                    next->error = "地表原型构建失败：" + QString::fromUtf8(e.what());
+                    return next;
+                } catch (...) {
+                    next->error = "地表原型构建失败，未替换原画面或修改工程";
+                    return next;
+                }
+            }));
+        emit changed();
+        return;
+    }
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old,
                                                serial, wanted, allFar, regions = std::move(regions),
                                                plan = std::move(plan)]() mutable {
@@ -710,6 +855,7 @@ void Editor::startMesh() {
                 next->vertices += c->opaque.size() + c->transparent.size();
         for (const auto &t : next->farTiles)
             next->vertices += t.mesh->opaque.size() + t.mesh->transparent.size();
+        next->bufferBytes = next->vertices * sizeof(wb::Vertex);
         return next;
     }));
     emit changed();

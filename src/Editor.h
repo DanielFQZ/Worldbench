@@ -23,6 +23,8 @@ class Editor : public QObject {
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY changed)
     Q_PROPERTY(bool meshBusy READ meshBusy NOTIFY changed)
+    Q_PROPERTY(bool surfacePreview READ surfacePreview WRITE setSurfacePreview NOTIFY changed)
+    Q_PROPERTY(QString surfacePreviewStatus READ surfacePreviewStatus NOTIFY changed)
     Q_PROPERTY(bool exportBusy READ exportBusy NOTIFY changed)
     Q_PROPERTY(int exportProgress READ exportProgress NOTIFY changed)
     Q_PROPERTY(QString projectName READ projectName NOTIFY changed)
@@ -163,6 +165,9 @@ class Editor : public QObject {
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
     bool meshBusy() const { return m_meshActive || !m_dirty.empty() || m_farDirty; }
+    bool surfacePreview() const { return m_surfacePreview; }
+    void setSurfacePreview(bool enabled);
+    QString surfacePreviewStatus() const;
     bool exportBusy() const { return m_exportActive; }
     int exportProgress() const { return m_exportProgress; }
     QString projectName() const;
@@ -232,6 +237,12 @@ class Editor : public QObject {
     std::set<int> m_dirty;
     int m_previewX = 0, m_previewZ = 0;
     bool m_farDirty = true, m_farAllDirty = true;
+    bool m_surfacePreview = false;
+    std::shared_ptr<std::atomic_bool> m_meshCancel;
+    std::shared_ptr<std::atomic_int> m_surfaceCompleted;
+    int m_surfaceTotal = 0;
+    QString m_surfaceFailure;
+    QTimer m_surfaceProgressTimer;
     std::vector<QRect> m_farRegions;
     QRect m_selection;
     bool m_selectionOnly = false;

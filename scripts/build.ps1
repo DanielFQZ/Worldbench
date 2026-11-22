@@ -22,7 +22,7 @@ $ninja = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja
 if (-not (Test-Path -LiteralPath $ninja)) { $ninja = (Get-Command ninja -ErrorAction Stop).Source }
 if (-not (Test-Path -LiteralPath "$QtRoot\bin\qsb.exe")) { throw 'Qt 6.8.3 MSVC x64 with ShaderTools is required.' }
 $build = Join-Path $root 'build'
-$argsList = @('-S', $root, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$ninja", '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_PREFIX_PATH=$QtRoot")
+$argsList = @('-S', $root, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$ninja", '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG', "-DCMAKE_PREFIX_PATH=$QtRoot")
 if ($DockSource) { $argsList += "-DFETCHCONTENT_SOURCE_DIR_KDDOCKWIDGETS=$DockSource" }
 & $cmake @argsList
 if ($LASTEXITCODE) { throw 'CMake configure failed.' }
@@ -34,7 +34,7 @@ $env:PATH = "$QtRoot\bin;$env:PATH"
 & (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
 if ($LASTEXITCODE) { throw 'Core tests failed.' }
 if ($Package) {
-    $dist = Join-Path $root 'dist\Worldbench-0.13.0'
+    $dist = Join-Path $root 'dist\Worldbench-0.14.0'
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     Copy-Item -LiteralPath "$build\Worldbench.exe" -Destination $dist -Force
     Copy-Item -LiteralPath "$build\WorldbenchMcp.exe" -Destination $dist -Force

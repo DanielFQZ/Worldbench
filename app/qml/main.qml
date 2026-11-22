@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.13.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.14.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -99,6 +99,7 @@ ApplicationWindow {
         }
         WorkbenchMenu {
             title: "视图"
+            Action { text: "连续地表精度原型（仅地表）";checkable:true;checked:editor.surfacePreview;enabled:!editor.commandBusy;onTriggered:editor.surfacePreview=!editor.surfacePreview }
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
             Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
             Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
@@ -118,7 +119,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.13.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.14.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     SurfaceThemeDialog{id:surfaceThemeDialog}

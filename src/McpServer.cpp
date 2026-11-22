@@ -127,14 +127,17 @@ QJsonArray toolList() {
         {"expected_revision"}, false);
     add("camera",
         "Inspect or set preview camera. position is [x,y,z], yaw/pitch in degrees. reset=true frames the "
-        "world. Does not alter world data.",
+        "world. surface_preview toggles the R0 adaptive HEIGHTFIELD-ONLY precision prototype (no "
+        "water, overrides or caves). world_info.preview reports scope/error/readiness. Does not alter world "
+        "data.",
         {{"position", QJsonObject{{"type", "array"},
                                   {"items", QJsonObject{{"type", "number"}}},
                                   {"minItems", 3},
                                   {"maxItems", 3}}},
          {"yaw", QJsonObject{{"type", "number"}}},
          {"pitch", QJsonObject{{"type", "number"}}},
-         {"reset", boolean}},
+         {"reset", boolean},
+         {"surface_preview", boolean}},
         {}, false);
     add("screenshot",
         "Capture the editor window as PNG for visual feedback. Wait until world_info.mesh_busy=false. No "

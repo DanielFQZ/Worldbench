@@ -418,6 +418,14 @@ QJsonObject Editor::worldInfo() const {
             {"mesh_busy", meshBusy()},
             {"environment", wb::saveEnvironment(m_world.environment)},
             {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
+                                    {"surface_preview_requested", m_surfacePreview},
+                                    {"surface_preview_displayed", m_scene->surfacePreview},
+                                    {"surface_failure", m_surfaceFailure},
+                                    {"surface_scope", "heightfield-only prototype; no water/overrides/caves"},
+                                    {"surface_error_bound", m_scene->surfaceError},
+                                    {"surface_samples", double(m_scene->sampleCount)},
+                                    {"mesh_bytes", double(m_scene->bufferBytes)},
+                                    {"source_revision", double(m_scene->sourceRevision)},
                                     {"far_tiles", int(m_scene->farTiles.size())},
                                     {"vertices", double(m_scene->vertices)},
                                     {"build_ms", double(m_scene->buildMilliseconds)},
@@ -514,9 +522,19 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         if (name == "camera") {
             if (!args.isEmpty() && (commandBusy() || v->rawActive()))
                 throw std::runtime_error("用户正在操作视口，请稍后重试");
-            v->applyCamera(args);
+            if (args.contains("surface_preview")) {
+                if (!args["surface_preview"].isBool())
+                    throw std::runtime_error("surface_preview must be boolean");
+            }
+            auto cameraArgs = args;
+            cameraArgs.remove("surface_preview");
+            v->applyCamera(cameraArgs);
+            if (args.contains("surface_preview"))
+                setSurfacePreview(args["surface_preview"].toBool());
             return {{"camera", v->cameraText()}};
         }
+        if (m_surfacePreview && !m_surfaceFailure.isEmpty())
+            throw std::runtime_error(m_surfaceFailure.toStdString());
         if (meshBusy())
             throw std::runtime_error("网格仍在更新，请等待 world_info.mesh_busy=false 再截图");
         auto img = v->window()->grabWindow();

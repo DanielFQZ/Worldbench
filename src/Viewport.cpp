@@ -27,7 +27,8 @@ QShader shader(const char *name) {
     return QShader::fromSerialized(f.readAll());
 }
 struct GpuChunk {
-    std::unique_ptr<QRhiBuffer> opaque, transparent;
+    std::unique_ptr<QRhiBuffer> opaque, transparent, opaqueIndices;
+    int indexCount = 0;
     int opaqueCount = 0, transparentCount = 0;
     uint64_t revision = 0;
 };
@@ -258,11 +259,23 @@ class Renderer final : public QQuickRhiItemRenderer {
             };
             upload(src->opaque, dst.opaque, dst.opaqueCount);
             upload(src->transparent, dst.transparent, dst.transparentCount);
+            dst.indexCount = int(src->opaqueIndices.size());
+            if (dst.indexCount) {
+                const auto bytes = quint32(src->opaqueIndices.size() * sizeof(uint32_t));
+                dst.opaqueIndices.reset(
+                    rhi()->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::IndexBuffer, bytes));
+                if (!dst.opaqueIndices->create())
+                    qFatal("Unable to allocate terrain index buffer");
+                updates->uploadStaticBuffer(dst.opaqueIndices.get(), 0, bytes, src->opaqueIndices.data());
+                uploadBytes += bytes;
+            } else
+                dst.opaqueIndices.reset();
             dst.revision = src->revision;
         }
         for (const auto &[src, gpu] : m_chunks)
-            residentBytes +=
-                (gpu.opaque ? gpu.opaque->size() : 0) + (gpu.transparent ? gpu.transparent->size() : 0);
+            residentBytes += (gpu.opaque ? gpu.opaque->size() : 0) +
+                             (gpu.transparent ? gpu.transparent->size() : 0) +
+                             (gpu.opaqueIndices ? gpu.opaqueIndices->size() : 0);
         cb->beginPass(renderTarget(), QColor("#202c3b"), {1.0f, 0}, updates);
         const auto sz = renderTarget()->pixelSize();
         cb->setViewport({0, 0, float(sz.width()), float(sz.height())});
@@ -283,7 +296,13 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->setShaderResources(m_bindings.get());
         for (auto src : visible) {
             const auto &c = m_chunks.at(src);
-            draw(c.opaque.get(), c.opaqueCount);
+            if (c.opaque && c.indexCount) {
+                QRhiCommandBuffer::VertexInput binding(c.opaque.get(), 0);
+                cb->setVertexInput(0, 1, &binding, c.opaqueIndices.get(), 0, QRhiCommandBuffer::IndexUInt32);
+                cb->drawIndexed(c.indexCount);
+                ++draws;
+            } else
+                draw(c.opaque.get(), c.opaqueCount);
         }
         cb->setGraphicsPipeline(m_alpha.get());
         cb->setShaderResources(m_bindings.get());
@@ -356,15 +375,17 @@ QString Viewport::cameraText() const {
         .arg(m_speed, 0, 'f', 0);
 }
 QString Viewport::hitText() const {
-    return m_hit.valid ? QString("%1 · (%2, %3, %4)%5")
-                             .arg(m_editor->world().palette[m_hit.block].label())
-                             .arg(m_hit.x)
-                             .arg(m_hit.y)
-                             .arg(m_hit.z)
-                             .arg(!m_editor->previewContains(m_hit.x, m_hit.z) &&
-                                          (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5)
-                                      ? " · 远处精确落点 / 范围以实际格数为准" : "")
-                       : "指向体素以雕刻";
+    return m_hit.valid
+               ? QString("%1 · (%2, %3, %4)%5")
+                     .arg(m_editor->world().palette[m_hit.block].label())
+                     .arg(m_hit.x)
+                     .arg(m_hit.y)
+                     .arg(m_hit.z)
+                     .arg(!m_editor->previewContains(m_hit.x, m_hit.z) &&
+                                  (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5)
+                              ? " · 远处精确落点 / 范围以实际格数为准"
+                              : "")
+               : "指向体素以雕刻";
 }
 QVector3D Viewport::forward() const {
     float y = qDegreesToRadians(m_yaw), p = qDegreesToRadians(m_pitch);
@@ -537,8 +558,8 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_selecting = true;
         m_selectionStart = {m_hit.x, m_hit.z};
         m_editor->setSelection(m_hit.x, m_hit.z, m_hit.x, m_hit.z);
-    } else if (e->button() == Qt::LeftButton && m_editor && m_hit.valid && m_editor->tool() >= 0 && m_editor->tool() <= 5 &&
-               !m_editor->assetBusy()) {
+    } else if (e->button() == Qt::LeftButton && m_editor && m_hit.valid && m_editor->tool() >= 0 &&
+               m_editor->tool() <= 5 && !m_editor->assetBusy()) {
         m_sculpting = true;
         m_editor->beginStroke();
         m_editor->stamp(m_hit, m_reverse);

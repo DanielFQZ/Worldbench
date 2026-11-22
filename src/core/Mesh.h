@@ -8,6 +8,9 @@ struct Vertex {
 };
 struct ChunkMesh {
     std::vector<Vertex> opaque, transparent;
+    std::vector<uint32_t> opaqueIndices;
+    float surfaceError = 0;
+    uint64_t sampleCount = 0;
     uint64_t revision = 0;
     int skirtMask = 0;
     QVector3D center;
@@ -30,6 +33,10 @@ struct MeshScene {
     qint64 farMilliseconds = 0;
     int updatedFarTiles = 0;
     std::shared_ptr<const AssetLibrary> assets;
+    bool surfacePreview = false;
+    uint64_t sourceRevision = 0, sampleCount = 0, bufferBytes = 0;
+    float surfaceError = 0;
+    QString error;
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision, int skirtMask = 0);
 } // namespace wb

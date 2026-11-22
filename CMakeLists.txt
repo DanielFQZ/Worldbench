@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.13.0 LANGUAGES CXX)
+project(Worldbench VERSION 0.14.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -27,6 +27,7 @@ FetchContent_Declare(kddockwidgets
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(kddockwidgets)
 add_library(worldbench_core STATIC
+  src/core/TerrainSurface.cpp
   src/core/ProjectChunks.cpp src/core/ProjectCompression.cpp src/core/HeightDeltas.cpp src/core/RegionEdit.cpp
   src/core/Environment.cpp src/core/FarMesh.cpp src/core/World.cpp src/core/SurfaceTheme.cpp src/core/HeightField.cpp src/core/Heightmap.cpp src/core/HeightmapRay.cpp src/core/TerrainProject.cpp src/core/Search.cpp src/core/Assets.cpp src/core/Project.cpp src/core/Mesh.cpp src/core/MinecraftExport.cpp)
 target_include_directories(worldbench_core PUBLIC src)
@@ -36,6 +37,9 @@ qt_add_executable(Worldbench WIN32 src/main.cpp src/Editor.cpp src/EditorTools.c
 target_link_libraries(Worldbench PRIVATE worldbench_core Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent Qt6::Network Qt6::GuiPrivate KDAB::kddockwidgets)
 qt_add_shaders(Worldbench worldbench_shaders PREFIX /shaders BASE shaders FILES shaders/voxel.vert shaders/voxel.frag shaders/sky.vert shaders/sky.frag)
 enable_testing()
+add_executable(worldbench_surface_tests tests/SurfaceTests.cpp)
+target_link_libraries(worldbench_surface_tests PRIVATE worldbench_core)
+add_test(NAME worldbench_surface COMMAND worldbench_surface_tests)
 find_package(Qt6 6.8.3 EXACT REQUIRED COMPONENTS Test)
 add_executable(worldbench_core_tests tests/CoreTests.cpp)
 target_link_libraries(worldbench_core_tests PRIVATE worldbench_core)
@@ -78,3 +82,9 @@ target_link_libraries(worldbench_render_tests PRIVATE worldbench_core Qt6::CoreP
 qt_add_shaders(worldbench_render_tests worldbench_render_test_shaders PREFIX /shaders BASE shaders FILES shaders/voxel.vert shaders/voxel.frag shaders/sky.vert shaders/sky.frag)
 add_test(NAME worldbench_render COMMAND worldbench_render_tests)
 set_tests_properties(worldbench_render PROPERTIES TIMEOUT 120 LABELS "desktop")
+
+qt_add_executable(worldbench_surface_preview_tests tests/SurfacePreviewTests.cpp src/Editor.cpp src/EditorTools.cpp src/EditorTerrain.cpp src/EditorTheme.cpp src/EditorEnvironment.cpp src/McpServer.cpp src/Viewport.cpp src/ViewportGizmo.cpp app/resources.qrc)
+target_link_libraries(worldbench_surface_preview_tests PRIVATE worldbench_core Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent Qt6::Network Qt6::GuiPrivate Qt6::Test KDAB::kddockwidgets)
+qt_add_shaders(worldbench_surface_preview_tests surface_preview_shaders PREFIX /shaders BASE shaders FILES shaders/voxel.vert shaders/voxel.frag shaders/sky.vert shaders/sky.frag)
+add_test(NAME worldbench_surface_preview COMMAND worldbench_surface_preview_tests)
+set_tests_properties(worldbench_surface_preview PROPERTIES TIMEOUT 180 LABELS "desktop")

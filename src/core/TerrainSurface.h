@@ -1,0 +1,26 @@
+#pragma once
+#include "FarMesh.h"
+#include <atomic>
+#include <functional>
+#include <span>
+
+namespace wb {
+// A regular lattice of column-centre heights. Finest RTIN triangles have a
+// checkerboard diagonal: (x+z) even uses NW-SE, odd uses NE-SW. All coarser
+// triangles are unions of these reference triangles (no filtering of samples).
+struct SurfaceGrid {
+    int size = 0; // power-of-two interval count; (size+1)^2 samples
+    std::vector<float> heights;
+    int clipWidth = 0, clipDepth = 0; // zero means size; padded rectangular patch
+};
+struct SurfaceTopology {
+    std::vector<uint32_t> indices; // indices into the original sample lattice
+    float certifiedError = 0;
+};
+SurfaceTopology triangulateSurface(const SurfaceGrid &grid, float tolerance, bool fullBoundary = true);
+// Reference/prototype path: sample every column, not five samples per LOD cell.
+// Patches own sample intervals; adjacent patches share their endpoint samples.
+std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 512);
+MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const FarInputs &inputs, uint64_t revision,
+                         float tolerance = .5f, const std::atomic_bool *cancelled = nullptr);
+} // namespace wb

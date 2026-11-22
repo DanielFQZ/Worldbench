@@ -237,7 +237,9 @@ bool loadProject(const QString &path, World &world, QString &error) {
             !manifest["hasDense"].isBool() || manifest["blocks"].toArray().size() > MaxRecords)
             return fail("分块工程元数据错误");
         const int width = metadata["width"].toInt(), depth = metadata["depth"].toInt();
-        const auto imageDefs = metadata["terrainInstances"].toObject()["images"];
+        // Own the value: operator[] on a temporary mutable QJsonObject returns
+        // a QJsonValueRef that dangles after this statement (visible with /O2).
+        const QJsonValue imageDefs = metadata["terrainInstances"].toObject().value("images");
         const auto layerDefs = metadata["sculptLayers"];
         if (!imageDefs.isArray() || imageDefs.toArray().size() > 64 || !layerDefs.isArray() ||
             layerDefs.toArray().isEmpty() || layerDefs.toArray().size() > 32)
