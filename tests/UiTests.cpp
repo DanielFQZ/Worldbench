@@ -344,13 +344,13 @@ int main(int argc, char **argv) {
         const auto envBefore = editor.world().environment;
         auto envResult = call(
             "environment",
-            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}, {"waveDensity", 73}, {"waveSpeed", 22}}},
+            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"clouds", true}, {"cloudDensity", 70}, {"cloudSpeed", 35}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}, {"waveDensity", 73}, {"waveSpeed", 22}, {"waterDepthFade", 80}, {"waterFoamStrength", 75}, {"waterFoamWidth", 8}}},
              {"expected_revision", double(editor.revision())}});
         check(!envResult["isError"].toBool() && editor.world().environment.enabled &&
                   editor.world().environment.azimuth == 75,
               "stdio MCP environment change");
         check(!editor.world().environment.waterWaves && !editor.world().environment.waterReflections &&
-              !editor.world().environment.shadows && editor.world().environment.waveStrength==62 && editor.world().environment.waveDensity==73 && editor.world().environment.waveSpeed==22,
+              !editor.world().environment.shadows && editor.world().environment.waveStrength==62 && editor.world().environment.waveDensity==73 && editor.world().environment.waveSpeed==22 && editor.world().environment.cloudDensity==70 && editor.world().environment.waterFoamWidth==8,
               "real stdio MCP accepts water and shadow controls");
         check(editor.scene() == envScene && !editor.meshBusy() && editor.world().overrides == envBlocks &&
                   editor.world().heights == envHeights,

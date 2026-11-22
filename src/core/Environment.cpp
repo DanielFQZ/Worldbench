@@ -13,6 +13,7 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"sky", e.sky},
             {"sun", e.sun},
             {"atmosphere", e.atmosphere},
+            {"clouds", e.clouds},
             {"water", e.water},
             {"waterWaves", e.waterWaves},
             {"waterReflections", e.waterReflections},
@@ -20,6 +21,11 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"waveStrength", e.waveStrength},
             {"waveDensity", e.waveDensity},
             {"waveSpeed", e.waveSpeed},
+            {"waterDepthFade", e.waterDepthFade},
+            {"waterFoamStrength", e.waterFoamStrength},
+            {"waterFoamWidth", e.waterFoamWidth},
+            {"cloudDensity", e.cloudDensity},
+            {"cloudSpeed", e.cloudSpeed},
             {"skyIntensity", e.skyIntensity},
             {"sunIntensity", e.sunIntensity},
             {"azimuth", e.azimuth},
@@ -44,7 +50,8 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
     for (auto [name, target] : {std::pair{"enabled", &next.enabled},
                                 {"sky", &next.sky},
                                 {"sun", &next.sun},
-                                {"atmosphere", &next.atmosphere}}) {
+                                {"atmosphere", &next.atmosphere},
+                                {"clouds", &next.clouds}}) {
         if (!o[name].isBool())
             return fail();
         *target = o[name].toBool();
@@ -74,6 +81,16 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
     if (o.contains("waveDensity") && !number("waveDensity", next.waveDensity, 1, 100))
         return fail();
     if (o.contains("waveSpeed") && !number("waveSpeed", next.waveSpeed, 0, 100))
+        return fail();
+    if (o.contains("waterDepthFade") && !number("waterDepthFade", next.waterDepthFade, 0, 100))
+        return fail();
+    if (o.contains("waterFoamStrength") && !number("waterFoamStrength", next.waterFoamStrength, 0, 100))
+        return fail();
+    if (o.contains("waterFoamWidth") && !number("waterFoamWidth", next.waterFoamWidth, 1, 32))
+        return fail();
+    if (o.contains("cloudDensity") && !number("cloudDensity", next.cloudDensity, 0, 100))
+        return fail();
+    if (o.contains("cloudSpeed") && !number("cloudSpeed", next.cloudSpeed, 0, 100))
         return fail();
     if (!number("skyIntensity", next.skyIntensity, 0, 200) ||
         !number("sunIntensity", next.sunIntensity, 0, 300) || !number("azimuth", next.azimuth, -180, 180) ||

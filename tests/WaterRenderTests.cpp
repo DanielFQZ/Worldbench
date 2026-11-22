@@ -65,6 +65,22 @@ int main(int argc, char **argv) {
         v->applyCamera({{"position",QJsonArray{100,95,170}},{"yaw",-28},{"pitch",-24}});
         const auto still = capture("water-still");
         check(editor.scene()->waterVertices>0, "water in published snapshot");
+        // Depth and shoreline controls must affect the rendered water without
+        // rebuilding authoritative terrain geometry.
+        const auto waterScene = editor.scene();
+        editor.setEnvironment({{"waterDepthFade",100},{"waterFoamStrength",100},{"waterFoamWidth",12}});
+        const auto deepAbsorption = capture("water-depth-foam");
+        editor.setEnvironment({{"waterDepthFade",0},{"waterFoamStrength",0}});
+        const auto flatAbsorption = capture("water-depth-flat");
+        check(mean(deepAbsorption,flatAbsorption,deepAbsorption.rect())>.15,
+              "water depth absorption and shoreline foam change the preview");
+        check(editor.scene()==waterScene, "water appearance controls do not rebuild terrain");
+        editor.setEnvironment({{"clouds",true},{"cloudDensity",75},{"cloudSpeed",35}});
+        const auto cloudy = capture("sky-clouds");
+        editor.setEnvironment({{"clouds",false}});
+        const auto clearSky = capture("sky-without-clouds");
+        check(mean(cloudy,clearSky,QRect(0,0,cloudy.width(),cloudy.height()/3))>.15,
+              "projected sky clouds are visible and toggleable");
         size_t farWater=0; for(const auto &t:editor.scene()->farTiles)farWater+=t.mesh->water.size();
         check(farWater>0, "water exists beyond exact region");
         const auto scene = editor.scene();

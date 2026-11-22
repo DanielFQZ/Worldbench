@@ -28,12 +28,15 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(int gizmoMode READ gizmoMode WRITE setGizmoMode NOTIFY cameraChanged)
     Q_PROPERTY(bool snapEnabled READ snapEnabled WRITE setSnapEnabled NOTIFY cameraChanged)
     Q_PROPERTY(int rawPackets READ rawPackets NOTIFY cameraChanged)
+    Q_PROPERTY(bool antialiasing READ antialiasing WRITE setAntialiasing NOTIFY cameraChanged)
   public:
     explicit Viewport(QQuickItem *parent = nullptr);
     ~Viewport() override;
     bool rawInput() const { return m_rawInput; }
     bool rawActive() const { return m_rawActive; }
     int rawPackets() const { return m_rawPackets; }
+    bool antialiasing() const { return sampleCount() > 1; }
+    void setAntialiasing(bool enabled);
     double sensitivity() const { return m_sensitivity; }
     void setRawInput(bool value);
     void setSensitivity(double value);

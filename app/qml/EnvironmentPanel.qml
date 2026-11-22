@@ -18,9 +18,10 @@ ColumnLayout {
    Layout.fillWidth:true;spacing:8
    visible:panel.selected==="environment" || panel.selected==="environment-"+modelData.key
    CheckBox {text:modelData.title;checked:panel.env[modelData.key];Layout.leftMargin:8;onToggled:panel.change(modelData.key,checked)}
+   CheckBox {visible:modelData.key==="sky";text:"天空云层";checked:panel.env.clouds;Layout.leftMargin:16;onToggled:panel.change("clouds",checked)}
    CheckBox {objectName:"environment_shadows";visible:modelData.key==="sun";text:"太阳投影阴影";checked:panel.env.shadows;Layout.leftMargin:16;onToggled:panel.change("shadows",checked)}
    Repeater {
-    model:modelData.key==="sky" ? [{key:"skyIntensity",label:"天光强度 %",lo:0,hi:200}] : modelData.key==="sun" ? [{key:"azimuth",label:"方位角 °",lo:-180,hi:180},{key:"elevation",label:"仰角 °",lo:0,hi:90},{key:"sunIntensity",label:"太阳强度 %",lo:0,hi:300}] : [{key:"haze",label:"大气浓度 %",lo:0,hi:100}]
+    model:modelData.key==="sky" ? [{key:"skyIntensity",label:"天光强度 %",lo:0,hi:200},{key:"cloudDensity",label:"云层密度 %",lo:0,hi:100},{key:"cloudSpeed",label:"云层速度 %",lo:0,hi:100}] : modelData.key==="sun" ? [{key:"azimuth",label:"方位角 °",lo:-180,hi:180},{key:"elevation",label:"仰角 °",lo:0,hi:90},{key:"sunIntensity",label:"太阳强度 %",lo:0,hi:300}] : [{key:"haze",label:"大气浓度 %",lo:0,hi:100}]
     RowLayout {
      required property var modelData
      Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
@@ -59,14 +60,26 @@ ColumnLayout {
    Label{text:"波动速度 %";Layout.fillWidth:true}
    WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveSpeed";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waveSpeed;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveSpeed",value)}
   }
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"深度透明度 %";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waterDepthFade";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waterDepthFade;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waterDepthFade",value)}
+  }
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"岸边泡沫强度 %";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waterFoamStrength";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waterFoamStrength;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waterFoamStrength",value)}
+  }
+  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+   Label{text:"泡沫宽度 · 方块";Layout.fillWidth:true}
+   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waterFoamWidth";Layout.preferredWidth:130;from:1;to:32;value:panel.env.waterFoamWidth;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waterFoamWidth",value)}
+  }
   CheckBox {objectName:"environment_waterReflections";text:"水面反射";checked:panel.env.waterReflections;Layout.leftMargin:16;onToggled:panel.change("waterReflections",checked)}
-  Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹仅扰动法线，静止场景复用反射。不同高度的独立水方块仅使用天空反射。关闭反射可减少移动时开销。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
+  Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹会扰动采样坐标并自动过滤高频细节。深度透明度控制浅水到深水的吸收变化，岸边泡沫会沿地形水岸生成。不同高度的独立水方块仅使用天空反射。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  }
  RowLayout {Layout.fillWidth:true;Layout.margins:12
   Label{text:"曝光 · 0.1 EV";Layout.fillWidth:true}
   WorkbenchSpinBox{returnFocusToViewport:true;objectName:"environment_exposure";Layout.preferredWidth:130;from:-30;to:30;value:panel.env.exposure;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("exposure",value)}
  }
  Label{text:"大气浓度采用渐进曲线：低值适合全图观察，高值在近景也明显。0% 无雾，50% 约3606格衰减至37%，100% 约250格。需开启光照预览与大气。";visible:panel.selected==="environment"||panel.selected==="environment-atmosphere";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
- Label{text:"太阳阴影采用局部＋全图两级2048贴图与PCF过滤。大型地图远处小结构的阴影会变软；阴影不影响地形精度。未实现间接光照GI、体积云雾和流体模拟。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
+ Label{text:"太阳阴影采用局部＋全图两级2048贴图与PCF过滤。天空云层使用低成本投影噪声，随时间缓慢移动并会进入水面反射；体积云雾和间接光照GI仍未实现。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  ColorDialog{id:colorPicker;property string targetKey;title:"选择环境颜色";options:ColorDialog.DontUseNativeDialog;onAccepted:panel.change(targetKey,selectedColor.toString())}
 }

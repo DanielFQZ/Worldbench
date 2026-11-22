@@ -48,7 +48,18 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_rawInput = settings.value("input/raw", true).toBool();
     m_flightInertia = settings.value("input/flightInertia", true).toBool();
     m_sensitivity = std::clamp(settings.value("input/sensitivity", .12).toDouble(), .01, 1.0);
+    setSampleCount(settings.value("rendering/antialiasing", true).toBool() ? 4 : 1);
     QCoreApplication::instance()->installNativeEventFilter(this);
+}
+void Viewport::setAntialiasing(bool enabled) {
+    const bool current = sampleCount() > 1;
+    if (current == enabled)
+        return;
+    QSettings settings;
+    settings.setValue("rendering/antialiasing", enabled);
+    setSampleCount(enabled ? 4 : 1);
+    emit cameraChanged();
+    update();
 }
 QQuickRhiItemRenderer *Viewport::createRenderer() {
     return createTerrainRenderer();
@@ -113,13 +124,29 @@ QMatrix4x4 Viewport::viewProjection() const {
     return p * v;
 }
 void Viewport::pick(QPointF pos) {
-    if (m_sculpting && pos == m_pointer && m_editor &&
-        (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5) && m_hit.valid) {
+    auto normalizeWaterHit = [&] {
+        if (!m_editor || !m_hit.valid || m_hit.block != wb::Water || m_editor->tool() < 0 ||
+            m_editor->tool() > 5)
+            return;
+        // Water is a render-only surface for editing purposes. Resolve a brush
+        // hit to the authoritative terrain column underneath it so painting,
+        // carving and height tools never stamp the sea-level plane itself.
         const auto &w = m_editor->world();
         m_hit.y = w.height(m_hit.x, m_hit.z);
         m_hit.position = {m_hit.x + .5f, float(m_hit.y + 1), m_hit.z + .5f};
         m_hit.block = w.block(m_hit.x, m_hit.y, m_hit.z);
         m_hit.normal = {0, 1, 0};
+    };
+    if (m_sculpting && pos == m_pointer && m_editor &&
+        (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5) && m_hit.valid) {
+        if (m_hit.block != wb::Water) {
+            const auto &w = m_editor->world();
+            m_hit.y = w.height(m_hit.x, m_hit.z);
+            m_hit.position = {m_hit.x + .5f, float(m_hit.y + 1), m_hit.z + .5f};
+            m_hit.block = w.block(m_hit.x, m_hit.y, m_hit.z);
+            m_hit.normal = {0, 1, 0};
+        }
+        normalizeWaterHit();
         update();
         emit cameraChanged();
         return;
@@ -138,6 +165,7 @@ void Viewport::pick(QPointF pos) {
     // Surface tools and selection query authoritative voxels over the entire
     // map. Volume/material tools still need visible exact model geometry.
     m_hit = world.raycast(m_camera, farPoint.toVector3DAffine() - m_camera, distance);
+    normalizeWaterHit();
     if (m_hit.valid && m_editor->tool() >= 2 && m_editor->tool() <= 4 &&
         !m_editor->previewContains(m_hit.x, m_hit.z))
         m_hit = {};

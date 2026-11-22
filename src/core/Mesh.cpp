@@ -84,7 +84,15 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                     for (int t : tri) {
                         const auto &p = face.points[t];
                         const auto &n = face.normal;
-                        const auto &c = b == Water ? waterColor : face.color;
+                        auto c = b == Water ? waterColor : face.color;
+                        if (b == Water) {
+                            // Encode the column's water depth in the alpha lane.
+                            // The water shader turns this into depth-dependent
+                            // absorption and shoreline foam; opaque materials
+                            // keep their original face alpha unchanged.
+                            const int columnHeight = heights[lz + 1][lx + 1];
+                            c.setW(std::clamp(float(w.seaLevel - columnHeight + 1) / 64.f, 0.f, 1.f));
+                        }
                         vertices.push_back({x + p.x(), y + p.y(), z + p.z(), n.x(), n.y(), n.z(), c.x(),
                                             c.y(), c.z(), c.w(), face.uv[t].x(), face.uv[t].y()});
                     }

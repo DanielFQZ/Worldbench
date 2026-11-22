@@ -5,7 +5,7 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=4) uniform sampler2D reflectionColor;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;} u;
 
 layout(binding=2) uniform sampler2D shadowNear;
 layout(binding=3) uniform sampler2D shadowFar;
@@ -83,7 +83,10 @@ void main(){
     vec3 view=normalize(u.camera.xyz-worldPos);
     float fresnel=.025+.975*pow(1.0-clamp(dot(n,view),0.0,1.0),5.0);
     float lit=shadowVisibility(worldPos,n);
+    float depth=clamp(baseColor.a,0.0,1.0);
+    float depthFactor=clamp(mix(.35,depth,clamp(u.skyEffects.x,0.0,1.0)),0.0,1.0);
     vec3 tint=clamp(baseColor.rgb,vec3(.015),vec3(.9));
+    tint*=mix(1.06,.78,depthFactor);
     vec3 col=tint*.9;
     if(u.sunColor.w>.5){
         vec3 ambient=mix(u.groundColor.rgb,u.skyColor.rgb,.8)*u.skyColor.w;
@@ -103,13 +106,28 @@ void main(){
         if(u.sunColor.w>.5){reflected*=u.groundColor.w;reflected=reflected/(vec3(1)+reflected*.35);}
         vec4 projected=u.reflectionMatrix*vec4(worldPos,1);
         vec2 uv=projected.xy/projected.w;
-        uv+=n.xz*.005;
+        // Distort the captured scene with the animated surface normal. The
+        // offset is deliberately larger at grazing angles so reflections do
+        // not look like an unbroken planar mirror, while textureGrad keeps
+        // high-frequency ripples filtered instead of producing moire.
+        uv+=n.xz*(.012+.028*fresnel);
         vec2 reflectionDx=dFdx(uv), reflectionDy=dFdy(uv);
         float edge=min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y));
         if(abs(worldPos.y-u.water.w)<.05 && projected.w>0.0 && edge>0.0)
             reflected=mix(reflected,textureGrad(reflectionColor,uv,reflectionDx*1.5,reflectionDy*1.5).rgb,smoothstep(0.0,.025,edge));
         col=mix(col,reflected,.20+.70*fresnel);
     }
+    float foamWidth=max(.008,u.skyEffects.z);
+    // Keep a narrow band just inside the shoreline. This prevents an entire
+    // shallow ocean shelf from being mistaken for foam while still covering
+    // the first few blocks next to land.
+    float shoreline=smoothstep(0.0,foamWidth*.20,depth) *
+                    (1.0-smoothstep(foamWidth*.55,foamWidth,depth));
+    // Keep the edge broad and calm. Wave normals already provide animated
+    // motion; adding a tiled bright pattern here would read as moire instead
+    // of foam on large, shallow shelves.
+    float foam=shoreline*clamp(u.skyEffects.y,0.0,1.0);
+    col=mix(col,vec3(.91,.97,1.0),foam*.78);
     if(u.sunColor.w>.5 && u.envFlags.z>.5){
         float haze=u.horizonColor.w;
         float density=(haze+63.0*pow(haze,4.0))/16000.0;
@@ -139,5 +157,7 @@ void main(){
         col=mix(col,vec3(1.0,0.68,0.2),coverage*(.12+.78*outline));
     }
 
-    fragColor=vec4(col,.76+.18*fresnel);
+    float alpha=mix(.42,.92,depthFactor);
+    alpha=clamp(alpha+foam*.18,0.0,.98);
+    fragColor=vec4(col,alpha);
 }

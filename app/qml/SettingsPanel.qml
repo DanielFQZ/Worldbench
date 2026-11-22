@@ -83,6 +83,8 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 12
                     Label { text: "性能与精度"; font.pixelSize: 19; color: "#e5edf6"; Layout.margins: 20; Layout.bottomMargin: 0 }
+                    CheckBox { text: "4× 多重采样抗锯齿"; checked: editor.cameraController ? editor.cameraController.antialiasing : true; Layout.leftMargin: 20; onToggled: if (editor.cameraController) editor.cameraController.antialiasing = checked }
+                    Label { text: "使用视口原生多重采样平滑体素轮廓和水面边缘。关闭后使用单采样，可在低端设备上节省显存与带宽。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: "#91a8ba" }
                     Label { text: "全精度区域半径（区块）"; color: "#dce4ee"; Layout.leftMargin: 20 }
                     RowLayout { Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20
                         Slider { id: exactRadius; from: 1; to: 12; stepSize: 1; snapMode: Slider.SnapAlways; value: editor.exactRadiusChunks; Layout.fillWidth: true; onMoved: editor.exactRadiusChunks = Math.round(value) }

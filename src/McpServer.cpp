@@ -99,10 +99,12 @@ QJsonArray toolList() {
         {{"action", str}, {"id", str}, {"name", str}, {"enabled", boolean}, {"expected_revision", revision}},
         {"action", "expected_revision"}, false);
     add("environment",
-        "Change viewport environment only (water, waterWaves, waterReflections, shadows: bool; waveStrength/waveDensity/waveSpeed: integer 0..100); shared undo and project persistence. Changes: "
-        "enabled,sky,sun,atmosphere (bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth "
-        "-180..180, elevation 0..90 degrees; haze 0..100, exposure -30..30 tenths EV; "
-        "skyColor,horizonColor,groundColor,sunColor #RRGGBB. No shadows or volume effects yet.",
+        "Change viewport environment only (water, waterWaves, waterReflections, shadows, clouds: bool; "
+        "waveStrength/waveDensity/waveSpeed/waterDepthFade/waterFoamStrength/cloudDensity/cloudSpeed: integer 0..100; "
+        "waterFoamWidth: integer 1..32); shared undo and project persistence. Changes: enabled,sky,sun,atmosphere "
+        "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 degrees; "
+        "haze 0..100, exposure -30..30 tenths EV; skyColor,horizonColor,groundColor,sunColor #RRGGBB. "
+        "Clouds use a low-cost projected noise layer; volumetric clouds and GI are not included.",
         {{"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"changes", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",

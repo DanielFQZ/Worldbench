@@ -11,7 +11,7 @@
 #include <limits>
 
 namespace {
-constexpr int UniformFloats = 136, ShadowSize = 2048;
+constexpr int UniformFloats = 140, ShadowSize = 2048;
 using Uniforms = std::array<float, UniformFloats>;
 QShader shader(const char *name) {
     QFile f(name);
@@ -285,6 +285,16 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[128] = shadows; u[129] = 1.f / ShadowSize; u[130] = reflection;
         u[131] = m_environment.waveDensity / 100.f;
         u[132] = shadowViews[0].bias; u[133] = shadowViews[1].bias;
+        u[134] = m_environment.cloudDensity / 100.f;
+        u[135] = m_environment.cloudSpeed / 100.f;
+        u[136] = m_environment.waterDepthFade / 100.f;
+        u[137] = m_environment.waterFoamStrength / 100.f;
+        // Water vertex alpha stores depth over a 64-block range. Keep the
+        // foam control in the same unit so a UI value of N means roughly N
+        // blocks of shoreline instead of turning the entire shallow shelf
+        // into foam when N is above one.
+        u[138] = m_environment.waterFoamWidth / 64.f;
+        u[139] = m_environment.clouds && m_environment.sky;
         return u;
     }
     void upload(const wb::MeshPtr &src, QRhiResourceUpdateBatch *updates) {

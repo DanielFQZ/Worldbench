@@ -185,15 +185,27 @@ bool appendSeaSurface(ChunkMesh &mesh, const World &w, const FarTile &tile, cons
     const int side = grid.size + 1;
     using Run = std::pair<int, int>;
     std::map<Run, QRect> previous;
+    auto depthAt = [&](int wx, int wz) {
+        const int lx = std::clamp(wx - r.x(), 0, r.width());
+        const int lz = std::clamp(wz - r.y(), 0, r.height());
+        const int gx = r.width() > 0 ? std::clamp(int(std::lround(double(lx) * grid.size / r.width())), 0, grid.size) : 0;
+        const int gz = r.height() > 0 ? std::clamp(int(std::lround(double(lz) * grid.size / r.height())), 0, grid.size) : 0;
+        const float terrain = grid.heights[size_t(gz) * side + gx] - 1.f;
+        return std::clamp((float(w.seaLevel) - terrain + 1.f) / 64.f, 0.f, 1.f);
+    };
     auto append = [&](const QRect &rect) {
         const float y = float(w.seaLevel + 1);
         const float x0 = float(rect.x()), x1 = float(rect.x() + rect.width());
         const float z0 = float(rect.y()), z1 = float(rect.y() + rect.height());
-        auto v = [&](float x, float z) {
-            return Vertex{x, y, z, 0, 1, 0, color.x(), color.y(), color.z(), .76f, -1, -1};
+        auto v = [&](float x, float z, float depth) {
+            return Vertex{x, y, z, 0, 1, 0, color.x(), color.y(), color.z(), depth, -1, -1};
         };
-        mesh.water.insert(mesh.water.end(), {v(x0, z0), v(x1, z1), v(x1, z0),
-                                             v(x0, z0), v(x0, z1), v(x1, z1)});
+        const float d00 = depthAt(int(std::floor(x0)), int(std::floor(z0)));
+        const float d10 = depthAt(int(std::floor(x1)), int(std::floor(z0)));
+        const float d01 = depthAt(int(std::floor(x0)), int(std::floor(z1)));
+        const float d11 = depthAt(int(std::floor(x1)), int(std::floor(z1)));
+        mesh.water.insert(mesh.water.end(), {v(x0, z0, d00), v(x1, z1, d11), v(x1, z0, d10),
+                                             v(x0, z0, d00), v(x0, z1, d01), v(x1, z1, d11)});
     };
     for (int z = 0; z < depth; ++z) {
         if (cancelled && cancelled->load())
@@ -349,7 +361,7 @@ MeshPtr buildInteractiveSurfaceMesh(const World &w, const FarTile &tile, const S
             for(size_t i=0;i<rimCount;++i) wet |= mesh->opaque[rim[i]].y<=w.seaLevel+1;
             if(wet) {
                 const auto c=in.colors.at(Water);
-                auto v=[&](uint32_t k){auto p=mesh->opaque[k];p.y=float(w.seaLevel+1);p.nx=0;p.ny=1;p.nz=0;p.r=c.x();p.g=c.y();p.b=c.z();p.a=.76f;return p;};
+                auto v=[&](uint32_t k){auto p=mesh->opaque[k];const float terrain=p.y-1.f;p.y=float(w.seaLevel+1);p.nx=0;p.ny=1;p.nz=0;p.r=c.x();p.g=c.y();p.b=c.z();p.a=std::clamp((float(w.seaLevel)-terrain+1.f)/64.f,0.f,1.f);return p;};
                 auto a=v(vertex(x,z)), b=v(vertex(x1,z)), c0=v(vertex(x1,z1)), d=v(vertex(x,z1));
                 mesh->water.insert(mesh->water.end(),{a,b,c0,a,c0,d});
             }
