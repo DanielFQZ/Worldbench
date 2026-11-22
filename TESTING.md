@@ -3,6 +3,8 @@
 > 本轮目标：修复水面摩尔纹，验证地貌实例整体变换期间的低精度交互预览与松手后的高精度收敛，并开始验证性能/快捷键设置页。0.16.0/V单未逐项人工验收，已归档到 E:/AppProject/Worldbench-test-archive/0.16.0-20261122/TESTING-V.md。
 >
 > 当前程序：构建完成后使用 E:/AppProject/Worldbench/dist/Worldbench-0.17.0/Worldbench.exe；开发构建也可直接运行 build/Worldbench.exe。测试前保持完整程序目录。
+>
+> 交付提交：6381f91。发布包 build-info.json 记录可执行文件 SHA256；本单不把自动验证当作用户通过。
 
 ## 开始前
 
