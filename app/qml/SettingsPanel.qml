@@ -90,7 +90,7 @@ Item {
                     }
                     Label { text: "范围越大，近处真实方块细节越多，同时构网、显存和后台线程开销也会增加。远景使用误差约束的连续地表。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: "#91a8ba" }
                     Label { text: "交互预览"; font.pixelSize: 15; color: "#dce4ee"; Layout.leftMargin: 20 }
-                    Label { text: "地貌实例拖动期间保持上一张完整稳定画面，不发布临时碎片；松开后合并脏区域并只进行一次正式高精度构建。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: "#91a8ba" }
+                    Label { text: "地貌实例拖动期间发布完整的低精度预览快照，保证轮廓实时更新且不混入旧碎片；松开后合并脏区域并只进行一次正式高精度构建。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: "#91a8ba" }
                     Label { text: "当前构网：" + editor.meshUpdateSummary; color: "#a6b4c5"; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20 }
                     Item { Layout.preferredHeight: 20 }
                 }

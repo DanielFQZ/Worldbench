@@ -8,7 +8,8 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.1"
+    flags: Qt.platform.os === "windows" ? Qt.FramelessWindowHint | Qt.Window : Qt.Window
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -36,31 +37,81 @@ ApplicationWindow {
     }
     property bool allowClose: false
     property bool autoCloseResources:false
-    function requestAction(action) {
-        if (editor.exportBusy || editor.assetBusy) { errorBox.text = editor.regionBusy ? "请等待区域操作完成，或点击底栏的取消区域操作。" : "请等待当前资源处理或导出完成，导出可从底栏取消。"; errorBox.open(); return }
-        pendingAction = action
-        if (editor.modified) unsaved.open(); else finishAction()
+    Item {
+        // Cover the complete window, including its menu/title area. Content
+        // coordinates otherwise leave the top border below the menu bar.
+        parent: win.contentItem
+        x: -win.contentItem.x; y: -win.contentItem.y
+        width: win.width; height: win.height; z: 1000
+        visible: Qt.platform.os === "windows" && win.visibility !== Window.Maximized
+        Repeater {
+            model: [Qt.LeftEdge, Qt.RightEdge, Qt.TopEdge, Qt.BottomEdge,
+                    Qt.TopEdge | Qt.LeftEdge, Qt.TopEdge | Qt.RightEdge,
+                    Qt.BottomEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge]
+            MouseArea {
+                required property int modelData
+                readonly property bool corner: (modelData & (Qt.LeftEdge | Qt.RightEdge)) && (modelData & (Qt.TopEdge | Qt.BottomEdge))
+                readonly property int grip: corner ? 9 : 5
+                width: (modelData & (Qt.LeftEdge | Qt.RightEdge)) ? grip : parent.width - 18
+                height: (modelData & (Qt.TopEdge | Qt.BottomEdge)) ? grip : parent.height - 18
+                x: (modelData & Qt.RightEdge) ? parent.width - width : (modelData & Qt.LeftEdge) ? 0 : 9
+                y: (modelData & Qt.BottomEdge) ? parent.height - height : (modelData & Qt.TopEdge) ? 0 : 9
+                cursorShape: corner ? ((modelData === (Qt.TopEdge | Qt.LeftEdge) || modelData === (Qt.BottomEdge | Qt.RightEdge)) ? Qt.SizeFDiagCursor : Qt.SizeBDiagCursor) : (modelData & (Qt.LeftEdge | Qt.RightEdge)) ? Qt.SizeHorCursor : Qt.SizeVerCursor
+                onPressed: win.startSystemResize(modelData)
+            }
+        }
     }
-    function finishAction() {
-        const action = pendingAction; pendingAction = ""
-        if (action === "new") newWorldDialog.open()
-        else if (action === "open") { openDialog.currentFolder=editor.dialogFolder("openProject"); openDialog.open() }
-        else if (action === "drop") { const url = pendingProject; pendingProject=""; editor.rememberDialogFolder("openProject",url); editor.open(url) }
-        else if (action === "close") { allowClose = true; win.close() }
-    }
-    function chooseResources(overlay) {
-        resourceDialog.overlay=overlay
-        resourceDialog.currentFolder=editor.dialogFolder(overlay?"overlayResource":"baseResource")
-        resourceDialog.open()
-    }
-    function chooseSave() { saveDialog.currentFolder=editor.dialogFolder("saveProject"); saveDialog.open() }
-    function saveCurrent() {
-        if (editor.assetBusy) return
-        if (editor.projectPath.length === 0) chooseSave()
-        else if (editor.save()) finishAction()
-    }
-    onClosing: function(close) { if (!allowClose) { close.accepted = false; requestAction("close") } }
-    menuBar: MenuBar {
+    menuBar: Column {
+      width: win.width
+      Rectangle {
+        id: windowChrome
+        objectName: "windowChrome"
+        width: parent.width
+        height: visible ? 38 : 0
+        visible: Qt.platform.os === "windows"
+        color: "#171c24"
+        border.color: "#344252"
+        border.width: 1
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 12
+            anchors.rightMargin: 6
+            spacing: 9
+            Rectangle {
+                Layout.preferredWidth: 25
+                Layout.preferredHeight: 25
+                radius: 5
+                color: "#2a7288"
+                border.color: "#73d6df"
+                Text { anchors.centerIn: parent; text: "W"; color: "#effcff"; font.bold: true; font.pixelSize: 15 }
+            }
+            Text {
+                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.1"
+                color: "#dce8f3"
+                font.pixelSize: 13
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
+            ToolButton { id: minimizeButton; objectName: "windowMinimize"; text: "—"; ToolTip.text: "最小化"; ToolTip.visible: hovered; onClicked: win.showMinimized() }
+            ToolButton { objectName: "windowMaximize"; text: win.visibility === Window.Maximized ? "❐" : "□"; ToolTip.text: "最大化 / 还原"; ToolTip.visible: hovered; onClicked: win.visibility === Window.Maximized ? win.showNormal() : win.showMaximized() }
+            ToolButton { objectName: "windowClose"; text: "×"; ToolTip.text: "关闭"; ToolTip.visible: hovered; onClicked: win.requestAction("close")
+                contentItem: Text { text: parent.text; color: parent.hovered ? "#ffffff" : "#dce8f3"; font.pixelSize: 21; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { color: parent.hovered ? "#b33b4a" : "transparent"; radius: 3 }
+            }
+        }
+        MouseArea {
+            objectName: "windowTitleDrag"
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: minimizeButton.x + 12
+            onPressed: win.startSystemMove()
+            onDoubleClicked: win.visibility === Window.Maximized ? win.showNormal() : win.showMaximized()
+        }
+      }
+      MenuBar {
+        objectName: "mainMenuBar"
+        width: parent.width
         background:Rectangle{color:"#293746"}
         delegate:MenuBarItem {
             id:barItem
@@ -122,9 +173,34 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.17.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.17.1 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
+    }
+    function requestAction(action) {
+        if (editor.exportBusy || editor.assetBusy) { errorBox.text = editor.regionBusy ? "请等待区域操作完成，或点击底栏的取消区域操作。" : "请等待当前资源处理或导出完成，导出可从底栏取消。"; errorBox.open(); return }
+        pendingAction = action
+        if (editor.modified) unsaved.open(); else finishAction()
+    }
+    function finishAction() {
+        const action = pendingAction; pendingAction = ""
+        if (action === "new") newWorldDialog.open()
+        else if (action === "open") { openDialog.currentFolder=editor.dialogFolder("openProject"); openDialog.open() }
+        else if (action === "drop") { const url = pendingProject; pendingProject=""; editor.rememberDialogFolder("openProject",url); editor.open(url) }
+        else if (action === "close") { allowClose = true; win.close() }
+    }
+    function chooseResources(overlay) {
+        resourceDialog.overlay=overlay
+        resourceDialog.currentFolder=editor.dialogFolder(overlay?"overlayResource":"baseResource")
+        resourceDialog.open()
+    }
+    function chooseSave() { saveDialog.currentFolder=editor.dialogFolder("saveProject"); saveDialog.open() }
+    function saveCurrent() {
+        if (editor.assetBusy) return
+        if (editor.projectPath.length === 0) chooseSave()
+        else if (editor.save()) finishAction()
+    }
+    onClosing: function(close) { if (!allowClose) { close.accepted = false; requestAction("close") } }
     SurfaceThemeDialog{id:surfaceThemeDialog}
     RowLayout {
         anchors.fill: parent; spacing: 0

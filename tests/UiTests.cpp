@@ -66,6 +66,12 @@ int main(int argc, char **argv) {
         check(win, "native Qt window");
         win->requestActivate();
         check(QTest::qWaitForWindowExposed(win), "window exposed");
+        auto *chrome = win->findChild<QQuickItem *>("windowChrome");
+        auto *menus = win->findChild<QQuickItem *>("mainMenuBar");
+        check(chrome && menus && win->flags().testFlag(Qt::FramelessWindowHint) &&
+                  chrome->mapToScene({0, 0}).y() == 0 &&
+                  menus->mapToScene({0, 0}).y() >= chrome->height(),
+              "custom dark title bar precedes menu and removes native frame");
         std::function<QQuickItem *(QQuickItem *, const QString &)> visualItem =
             [&](QQuickItem *root, const QString &name) -> QQuickItem * {
             if (root->objectName() == name)
@@ -715,17 +721,30 @@ int main(int argc, char **argv) {
         instanceLatency.restart();
         editor.beginTerrainEdit();
         const auto beforePreviewSerial = editor.scene()->revision;
-        for (int n = 0; n < 12; ++n) {
-            editor.setTerrainOption("x", originalInstance.x + n + 1);
+        int liveSnapshots = 0;
+        uint64_t lastSerial = beforePreviewSerial;
+        for (int n = 0; n < 180; ++n) {
+            editor.setTerrainOption("x", originalInstance.x + (n % 24) + 1);
             QTest::qWait(16);
+            if (editor.scene()->provisional && editor.scene()->revision > lastSerial) {
+                ++liveSnapshots;
+                lastSerial = editor.scene()->revision;
+            }
         }
-        check(editor.meshBusy() && !editor.scene()->provisional && editor.scene()->revision == beforePreviewSerial,
-              "active transform keeps the last stable scene instead of publishing mixed preview tiles");
+        check(liveSnapshots >= 2, "continuous moving input publishes previews without waiting for a pause");
+        check(QTest::qWaitFor([&] {
+                  return editor.scene()->provisional && editor.scene()->revision > beforePreviewSerial &&
+                         editor.scene()->sourceRevision == editor.revision();
+              }, 30000),
+              "active transform publishes complete provisional snapshots without mixed preview tiles");
         editor.endTerrainEdit();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000),
               "coalesced exact transform rebuild settles");
         check(!editor.scene()->provisional, "released transform replaces provisional mesh with exact mesh");
-        std::cout << "Transform interaction 12 updates " << instanceLatency.elapsed() << " ms, final build "
+        check(std::none_of(editor.scene()->farTiles.begin(), editor.scene()->farTiles.end(),
+                           [](const auto &tile) { return tile.mesh->provisional; }),
+              "release rebuilds every temporary tile at final precision");
+        std::cout << "Transform interaction 180 updates, " << liveSnapshots << " live snapshots in " << instanceLatency.elapsed() << " ms, final build "
                   << editor.scene()->buildMilliseconds << " ms; visibility " << visibilityMs << " ms\n";
         editor.undo();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "interaction undo settles");

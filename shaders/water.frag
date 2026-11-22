@@ -44,6 +44,9 @@ vec2 waterWaveDirection(int index){
     if(index==0)return normalize(vec2(1.0,.18));
     if(index==1)return normalize(vec2(-.42,1.0));
     if(index==2)return normalize(vec2(.76,.65));
+    if(index==4)return normalize(vec2(.31,-.95));
+    if(index==5)return normalize(vec2(.91,.41));
+    if(index==6)return normalize(vec2(-.64,-.77));
     return normalize(vec2(-.88,.31));
 }
 
@@ -54,19 +57,25 @@ void main(){
     // Minecraft coastlines, and distant water fades to a stable broad shape.
     if(n.y>.5 && u.water.y>0.0){
         float footprint=max(length(fwidth(worldPos.xz)),.0001);
-        float density=mix(1.8,.58,clamp(u.effects.w,0.0,1.0));
+        // The upper end reaches roughly five times the previous maximum
+        // density, so close camera views still expose fine ripples. The
+        // footprint filter below suppresses sub-pixel frequencies at distance.
+        float density=mix(1.8,.116,clamp(u.effects.w,0.0,1.0));
         float time=u.water.x;
         vec2 gradient=vec2(0);
-        const float wavelengths[4]=float[4](72.0,47.0,29.0,18.0);
-        const float amplitudes[4]=float[4](.78,.48,.27,.13);
-        const float speeds[4]=float[4](.55,.77,1.05,1.33);
-        for(int i=0;i<4;++i){
+        const float wavelengths[7]=float[7](72.0,47.0,29.0,18.0,5.8,3.4,1.9);
+        const float amplitudes[7]=float[7](.78,.48,.27,.13,.017,.010,.006);
+        const float speeds[7]=float[7](.55,.77,1.05,1.33,1.71,2.13,2.61);
+        for(int i=0;i<7;++i){
             float wavelength=wavelengths[i]*density;
-            float frequency=6.2831853/max(wavelength,1.0);
+            float frequency=6.2831853/max(wavelength,.05);
             vec2 direction=waterWaveDirection(i);
             float phase=dot(worldPos.xz,direction)*frequency+time*speeds[i];
             float coverage=1.0-smoothstep(.35,1.15,footprint*frequency*2.0);
             float amplitude=amplitudes[i]*coverage;
+            // Extra low-amplitude capillary detail becomes visible at player
+            // distance near the high-density end, then vanishes below a pixel.
+            if(i>=4)amplitude*=smoothstep(.65,1.0,u.effects.w);
             gradient+=direction*(amplitude*frequency)*cos(phase);
             heightWave+=amplitude*sin(phase);
         }

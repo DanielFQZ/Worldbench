@@ -125,6 +125,18 @@ int main(int argc, char **argv) {
         // retained for manual visual review because a single compositor frame
         // may quantize subpixel normal changes to identical 8-bit colors.
         check(second.save("test-output/water-waves.png"), "wave capture");
+        v->applyCamera({{"position",QJsonArray{100,14.8,90}},{"yaw",0},{"pitch",-18}});
+        editor.setEnvironment({{"waveDensity",72},{"waveSpeed",0},{"shadows",false},{"waterReflections",false}});
+        const auto oldMaximum=capture("water-close-old-density");
+        editor.setEnvironment({{"waveDensity",100}});
+        const auto fine=capture("water-close-max-density");
+        editor.setEnvironment({{"waterWaves",false}});
+        const auto flat=capture("water-close-no-waves");
+        const auto closeRegion=QRect(fine.width()/4,fine.height()/2,fine.width()/2,fine.height()/3);
+        std::cout << "Close waves max/flat " << mean(fine,flat,closeRegion)
+                  << ", max/old " << mean(fine,oldMaximum,closeRegion) << std::endl;
+        check(mean(fine,flat,closeRegion)>.5 && mean(fine,oldMaximum,closeRegion)>.5,
+              "maximum-density fine ripples remain visible at player camera height");
         editor.setEnvironment({{"waterWaves",false},{"shadows",false},{"waterReflections",false}}); settle();
         const auto sc=v->renderMetrics()->shadowUpdates.load(), rc=v->renderMetrics()->reflectionUpdates.load();
         v->applyCamera({{"position",QJsonArray{90,90,160}},{"yaw",-28},{"pitch",-24}}); settle();

@@ -99,11 +99,14 @@ Editor::Editor(QObject *parent)
         // region instead of cancelling forever. meshBusy stays true until the
         // latest snapshot converges; MCP screenshots cannot mistake it for final.
         const bool sameRevision = result && result->sourceRevision == m_revision;
+        const bool activePreview = result && result->provisional && m_interactiveMesh &&
+                                   m_jobGesture == m_gesture;
+        const bool correctQuality = result && (m_interactiveMesh ? activePreview : !result->provisional);
         const bool valid = result && result->error.isEmpty() && m_jobEpoch == m_epoch &&
-                           (sameRevision || !m_rejectStaleMeshes);
+                           correctQuality && (sameRevision || activePreview || !m_rejectStaleMeshes);
         if (valid) {
             m_scene = result;
-            if (sameRevision)
+            if (sameRevision && !m_interactiveMesh)
                 m_rejectStaleMeshes = false;
             emit sceneChanged();
         }
@@ -114,13 +117,18 @@ Editor::Editor(QObject *parent)
             // instead of promoting a stale result to a full-world rebuild.
             // Epoch changes (open/new project) have no trustworthy dirty set
             // and still require a complete rebuild.
-            const bool staleRevision = result && m_jobEpoch == m_epoch &&
-                                       result->sourceRevision != m_revision;
-            if (!staleRevision) {
+            if (m_jobEpoch == m_epoch) {
+                m_dirty.insert(m_jobDirty.begin(), m_jobDirty.end());
+                m_farRegions.insert(m_farRegions.end(), m_jobFarRegions.begin(), m_jobFarRegions.end());
+                m_farAllDirty = m_farAllDirty || m_jobAllFar;
+                m_farDirty = true;
+            } else {
                 m_dirty = desiredChunks();
                 m_farDirty = m_farAllDirty = true;
             }
         }
+        m_jobDirty.clear();
+        m_jobFarRegions.clear();
         if (!m_dirty.empty() || m_farDirty)
             m_meshTimer.start();
         else if (m_status.startsWith("正在构建") || m_status == "正在准备地形…")
@@ -676,7 +684,9 @@ QString Editor::terrainUpdateStatus() const {
     if (!m_surfaceFailure.isEmpty())
         return "地形更新失败 · " + m_surfaceFailure;
     if (m_interactiveMesh)
-        return "交互编辑中 · 保持上一稳定画面，松开后更新高精度地形";
+        return m_scene && m_scene->provisional
+                   ? "交互预览网格 · 完整快照实时更新，松开后恢复高精度地形"
+                   : "交互编辑中 · 等待首个完整预览快照";
     if (m_scene && m_scene->provisional)
         return "地形网格待收敛";
     if (meshBusy())
@@ -726,18 +736,11 @@ void Editor::dirtyAll() {
     emit changed();
 }
 void Editor::startMesh() {
-    if (m_interactiveMesh) {
-        // A transform gesture can emit many authoritative instance revisions.
-        // Keep the last complete scene on screen and coalesce all invalidation
-        // until release; publishing intermediate far tiles causes visible
-        // mixtures of old and new instance footprints on large maps.
-        m_status = "交互编辑 · 松开后更新高精度地形";
-        emit changed();
-        return;
-    }
     if (m_meshActive || (m_dirty.empty() && !m_farDirty))
         return;
-    const auto wanted = desiredChunks();
+    // During transforms the continuous surface covers the whole viewport.
+    // Avoid rebuilding expensive block/model meshes on every pointer update.
+    const auto wanted = m_interactiveMesh ? std::set<int>{} : desiredChunks();
     auto dirty = std::move(m_dirty);
     m_dirty.clear();
     const bool allFar = m_farAllDirty;
@@ -747,7 +750,12 @@ void Editor::startMesh() {
     auto snapshot = m_world;
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
+    const bool interactive = m_interactiveMesh;
     m_jobEpoch = m_epoch;
+    m_jobGesture = m_gesture;
+    m_jobDirty = dirty;
+    m_jobFarRegions = regions;
+    m_jobAllFar = allFar;
     m_meshActive = true;
     m_meshCancel = std::make_shared<std::atomic_bool>(false);
     m_surfaceFailure.clear();
@@ -762,12 +770,14 @@ void Editor::startMesh() {
     const auto cancel = m_meshCancel;
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), old, serial, sourceRevision,
                                                allFar, wanted, dirty = std::move(dirty),
-                                               regions = std::move(regions), cancel, completed, patchSize]() {
+                                               regions = std::move(regions), cancel, completed, patchSize,
+                                               interactive]() {
         QElapsedTimer timer;
         timer.start();
         auto next = std::make_shared<wb::MeshScene>();
         next->revision = serial;
         next->sourceRevision = sourceRevision;
+        next->provisional = interactive;
         next->assets = snapshot.assets;
         next->worldArea = QRect(snapshot.originX, snapshot.originZ, snapshot.width, snapshot.depth);
         next->seaSurface = float(snapshot.seaLevel + 1);
@@ -819,7 +829,8 @@ void Editor::startMesh() {
                 const bool changed = std::any_of(regions.begin(), regions.end(), [&](const QRect &r) {
                     return tile.area.adjusted(-2, -2, 3, 3).intersects(r);
                 });
-                if (found != cache.end() && !changed && found->second->surfaceCutout == cutout) {
+                if (found != cache.end() && !changed && found->second->surfaceCutout == cutout &&
+                    (interactive || !found->second->provisional)) {
                     tile.mesh = found->second;
                     ++(*completed);
                 } else
@@ -846,8 +857,8 @@ void Editor::startMesh() {
                     const QRect cutout = tile.area.adjusted(0, 0, 1, 1).intersects(next->exactArea)
                                              ? next->exactArea
                                              : QRect{};
-                    auto mesh =
-                        wb::buildSurfaceMesh(snapshot, tile, inputs, serial, 1.f, cancel.get(), cutout);
+                    auto mesh = wb::buildSurfaceMesh(snapshot, tile, inputs, serial,
+                                                     interactive ? 8.f : 1.f, cancel.get(), cutout);
                     if (mesh) {
                         if (bytes.fetch_add(cost(*mesh)) + cost(*mesh) > limit) {
                             overBudget = true;

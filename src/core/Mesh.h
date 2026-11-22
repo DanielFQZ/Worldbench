@@ -24,6 +24,7 @@ struct ChunkMesh {
         }
     }
     float surfaceError = 0;
+    bool provisional = false; // Rebuild this tile at full quality after a gesture.
     uint64_t sampleCount = 0;
     uint64_t revision = 0;
     QRect surfaceCutout;

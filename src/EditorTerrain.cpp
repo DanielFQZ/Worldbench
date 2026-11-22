@@ -86,6 +86,8 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     m_world.apply(command, true);
     ++m_revision;
     dirtyCommand(command);
+    // Do not cancel every pointer event: let the current complete preview
+    // publish, then coalesce pending changes into the next snapshot.
     if (!m_terrainStart)
         pushCommand(std::move(command));
     m_status = label + " · Ctrl+Z 撤销";
@@ -246,12 +248,13 @@ void Editor::beginTerrainEdit() {
         return;
     endStroke();
     m_terrainStart = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
-    // Transform gestures can emit many intermediate instance states. Keep the
-    // last complete derived scene until release; the authoritative instance
-    // data and the single undo entry remain exact.
+    // Begin a generation so late preview results cannot cross cancel/release.
+    ++m_gesture;
+    if (m_meshCancel)
+        m_meshCancel->store(true);
     m_interactiveMesh = true;
     m_rejectStaleMeshes = true;
-    m_status = "交互编辑 · 保持上一稳定画面，松开后更新高精度地形";
+    m_status = "交互编辑 · 正在实时构建完整预览网格，松开后更新高精度地形";
     emit changed();
 }
 void Editor::endTerrainEdit(bool cancel) {
@@ -264,10 +267,15 @@ void Editor::endTerrainEdit(bool cancel) {
     m_terrainStart.reset();
     const bool wasInteractive = m_interactiveMesh;
     m_interactiveMesh = false;
+    ++m_gesture;
     if (*c.terrainBefore == *c.terrainAfter) {
         m_rejectStaleMeshes = false;
         if (wasInteractive && m_meshCancel)
             m_meshCancel->store(true);
+        if (wasInteractive && m_scene->provisional) {
+            m_farDirty = true;
+            m_meshTimer.start();
+        }
         emit changed();
         return;
     }

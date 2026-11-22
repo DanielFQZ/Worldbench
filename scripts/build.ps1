@@ -34,12 +34,16 @@ $env:PATH = "$QtRoot\bin;$env:PATH"
 & (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
 if ($LASTEXITCODE) { throw 'Core tests failed.' }
 if ($Package) {
-    $dist = Join-Path $root 'dist\Worldbench-0.17.0'
+    $dist = Join-Path $root 'dist\Worldbench-0.17.1'
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     Copy-Item -LiteralPath "$build\Worldbench.exe" -Destination $dist -Force
     Copy-Item -LiteralPath "$build\WorldbenchMcp.exe" -Destination $dist -Force
     & "$QtRoot\bin\windeployqt.exe" --release --qmldir "$root\app\qml" --no-translations --no-opengl-sw "$dist\Worldbench.exe"
     if ($LASTEXITCODE) { throw 'Qt deployment failed.' }
+    # The MCP helper is a second executable in the package and is not pulled
+    # in by windeployqt when only the GUI target is scanned.
+    & "$QtRoot\bin\windeployqt.exe" --release --no-translations --no-opengl-sw "$dist\WorldbenchMcp.exe"
+    if ($LASTEXITCODE) { throw 'MCP Qt deployment failed.' }
     Copy-Item -LiteralPath "$root\licenses" -Destination $dist -Recurse -Force
     Write-Host "Runnable test build: $dist\Worldbench.exe"
 }

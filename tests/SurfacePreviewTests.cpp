@@ -237,6 +237,58 @@ int main(int argc, char **argv) {
             navigationReuse += beforeNavigation->farTiles[i].mesh == editor.scene()->farTiles[i].mesh;
         check(navigationReuse > 0, "navigation reuses terrain away from the moving exact cutout");
         const auto target = editor.world().heights.instances.back();
+        editor.setSelectedNode(target.id);
+        QElapsedTimer transformClock;
+        QJsonArray transformPublications;
+        const auto transformConnection = QObject::connect(&editor, &Editor::sceneChanged, &app, [&] {
+            if (editor.scene()->provisional)
+                transformPublications.append(QJsonObject{{"ms", double(transformClock.elapsed())},
+                    {"source_revision", double(editor.scene()->sourceRevision)},
+                    {"current_revision", double(editor.revision())},
+                    {"build_ms", double(editor.scene()->buildMilliseconds)},
+                    {"tiles", editor.scene()->updatedFarTiles}});
+        });
+        transformClock.start();
+        editor.beginTerrainEdit();
+        for (int n = 0; n < 240; ++n) {
+            editor.setTerrainOption("x", target.x + (n % 96) + 1);
+            QTest::qWait(16);
+        }
+        check(transformPublications.size() >= 2,
+              "large instance publishes multiple coherent previews while pointer keeps moving");
+        check(window->grabWindow().save(out + "/transform-active.png"), "capture unreleased instance preview");
+        editor.endTerrainEdit();
+        settle();
+        QObject::disconnect(transformConnection);
+        check(!editor.scene()->provisional && !editor.scene()->chunks.empty() &&
+                  editor.scene()->sourceRevision == editor.revision() && editor.scene()->surfaceError <= 1,
+              "released instance converges to exact revision and restores local block meshes");
+        for (const auto &tile : editor.scene()->farTiles)
+            check(!tile.mesh->provisional, "all low-detail transform tiles replaced");
+        capture("transform-final");
+        write("undo", {});
+        settle();
+        check(editor.world().heights == authoritative, "live transform is one undo transaction");
+        std::cout << "Live transform snapshots: " << transformPublications.size() << std::endl;
+        // Exercise cancellation while a snapshot is in flight, followed by a
+        // gesture that returns to its initial value. Neither may strand a
+        // provisional tile or let an old gesture overwrite the restored world.
+        editor.beginTerrainEdit();
+        editor.setTerrainOption("x", target.x + 80);
+        QTest::qWait(20);
+        editor.endTerrainEdit(true);
+        settle();
+        check(editor.world().heights == authoritative && !editor.scene()->provisional &&
+                  editor.scene()->sourceRevision == editor.revision(), "cancel rejects in-flight preview");
+        editor.beginTerrainEdit();
+        editor.setTerrainOption("x", target.x + 40);
+        check(QTest::qWaitFor([&] { return editor.scene()->provisional; }, 30000),
+              "return-to-start fixture publishes a preview");
+        editor.setTerrainOption("x", target.x);
+        editor.endTerrainEdit();
+        settle();
+        check(editor.world().heights == authoritative && !editor.modified() && !editor.scene()->provisional &&
+                  editor.scene()->sourceRevision == editor.revision(), "return-to-start restores final precision without undo entry");
         const int x = std::clamp(target.x + target.width / 2, editor.world().originX,
                                  editor.world().originX + editor.world().width - 1);
         const int z = std::clamp(target.z + target.depth / 2, editor.world().originZ,
@@ -373,6 +425,7 @@ int main(int argc, char **argv) {
                            {"after_local_edit", edited},
                            {"after_transform", transformed},
                            {"continuous_publications", publications},
+                           {"transform_publications", transformPublications},
                            {"source_sha256", QString(sourceHash.toHex())},
                            {"transcript", transcript},
                            {"scope", "Default precision terrain and local voxel integration; complex 8K/16K "

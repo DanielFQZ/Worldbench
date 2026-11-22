@@ -312,6 +312,7 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMater
         return {};
     auto mesh = std::make_shared<ChunkMesh>();
     mesh->revision = revision;
+    mesh->provisional = tolerance > 1.f;
     mesh->surfaceError = topology.certifiedError;
     mesh->sampleCount = uint64_t(r.width() + 1) * (r.height() + 1);
     // Color is independent of adaptive topology: a one-column painted feature
