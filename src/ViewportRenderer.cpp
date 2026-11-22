@@ -3,6 +3,7 @@
 #include "core/RenderSupport.h"
 #include <QFile>
 #include <QColor>
+#include <QImage>
 #include <rhi/qrhi.h>
 #include <algorithm>
 #include <array>
@@ -11,7 +12,7 @@
 #include <limits>
 
 namespace {
-constexpr int UniformFloats = 140, ShadowSize = 2048;
+constexpr int UniformFloats = 141, ShadowSize = 2048;
 using Uniforms = std::array<float, UniformFloats>;
 QShader shader(const char *name) {
     QFile f(name);
@@ -51,8 +52,8 @@ class Renderer final : public QQuickRhiItemRenderer {
     QRhi *m_rhi = nullptr;
     std::unique_ptr<QRhiBuffer> m_uniform, m_reflectionUniform;
     std::array<std::unique_ptr<QRhiBuffer>, 2> m_shadowUniform;
-    std::unique_ptr<QRhiTexture> m_atlas, m_white;
-    std::unique_ptr<QRhiSampler> m_nearest, m_surfaceSampler, m_linear;
+    std::unique_ptr<QRhiTexture> m_atlas, m_white, m_skyTexture;
+    std::unique_ptr<QRhiSampler> m_nearest, m_surfaceSampler, m_linear, m_skySampler;
     std::unique_ptr<QRhiShaderResourceBindings> m_mainBindings, m_reflectionBindings, m_skyBindings,
         m_reflectionSkyBindings, m_waterBindings;
     std::array<std::unique_ptr<QRhiShaderResourceBindings>, 2> m_shadowBindings, m_shadowSurfaceBindings;
@@ -62,7 +63,8 @@ class Renderer final : public QQuickRhiItemRenderer {
     Target m_reflection;
     std::map<wb::MeshPtr, GpuChunk, std::owner_less<wb::MeshPtr>> m_chunks;
     std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
-    bool m_textureReady = false, m_whiteReady = false;
+    bool m_textureReady = false, m_whiteReady = false, m_skyTextureReady = false, m_skyTextureValid = false;
+    QString m_skyTexturePath, m_uploadedSkyTexturePath;
     wb::Environment m_environment, m_reflectedEnvironment;
     std::shared_ptr<RenderMetrics> m_metrics;
     std::shared_ptr<const wb::MeshScene> m_scene, m_shadowScene, m_reflectedScene;
@@ -94,6 +96,17 @@ class Renderer final : public QQuickRhiItemRenderer {
         b->setBindings(list.begin(), list.end());
         if (!b->create())
             qFatal("Unable to create preview shader bindings");
+        return b;
+    }
+    std::unique_ptr<QRhiShaderResourceBindings> skyBindings(QRhiBuffer *uniform) {
+        auto b = std::unique_ptr<QRhiShaderResourceBindings>(rhi()->newShaderResourceBindings());
+        b->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, uniform),
+            QRhiShaderResourceBinding::sampledTexture(5, QRhiShaderResourceBinding::FragmentStage,
+                                                       m_skyTexture.get(), m_skySampler.get())});
+        if (!b->create())
+            qFatal("Unable to create sky shader bindings");
         return b;
     }
     void atlasBindings() {
@@ -153,7 +166,9 @@ class Renderer final : public QQuickRhiItemRenderer {
             }
             m_atlas.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
             m_white.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
-            if (!m_atlas->create() || !m_white->create()) qFatal("Unable to create fallback texture");
+            m_skyTexture.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(2048, 1024)));
+            if (!m_atlas->create() || !m_white->create() || !m_skyTexture->create())
+                qFatal("Unable to create fallback texture");
             auto sampler = [&](QRhiSampler::Filter filter, QRhiSampler::Filter mip) {
                 auto s = std::unique_ptr<QRhiSampler>(rhi()->newSampler(filter, filter, mip,
                     QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
@@ -163,9 +178,13 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_nearest = sampler(QRhiSampler::Nearest, QRhiSampler::None);
             m_linear = sampler(QRhiSampler::Linear, QRhiSampler::None);
             m_surfaceSampler = sampler(QRhiSampler::Linear, QRhiSampler::Linear);
+            m_skySampler.reset(rhi()->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                                  QRhiSampler::None, QRhiSampler::Repeat,
+                                                  QRhiSampler::ClampToEdge));
+            if (!m_skySampler->create()) qFatal("Unable to create sky sampler");
             atlasBindings();
-            m_skyBindings = bindings(m_uniform.get(), nullptr, nullptr, false);
-            m_reflectionSkyBindings = bindings(m_reflectionUniform.get(), nullptr, nullptr, false);
+            m_skyBindings = skyBindings(m_uniform.get());
+            m_reflectionSkyBindings = skyBindings(m_reflectionUniform.get());
             for (int i = 0; i < 2; ++i)
                 m_shadowSurfaceBindings[i] = bindings(m_shadowUniform[i].get(), m_white.get(), m_nearest.get(), false);
             m_shadow = pipeline(":/shaders/shadow.vert.qsb", ":/shaders/shadow.frag.qsb",
@@ -210,6 +229,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_brushShape = v->editor()->brushShape();
             m_decay = v->editor()->brushDecay();
             m_selection = v->editor()->selectionRect();
+            m_skyTexturePath = v->editor()->world().environment.skyTexturePath;
         }
     }
     QMatrix4x4 textureMatrix(const QMatrix4x4 &view) const {
@@ -295,6 +315,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         // into foam when N is above one.
         u[138] = m_environment.waterFoamWidth / 64.f;
         u[139] = m_environment.clouds && m_environment.sky;
+        u[140] = m_skyTextureValid && !m_skyTexturePath.isEmpty() && m_environment.sky;
         return u;
     }
     void upload(const wb::MeshPtr &src, QRhiResourceUpdateBatch *updates) {
@@ -344,6 +365,25 @@ class Renderer final : public QQuickRhiItemRenderer {
         QElapsedTimer timer; timer.start(); m_uploadBytes = 0; m_draws = 0;
         auto *updates = rhi()->nextResourceUpdateBatch();
         if (!m_whiteReady) { updates->uploadTexture(m_white.get(), wb::whiteAtlas()); m_whiteReady = true; }
+        if (!m_skyTextureReady || m_uploadedSkyTexturePath != m_skyTexturePath) {
+            constexpr QSize SkySize(2048, 1024);
+            QImage image;
+            bool valid = !m_skyTexturePath.isEmpty() && image.load(m_skyTexturePath);
+            if (valid) {
+                image = image.convertToFormat(QImage::Format_RGBA8888)
+                           .scaled(SkySize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+                const int x = std::max(0, (image.width() - SkySize.width()) / 2);
+                const int y = std::max(0, (image.height() - SkySize.height()) / 2);
+                image = image.copy(x, y, SkySize.width(), SkySize.height());
+            } else {
+                image = QImage(SkySize, QImage::Format_RGBA8888);
+                image.fill(QColor("#6d86a4"));
+            }
+            updates->uploadTexture(m_skyTexture.get(), image);
+            m_skyTextureReady = true;
+            m_skyTextureValid = valid;
+            m_uploadedSkyTexturePath = m_skyTexturePath;
+        }
         const auto assets = m_scene ? m_scene->assets : std::shared_ptr<const wb::AssetLibrary>{};
         if (!m_textureReady || assets != m_uploadedAssets) {
             const QImage image = assets ? assets->atlas : wb::whiteAtlas();

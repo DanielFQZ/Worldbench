@@ -182,6 +182,11 @@ Editor::Editor(QObject *parent)
         m_status = QString("资源已载入 · %1 个方块 · %2")
                        .arg(result.library->catalog.size())
                        .arg(result.library->version.isEmpty() ? "资源包" : result.library->version);
+        if (!m_resourceWarning.isEmpty()) {
+            m_status += " · " + m_resourceWarning;
+            reportAssetProgress(100, m_resourceWarning);
+            m_resourceWarning.clear();
+        }
         if (result.library->skippedEntries)
             m_status +=
                 QString(" · 跳过 %1 个无效条目（资源菜单查看详情）").arg(result.library->skippedEntries);
@@ -586,9 +591,38 @@ bool Editor::open(const QUrl &url) {
     emit sceneChanged();
     emit worldReset();
     emit changed();
-    const auto sources = m_world.resourcePaths.isEmpty() ? defaultResourceSources() : m_world.resourcePaths;
+    m_resourceWarning.clear();
+    const auto requested = m_world.resourcePaths.isEmpty() ? defaultResourceSources() : m_world.resourcePaths;
+    QStringList sources;
+    QStringList missing;
+    for (const auto &source : requested) {
+        if (QFileInfo(source).isFile())
+            sources << source;
+        else
+            missing << source;
+    }
+    // Projects keep their original resource paths, but a moved or uninstalled
+    // JAR must not prevent the world itself from opening. Use the remembered
+    // default when it is available, then leave a diagnostic in the status bar.
+    if (sources.isEmpty() && !m_world.resourcePaths.isEmpty()) {
+        QStringList defaults;
+        for (const auto &source : defaultResourceSources())
+            if (QFileInfo(source).isFile())
+                defaults << source;
+        if (!defaults.isEmpty()) {
+            sources = defaults;
+            missing << "工程记录的资源来源";
+        }
+    }
+    if (!missing.isEmpty())
+        m_resourceWarning = QString("跳过 %1 个不可用资源来源，工程仍已打开").arg(missing.size());
     if (!sources.isEmpty())
         loadResources(sources, true);
+    else if (!missing.isEmpty()) {
+        m_status = "已打开工程 · " + m_resourceWarning + "；使用内置材质";
+        reportAssetProgress(100, m_resourceWarning);
+        emit changed();
+    }
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {

@@ -26,6 +26,7 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"waterFoamWidth", e.waterFoamWidth},
             {"cloudDensity", e.cloudDensity},
             {"cloudSpeed", e.cloudSpeed},
+            {"skyTexturePath", e.skyTexturePath},
             {"skyIntensity", e.skyIntensity},
             {"sunIntensity", e.sunIntensity},
             {"azimuth", e.azimuth},
@@ -47,14 +48,21 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
     for (auto it = o.begin(); it != o.end(); ++it)
         if (!keys.contains(it.key()))
             return fail();
+    // Keep the original v9 environment fields required, while treating newer
+    // preview-only switches as optional.  Projects written before the cloud
+    // controls were introduced must still open with the struct defaults.
     for (auto [name, target] : {std::pair{"enabled", &next.enabled},
                                 {"sky", &next.sky},
                                 {"sun", &next.sun},
-                                {"atmosphere", &next.atmosphere},
-                                {"clouds", &next.clouds}}) {
+                                {"atmosphere", &next.atmosphere}}) {
         if (!o[name].isBool())
             return fail();
         *target = o[name].toBool();
+    }
+    if (o.contains("clouds")) {
+        if (!o["clouds"].isBool())
+            return fail();
+        next.clouds = o["clouds"].toBool();
     }
     auto number = [&](const char *name, int &target, int lo, int hi) {
         auto v = o[name];
@@ -92,6 +100,11 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
         return fail();
     if (o.contains("cloudSpeed") && !number("cloudSpeed", next.cloudSpeed, 0, 100))
         return fail();
+    if (o.contains("skyTexturePath")) {
+        if (!o["skyTexturePath"].isString() || o["skyTexturePath"].toString().size() > 4096)
+            return fail();
+        next.skyTexturePath = o["skyTexturePath"].toString();
+    }
     if (!number("skyIntensity", next.skyIntensity, 0, 200) ||
         !number("sunIntensity", next.sunIntensity, 0, 300) || !number("azimuth", next.azimuth, -180, 180) ||
         !number("elevation", next.elevation, 0, 90) || !number("haze", next.haze, 0, 100) ||

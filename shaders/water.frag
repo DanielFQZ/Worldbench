@@ -5,7 +5,7 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=4) uniform sampler2D reflectionColor;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;} u;
 
 layout(binding=2) uniform sampler2D shadowNear;
 layout(binding=3) uniform sampler2D shadowFar;
@@ -56,9 +56,13 @@ vec2 waterGradient(vec2 p) {
 void main(){
     vec3 n=normalize(faceNormal);
     if(n.y>.5 && u.water.y>0.0){
-        float density=mix(1.8,.116,clamp(u.effects.w,0.0,1.0));
-        const float scales[5]=float[5](36.0,14.0,5.8,3.4,1.9);
-        const float weights[5]=float[5](.18,.12,.085,.055,.035);
+        // World units are Minecraft blocks (approximately one metre). Keep
+        // the broad swell below a few dozen metres and add sub-block ripples
+        // for close views; derivative coverage removes bands once they are
+        // smaller than a pixel.
+        float density=mix(1.10,.38,clamp(u.effects.w,0.0,1.0));
+        const float scales[5]=float[5](28.0,10.0,3.5,1.2,.40);
+        const float weights[5]=float[5](.14,.115,.08,.055,.032);
         vec2 gradient=vec2(0);
         mat2 rotation=mat2(.8,.6,-.6,.8);
         for(int i=0;i<5;++i){
@@ -136,16 +140,9 @@ void main(){
         fogColor=fogColor/(vec3(1)+fogColor*.35);
         col=mix(col,fogColor,fog);
     }
-    if(u.params.x>0.5){
-        vec3 delta=abs(worldPos-u.brush.xyz);
-        float d=u.params.y<1.5?(u.params.z>0.5?max(delta.x,delta.z):length(delta.xz)):(u.params.z>0.5?max(delta.x,max(delta.y,delta.z)):length(delta));
-        float pixel=max(fwidth(d),.08);
-        float band=1.0-smoothstep(.6*pixel,1.5*pixel,abs(d-u.brush.w*u.params.w));
-        float outer=1.0-smoothstep(.6*pixel,1.5*pixel,abs(d-u.brush.w));
-        col=mix(col,vec3(0.62,0.87,0.91),outer*0.45);
-        col=mix(col,vec3(0.30,0.88,0.98),band*0.95);
-        if(d<u.brush.w)col=mix(col,vec3(0.25,0.75,0.85),0.10);
-    }
+    // The brush hit is resolved against the underwater terrain column. Do not
+    // draw a second footprint on the water surface: it makes one brush look
+    // like two concentric edits when the cursor crosses a shoreline.
     if(u.flags.x>0.5){
         // Derivatives keep the boundary readable in pixels across exact meshes
         // and far tiles. Apply after atmosphere so fog cannot hide the selection.

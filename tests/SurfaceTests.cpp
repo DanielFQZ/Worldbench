@@ -359,9 +359,9 @@ int main(int argc, char **argv) {
         }
         check(previewWorld.heights==previewHeights,"interactive sampling leaves authoritative data unchanged");
         auto legacy=wb::saveEnvironment(original);
-        for(const char *key:{"water","waterWaves","waterReflections","shadows","waveStrength","waveDensity","waveSpeed"})legacy.remove(key);
+        for(const char *key:{"clouds","water","waterWaves","waterReflections","shadows","waveStrength","waveDensity","waveSpeed"})legacy.remove(key);
         QString envError;
-        check(wb::loadEnvironment(legacy,loaded,envError)&&loaded==original,"old v9 environment gets compatible water/shadow defaults");
+        check(wb::loadEnvironment(legacy,loaded,envError)&&loaded.clouds&&loaded==original,"old v9 environment gets compatible cloud/water/shadow defaults");
         wb::Environment updated;
         check(wb::patchEnvironment(original,{{"water",false},{"waterWaves",false},{"waterReflections",false},{"shadows",false},{"waveStrength",80},{"waveDensity",72},{"waveSpeed",18}},updated,envError),"new effect controls validate");
         check(wb::loadEnvironment(wb::saveEnvironment(updated),loaded,envError)&&loaded==updated,"all effect controls serialize");

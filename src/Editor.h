@@ -240,6 +240,7 @@ class Editor : public QObject {
     uint64_t m_state = 0, m_savedState = 0, m_nextState = 1, m_meshSerial = 0, m_epoch = 0, m_jobEpoch = 0;
     bool m_strokeChanged = false;
     QString m_path, m_status = "正在准备地形…";
+    QString m_resourceWarning;
     std::set<int> m_dirty;
     int m_previewX = 0, m_previewZ = 0;
     bool m_farDirty = true, m_farAllDirty = true;

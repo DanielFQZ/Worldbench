@@ -103,8 +103,9 @@ QJsonArray toolList() {
         "waveStrength/waveDensity/waveSpeed/waterDepthFade/waterFoamStrength/cloudDensity/cloudSpeed: integer 0..100; "
         "waterFoamWidth: integer 1..32); shared undo and project persistence. Changes: enabled,sky,sun,atmosphere "
         "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 degrees; "
-        "haze 0..100, exposure -30..30 tenths EV; skyColor,horizonColor,groundColor,sunColor #RRGGBB. "
-        "Clouds use a low-cost projected noise layer; volumetric clouds and GI are not included.",
+        "haze 0..100, exposure -30..30 tenths EV; skyColor,horizonColor,groundColor,sunColor #RRGGBB; "
+        "skyTexturePath is an optional local 2:1 equirectangular PNG/JPG. Clouds use a low-cost spherical noise layer; "
+        "volumetric clouds and GI are not included.",
         {{"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"changes", "expected_revision"}, false);
     add("undo", "Undo the latest shared GUI/MCP command. Check the revision first.",
