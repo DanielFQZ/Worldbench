@@ -28,6 +28,9 @@ QShader shader(const char *name) {
 }
 struct GpuChunk {
     std::unique_ptr<QRhiBuffer> opaque, transparent, opaqueIndices;
+    std::unique_ptr<QRhiTexture> surfaceColors;
+    std::unique_ptr<QRhiShaderResourceBindings> surfaceBindings;
+    size_t colorBytes = 0;
     int indexCount = 0;
     int opaqueCount = 0, transparentCount = 0;
     uint64_t revision = 0;
@@ -37,7 +40,7 @@ class Renderer final : public QQuickRhiItemRenderer {
     std::unique_ptr<QRhiBuffer> m_uniform;
     std::unique_ptr<QRhiShaderResourceBindings> m_bindings, m_skyBindings;
     std::unique_ptr<QRhiTexture> m_texture;
-    std::unique_ptr<QRhiSampler> m_sampler;
+    std::unique_ptr<QRhiSampler> m_sampler, m_surfaceSampler;
     std::shared_ptr<const wb::AssetLibrary> m_uploadedAssets;
     bool m_textureReady = false;
     std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha, m_sky;
@@ -63,6 +66,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_uniform.reset();
             m_texture.reset();
             m_sampler.reset();
+            m_surfaceSampler.reset();
             m_uploadedAssets.reset();
             m_textureReady = false;
             m_rhi = rhi();
@@ -76,6 +80,11 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_sampler.reset(rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                               QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
             m_sampler->create();
+            m_surfaceSampler.reset(rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Linear,
+                                                     QRhiSampler::Linear, QRhiSampler::ClampToEdge,
+                                                     QRhiSampler::ClampToEdge));
+            if (!m_surfaceSampler->create())
+                qFatal("Unable to create surface color sampler");
             m_bindings.reset(rhi()->newShaderResourceBindings());
             m_bindings->setBindings(
                 {QRhiShaderResourceBinding::uniformBuffer(
@@ -270,12 +279,35 @@ class Renderer final : public QQuickRhiItemRenderer {
                 uploadBytes += bytes;
             } else
                 dst.opaqueIndices.reset();
+            if (!src->surfaceColors.isNull()) {
+                dst.surfaceBindings.reset();
+                dst.surfaceColors.reset(
+                    rhi()->newTexture(QRhiTexture::RGBA8, src->surfaceColors.size(), 1,
+                                      QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips));
+                if (!dst.surfaceColors->create())
+                    qFatal("Unable to allocate surface color page");
+                updates->uploadTexture(dst.surfaceColors.get(), src->surfaceColors);
+                if (src->surfaceColors.width() > 1 || src->surfaceColors.height() > 1)
+                    updates->generateMips(dst.surfaceColors.get());
+                uploadBytes += src->surfaceColors.sizeInBytes();
+                dst.colorBytes = src->surfaceColorBytes();
+                dst.surfaceBindings.reset(rhi()->newShaderResourceBindings());
+                dst.surfaceBindings->setBindings(
+                    {QRhiShaderResourceBinding::uniformBuffer(
+                         0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                         m_uniform.get()),
+                     QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                               dst.surfaceColors.get(),
+                                                               m_surfaceSampler.get())});
+                if (!dst.surfaceBindings->create())
+                    qFatal("Unable to bind surface color page");
+            }
             dst.revision = src->revision;
         }
         for (const auto &[src, gpu] : m_chunks)
             residentBytes += (gpu.opaque ? gpu.opaque->size() : 0) +
                              (gpu.transparent ? gpu.transparent->size() : 0) +
-                             (gpu.opaqueIndices ? gpu.opaqueIndices->size() : 0);
+                             (gpu.opaqueIndices ? gpu.opaqueIndices->size() : 0) + gpu.colorBytes;
         cb->beginPass(renderTarget(), QColor("#202c3b"), {1.0f, 0}, updates);
         const auto sz = renderTarget()->pixelSize();
         cb->setViewport({0, 0, float(sz.width()), float(sz.height())});
@@ -296,6 +328,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->setShaderResources(m_bindings.get());
         for (auto src : visible) {
             const auto &c = m_chunks.at(src);
+            cb->setShaderResources(c.surfaceBindings ? c.surfaceBindings.get() : m_bindings.get());
             if (c.opaque && c.indexCount) {
                 QRhiCommandBuffer::VertexInput binding(c.opaque.get(), 0);
                 cb->setVertexInput(0, 1, &binding, c.opaqueIndices.get(), 0, QRhiCommandBuffer::IndexUInt32);
@@ -472,7 +505,7 @@ void Viewport::resetCamera() {
     changedCamera();
 }
 QString Viewport::renderText() const {
-    return QString("CPU提交 %1 ms · 上传 %2 MiB · 顶点缓冲 %3 MiB · %4 次绘制")
+    return QString("CPU提交 %1 ms · 上传 %2 MiB · 网格/颜色驻留 %3 MiB · %4 次绘制")
         .arg(m_metrics->submitMicros.load() / 1000., 0, 'f', 2)
         .arg(m_metrics->uploadKiB.load() / 1024., 0, 'f', 1)
         .arg(m_metrics->residentKiB.load() / 1024., 0, 'f', 1)

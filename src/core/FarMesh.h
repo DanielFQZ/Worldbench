@@ -9,7 +9,7 @@ struct FarInputs {
     std::map<int, std::map<int, int>> columns; // z, x, highest explicit non-air block
     std::vector<QVector4D> colors;
 };
-FarInputs farInputs(const World &world);
+FarInputs farInputs(const World &world, bool collectColumns = true);
 MeshPtr buildFarMesh(const World &world, const FarTile &tile, const FarInputs &inputs, uint64_t revision);
 bool visibleMesh(const ChunkMesh &mesh, const QMatrix4x4 &matrix);
 } // namespace wb

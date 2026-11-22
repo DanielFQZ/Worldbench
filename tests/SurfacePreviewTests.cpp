@@ -225,8 +225,10 @@ int main(int argc, char **argv) {
               "adaptive preview active with bounded residual");
         capture("surface-overview");
         auto initial = info();
+        const auto beforeNavigation = editor.scene();
         call("camera", {{"position", QJsonArray{0, 350, width * 1.15}}, {"yaw", 0}, {"pitch", -14}});
         capture("surface-ridges");
+        check(editor.scene() == beforeNavigation, "navigation reuses unchanged surface geometry and colors");
         const auto target = editor.world().heights.instances.back();
         const int x = std::clamp(target.x + target.width / 2, editor.world().originX,
                                  editor.world().originX + editor.world().width - 1);
@@ -235,11 +237,18 @@ int main(int argc, char **argv) {
         const int h = editor.world().height(x, z);
         call("camera", {{"position", QJsonArray{x + 160, h + 170, z + 250}}, {"yaw", -32}, {"pitch", -28}});
         capture("surface-detail");
+        const auto beforeEdit = editor.scene();
         write("sculpt", {{"position", QJsonArray{x, h, z}}, {"tool", 0}, {"radius", 8}, {"strength", 3}});
         settle();
         check(editor.world().height(x, z) > h, "MCP sculpt changes authoritative terrain");
         check(editor.scene()->sourceRevision == editor.revision(), "current revision visible after sculpt");
         auto edited = info();
+        check(editor.scene()->updatedFarTiles <= 4 && editor.scene()->updatedSamples <= 4 * 129 * 129,
+              "local stroke rebuilds at most four small patches");
+        size_t reused = 0;
+        for (size_t i = 0; i < beforeEdit->farTiles.size(); ++i)
+            reused += beforeEdit->farTiles[i].mesh == editor.scene()->farTiles[i].mesh;
+        check(reused > 0, "untouched terrain and color pages retain their GPU cache identity");
         capture("surface-edited");
         write("undo", {});
         settle();
@@ -257,6 +266,9 @@ int main(int argc, char **argv) {
         check(editor.world().heights == authoritative, "visibility undo restores source");
         write("terrain_instance", {{"id", target.id}, {"changes", QJsonObject{{"rotationY", 35}}}});
         settle();
+        check(editor.scene()->updatedFarTiles < int(editor.scene()->farTiles.size()),
+              "instance transform invalidates its old and new footprint, not the entire map");
+        const auto transformed = info();
         capture("surface-rotated");
         write("undo", {});
         settle();
@@ -277,15 +289,79 @@ int main(int argc, char **argv) {
         write("undo", {});
         settle();
         check(editor.world().heights == authoritative, "MCP changes all undo cleanly");
+        write("sculpt", {{"position", QJsonArray{x, h, z}},
+                         {"tool", 4},
+                         {"radius", 8},
+                         {"strength", 1},
+                         {"material_id", int(wb::Stone)}});
+        capture("surface-material");
+        check(editor.world().block(x, h, z) == wb::Stone, "MCP material edit updates source surface block");
+        write("undo", {});
+        settle();
+
+        // Hold one GUI brush gesture open while stamps keep arriving. This is
+        // deliberately separate from the real stdio tests: GUI stroke lifetime
+        // and intermediate publication must also be checked before mouse-up.
+        editor.setTool(0);
+        editor.setRadius(8);
+        editor.setStrength(1);
+        QElapsedTimer streamClock;
+        QJsonArray publications;
+        uint64_t publishedRevision = editor.scene()->sourceRevision;
+        bool ordered = true;
+        const auto connection = QObject::connect(&editor, &Editor::sceneChanged, &app, [&] {
+            ordered = ordered && editor.scene()->sourceRevision >= publishedRevision;
+            publishedRevision = editor.scene()->sourceRevision;
+            publications.append(QJsonObject{{"ms", double(streamClock.elapsed())},
+                                            {"source_revision", double(publishedRevision)},
+                                            {"current_revision", double(editor.revision())},
+                                            {"build_ms", double(editor.scene()->buildMilliseconds)},
+                                            {"updated_tiles", editor.scene()->updatedFarTiles}});
+        });
+        streamClock.start();
+        editor.beginStroke();
+        for (int i = 0; i < 30; ++i) {
+            const int currentHeight = editor.world().height(x, z);
+            wb::Hit hit{true,
+                        x,
+                        currentHeight,
+                        z,
+                        {float(x), float(currentHeight), float(z)},
+                        {0, 1, 0},
+                        editor.world().block(x, currentHeight, z)};
+            editor.stamp(hit, false);
+            QTest::qWait(15);
+        }
+        check(!publications.empty(), "continuous gesture publishes visible updates before mouse-up");
+        editor.endStroke();
+        settle();
+        QObject::disconnect(connection);
+        check(ordered && editor.scene()->sourceRevision == editor.revision(),
+              "intermediate snapshots advance monotonically and finish at current revision");
+        for (const auto &tile : editor.scene()->farTiles)
+            for (const auto &vertex : tile.mesh->opaque) {
+                const int wx = std::clamp(int(std::floor(vertex.x)), editor.world().originX,
+                                          editor.world().originX + editor.world().width - 1);
+                const int wz = std::clamp(int(std::floor(vertex.z)), editor.world().originZ,
+                                          editor.world().originZ + editor.world().depth - 1);
+                check(vertex.y == editor.world().height(wx, wz) + 1,
+                      "final cached vertices match the current authoritative columns");
+            }
+        write("undo", {});
+        settle();
+        check(editor.world().heights == authoritative, "continuous gesture is exactly one undo transaction");
+        editor.setTool(-1);
         if (!source.isEmpty())
             check(digest(source) == sourceHash, "user original bytes unchanged");
         QJsonObject report{{"checks", checks},
                            {"initial_wall_ms", double(initialMs)},
                            {"initial", initial},
                            {"after_local_edit", edited},
+                           {"after_transform", transformed},
+                           {"continuous_publications", publications},
                            {"source_sha256", QString(sourceHash.toHex())},
                            {"transcript", transcript},
-                           {"scope", "R0 heightfield prototype, not R1/R2/R3 acceptance"}};
+                           {"scope", "R1a local update and color pages; not complete R1/R2/R3 acceptance"}};
         QFile file(out + "/report.json");
         check(file.open(QIODevice::WriteOnly), "write evidence report");
         file.write(QJsonDocument(report).toJson());

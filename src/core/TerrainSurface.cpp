@@ -134,6 +134,41 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &i
     mesh->revision = revision;
     mesh->surfaceError = topology.certifiedError;
     mesh->sampleCount = uint64_t(r.width() + 1) * (r.height() + 1);
+    // Color is independent of adaptive topology: a one-column painted feature
+    // must remain visible even when the terrain there is a single flat triangle.
+    const int colorWidth = r.width() + 3, colorHeight = r.height() + 3;
+    mesh->surfaceColors = QImage(colorWidth, colorHeight, QImage::Format_RGBA8888);
+    if (mesh->surfaceColors.isNull())
+        throw std::bad_alloc();
+    bool uniformColor = true;
+    QColor firstColor;
+    for (int z = -1; z <= r.height() + 1; ++z) {
+        if (cancelled && cancelled->load())
+            return {};
+        for (int x = -1; x <= r.width() + 1; ++x) {
+            const int wx = std::clamp(r.x() + x, w.originX, w.originX + w.width - 1);
+            const int wz = std::clamp(r.y() + z, w.originZ, w.originZ + w.depth - 1);
+            const int h = x >= 0 && x <= r.width() && z >= 0 && z <= r.height()
+                              ? int(grid.heights[z * side + x]) - 1
+                              : int(sourceHeight(wx, wz)) - 1;
+            const auto block = w.blockAtHeight(wx, h, wz, h);
+            const auto c = in.colors.at(block);
+            // Holes/non-heightfield geometry remain a separately labelled R2
+            // task. Do not make whole triangles disappear because one texel is air.
+            const auto color = QColor::fromRgbF(std::clamp(c.x(), 0.f, 1.f), std::clamp(c.y(), 0.f, 1.f),
+                                                std::clamp(c.z(), 0.f, 1.f), 1.f);
+            if (x == -1 && z == -1)
+                firstColor = color;
+            uniformColor = uniformColor && color == firstColor;
+            mesh->surfaceColors.setPixelColor(x + 1, z + 1, color);
+        }
+    }
+    // Flat grass/sand regions must not consume four bytes per column over an
+    // entire 8K/16K map. A uniform page is represented exactly by one texel.
+    if (uniformColor) {
+        mesh->surfaceColors = QImage(1, 1, QImage::Format_RGBA8888);
+        mesh->surfaceColors.fill(firstColor);
+    }
     std::vector<int32_t> ids(grid.heights.size(), -1);
     auto vertex = [&](int x, int z) -> uint32_t {
         x = std::min(x, r.width());
@@ -151,10 +186,8 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &i
             return sourceHeight(r.x() + xx, r.y() + zz);
         };
         auto normal = QVector3D(at(x - 1, z) - at(x + 1, z), 2, at(x, z - 1) - at(x, z + 1)).normalized();
-        const auto block = w.blockAtHeight(wx, int(h) - 1, wz, int(h) - 1);
-        const auto color = in.colors.at(block);
-        mesh->opaque.push_back({wx + .5f, h, wz + .5f, normal.x(), normal.y(), normal.z(), color.x(),
-                                color.y(), color.z(), 1, -1, -1});
+        mesh->opaque.push_back({wx + .5f, h, wz + .5f, normal.x(), normal.y(), normal.z(), 1, 1, 1, 1,
+                                (x + 1.5f) / colorWidth, (z + 1.5f) / colorHeight});
         return uint32_t(id);
     };
     for (size_t i = 0; i < topology.indices.size(); i += 3) {
@@ -172,8 +205,12 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &i
         auto p = mesh->opaque[a], q = mesh->opaque[b];
         p.x += dx;
         p.z += dz;
+        p.u += dx / colorWidth;
+        p.v += dz / colorHeight;
         q.x += dx;
         q.z += dz;
+        q.u += dx / colorWidth;
+        q.v += dz / colorHeight;
         uint32_t c = uint32_t(mesh->opaque.size());
         mesh->opaque.push_back(p);
         mesh->opaque.push_back(q);
@@ -204,6 +241,8 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const FarInputs &i
                 auto p = base;
                 p.x += float(offset.x());
                 p.z += float(offset.y());
+                p.u += float(offset.x()) / colorWidth;
+                p.v += float(offset.y()) / colorHeight;
                 mesh->opaque.push_back(p);
             }
             mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, a + 1, a + 2, a, a + 2, a + 3});

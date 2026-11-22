@@ -20,7 +20,7 @@ struct SurfaceTopology {
 SurfaceTopology triangulateSurface(const SurfaceGrid &grid, float tolerance, bool fullBoundary = true);
 // Reference/prototype path: sample every column, not five samples per LOD cell.
 // Patches own sample intervals; adjacent patches share their endpoint samples.
-std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 512);
+std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 128);
 MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const FarInputs &inputs, uint64_t revision,
                          float tolerance = .5f, const std::atomic_bool *cancelled = nullptr);
 } // namespace wb

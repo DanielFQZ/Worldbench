@@ -40,19 +40,21 @@ std::vector<FarTile> planFarTiles(const World &w, const std::set<int> &exact, in
     visit(0, 0, size);
     return result;
 }
-FarInputs farInputs(const World &w) {
+FarInputs farInputs(const World &w, bool collectColumns) {
     FarInputs result;
-    for (const auto &l : w.heights.layers)
-        if (l.enabled)
-            for (auto [index, delta] : *l.deltas)
-                result.columns[index / w.width + w.originZ].try_emplace(index % w.width + w.originX,
-                                                                        World::MinY);
-    for (auto [key, block] : w.overrides) {
-        int x, y, z;
-        w.decode(key, x, y, z);
-        auto [it, inserted] = result.columns[z].try_emplace(x, World::MinY);
-        if (!w.isAir(block))
-            it->second = std::max(it->second, y);
+    if (collectColumns) {
+        for (const auto &l : w.heights.layers)
+            if (l.enabled)
+                for (auto [index, delta] : *l.deltas)
+                    result.columns[index / w.width + w.originZ].try_emplace(index % w.width + w.originX,
+                                                                            World::MinY);
+        for (auto [key, block] : w.overrides) {
+            int x, y, z;
+            w.decode(key, x, y, z);
+            auto [it, inserted] = result.columns[z].try_emplace(x, World::MinY);
+            if (!w.isAir(block))
+                it->second = std::max(it->second, y);
+        }
     }
     // An area average avoids texture aliasing on large voxel cells. These colors
     // are derived from the current model/atlas, so resource pack changes apply.
@@ -68,10 +70,13 @@ FarInputs farInputs(const World &w) {
                 const auto &atlas = w.assets->atlas;
                 QVector4D sum;
                 float weight = 0;
-                for (int z = 0; z < 4; ++z)
-                    for (int x = 0; x < 4; ++x) {
-                        auto uv = face->uv[0] + (face->uv[1] - face->uv[0]) * ((x + .5f) / 4) +
-                                  (face->uv[3] - face->uv[0]) * ((z + .5f) / 4);
+                // The loaded atlas uses 32px tiles. Sample its complete face,
+                // rather than 16 points which can alias patterned resource packs.
+                const int samples = collectColumns ? 4 : 32;
+                for (int z = 0; z < samples; ++z)
+                    for (int x = 0; x < samples; ++x) {
+                        auto uv = face->uv[0] + (face->uv[1] - face->uv[0]) * ((x + .5f) / samples) +
+                                  (face->uv[3] - face->uv[0]) * ((z + .5f) / samples);
                         auto p =
                             atlas.pixelColor(std::clamp(int(uv.x() * atlas.width()), 0, atlas.width() - 1),
                                              std::clamp(int(uv.y() * atlas.height()), 0, atlas.height() - 1));

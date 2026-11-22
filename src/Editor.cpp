@@ -80,8 +80,12 @@ Editor::Editor(QObject *parent)
             emit changed();
             return;
         }
-        const bool valid = result && m_jobEpoch == m_epoch &&
-                           (!result->surfacePreview || result->sourceRevision == m_revision);
+        // One worker publishes monotonically newer complete snapshots. While
+        // input continues, show completed work and retain every pending dirty
+        // region instead of cancelling forever. meshBusy stays true until the
+        // latest snapshot converges; MCP screenshots cannot mistake it for final.
+        const bool valid = result && result->error.isEmpty() && m_jobEpoch == m_epoch &&
+                           result->surfacePreview == m_surfacePreview;
         if (valid) {
             m_scene = result;
             emit sceneChanged();
@@ -292,8 +296,6 @@ void Editor::stamp(const wb::Hit &hit, bool reverse) {
     if (!m_stroke->stamp(hit, m_tool, m_radius, m_strength, wb::Block(m_material), reverse, options))
         return;
     m_strokeChanged = true;
-    if (m_surfacePreview && m_meshCancel)
-        m_meshCancel->store(true);
     m_farDirty = true;
     m_farRegions.emplace_back(hit.x - m_radius - 2, hit.z - m_radius - 2, m_radius * 2 + 5, m_radius * 2 + 5);
     ++m_revision;
@@ -508,8 +510,6 @@ bool Editor::open(const QUrl &url) {
     return true;
 }
 void Editor::dirtyCommand(const wb::Command &command) {
-    if (m_surfacePreview && m_meshCancel && !command.environmentAfter)
-        m_meshCancel->store(true);
     if (command.deltaAfter) {
         // Avoid scanning a million deltas on the UI thread at commit/undo.
         // Only resident exact chunks and intersecting far tiles are invalidated.
@@ -528,9 +528,9 @@ void Editor::dirtyCommand(const wb::Command &command) {
     if (command.environmentAfter)
         return;
     m_farDirty = true;
-    if (command.terrainAfter || command.layersAfter || command.themeAfter)
+    if (command.themeAfter || (!m_surfacePreview && (command.terrainAfter || command.layersAfter)))
         m_farAllDirty = true;
-    else
+    else if (!command.terrainAfter && !command.layersAfter)
         for (int id : wb::affectedChunks(m_world, command))
             m_farRegions.emplace_back(m_world.originX + id % m_world.chunksX() * 16,
                                       m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
@@ -547,6 +547,8 @@ void Editor::dirtyCommand(const wb::Command &command) {
         const auto wanted = desiredChunks();
         auto dirtyBounds = [&](QRectF bounds) {
             bounds.adjust(-1, -1, 1, 1); // Cull faces on neighbouring chunk borders too.
+            if (m_surfacePreview)
+                m_farRegions.push_back(bounds.toAlignedRect());
             for (int id : wanted) {
                 QRectF chunk(m_world.originX + id % m_world.chunksX() * 16,
                              m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
@@ -567,21 +569,25 @@ void Editor::dirtyCommand(const wb::Command &command) {
             }
         }
         if (command.layersBefore && command.layersAfter) {
-            for (const auto &list : {command.layersBefore, command.layersAfter})
-                for (const auto &l : *list)
+            for (int direction : {0, 1}) {
+                const auto &from = direction ? *command.layersAfter : *command.layersBefore;
+                const auto &to = direction ? *command.layersBefore : *command.layersAfter;
+                for (const auto &l : from) {
+                    const auto other =
+                        std::find_if(to.begin(), to.end(), [&](const auto &v) { return v.id == l.id; });
+                    if (!l.enabled ||
+                        (other != to.end() && other->enabled == l.enabled && *other->deltas == *l.deltas))
+                        continue;
+                    QRect area;
                     for (auto [index, value] : *l.deltas) {
-                        const int x = index % m_world.width + m_world.originX,
-                                  z = index / m_world.width + m_world.originZ;
-                        for (int dz = -1; dz <= 1; ++dz)
-                            for (int dx = -1; dx <= 1; ++dx) {
-                                if (!m_world.contains(x + dx, 0, z + dz))
-                                    continue;
-                                int id = (z + dz - m_world.originZ) / 16 * m_world.chunksX() +
-                                         (x + dx - m_world.originX) / 16;
-                                if (wanted.contains(id))
-                                    m_dirty.insert(id);
-                            }
+                        const QRect column(index % m_world.width + m_world.originX,
+                                           index / m_world.width + m_world.originZ, 1, 1);
+                        area = area.isNull() ? column : area.united(column);
                     }
+                    if (!area.isEmpty())
+                        dirtyBounds(area);
+                }
+            }
         }
         if (!m_dirty.empty() && !m_meshTimer.isActive())
             m_meshTimer.start();
@@ -594,12 +600,13 @@ void Editor::dirtyCommand(const wb::Command &command) {
         m_meshTimer.start();
 }
 QString Editor::meshUpdateSummary() const {
-    return QString("构网 %1 ms（远景 %2 ms）· 更新 %3 精确 / %4 远景 · 网格 %5 MiB")
+    return QString("构网 %1 ms（远景 %2 ms）· 更新 %3 精确 / %4 地块 · 网格 %5 MiB · 颜色 %6 MiB")
         .arg(m_scene->buildMilliseconds)
         .arg(m_scene->farMilliseconds)
         .arg(m_scene->updatedChunks)
         .arg(m_scene->updatedFarTiles)
-        .arg(m_scene->bufferBytes / 1048576., 0, 'f', 1);
+        .arg(m_scene->bufferBytes / 1048576., 0, 'f', 1)
+        .arg(m_scene->colorBytes / 1048576., 0, 'f', 1);
 }
 QString Editor::surfacePreviewStatus() const {
     if (!m_surfacePreview)
@@ -607,10 +614,11 @@ QString Editor::surfacePreviewStatus() const {
     if (!m_surfaceFailure.isEmpty())
         return "原型生成失败 · " + m_surfaceFailure + " · 当前画面不是新结果";
     if (meshBusy())
-        return QString("地表精度原型正在更新 %1 / %2 地块 · 当前画面尚未收敛 · 视图菜单可关闭取消")
+        return QString(
+                   "地表正在更新 %1 / %2 地块 · 连续显示已完成快照，当前画面尚未收敛 · 视图菜单可关闭取消")
             .arg(m_surfaceCompleted ? m_surfaceCompleted->load() : 0)
             .arg(m_surfaceTotal);
-    return QString("地表精度原型 · 参考面误差上界 %1 格 · %2 个独立方块覆盖及水面未纳入；关闭原型可检查体素")
+    return QString("地表精度原型 · 参考面误差上界 %1 格 · 已含表面材质颜色；%2 个独立覆盖的几何及水面未纳入")
         .arg(m_scene->surfaceError, 0, 'f', 2)
         .arg(m_world.overrides.size());
 }
@@ -645,6 +653,8 @@ void Editor::setPreviewCenter(int x, int z) {
     const auto before = desiredChunks();
     m_previewX = std::clamp(x, m_world.originX, m_world.originX + m_world.width - 1);
     m_previewZ = std::clamp(z, m_world.originZ, m_world.originZ + m_world.depth - 1);
+    if (m_surfacePreview)
+        return; // Navigation must not enqueue a full-map job for unchanged geometry.
     auto after = desiredChunks();
     if (before == after)
         return;
@@ -672,7 +682,6 @@ void Editor::startMesh() {
     auto regions = std::move(m_farRegions);
     m_farRegions.clear();
     m_farDirty = m_farAllDirty = false;
-    auto plan = wb::planFarTiles(m_world, wanted, m_previewX, m_previewZ);
     auto snapshot = m_world;
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
@@ -717,14 +726,15 @@ void Editor::startMesh() {
                         } else
                             jobs.push_back(i);
                     }
-                    const auto inputs = wb::farInputs(snapshot);
+                    const auto inputs = wb::farInputs(snapshot, false);
                     std::atomic_uint64_t bytes{0};
                     std::atomic_bool overBudget{false};
                     constexpr uint64_t limit = 512ull * 1024 * 1024;
                     for (const auto &tile : next->farTiles)
                         if (tile.mesh)
                             bytes += tile.mesh->opaque.size() * sizeof(wb::Vertex) +
-                                     tile.mesh->opaqueIndices.size() * sizeof(uint32_t);
+                                     tile.mesh->opaqueIndices.size() * sizeof(uint32_t) +
+                                     tile.mesh->surfaceColorBytes();
                     QThreadPool pool;
                     pool.setMaxThreadCount(std::clamp(QThread::idealThreadCount() - 2, 1, 4));
                     const auto meshes =
@@ -735,7 +745,8 @@ void Editor::startMesh() {
                                                              cancel.get());
                             if (mesh) {
                                 const uint64_t cost = mesh->opaque.size() * sizeof(wb::Vertex) +
-                                                      mesh->opaqueIndices.size() * sizeof(uint32_t);
+                                                      mesh->opaqueIndices.size() * sizeof(uint32_t) +
+                                                      mesh->surfaceColorBytes();
                                 if (bytes.fetch_add(cost) + cost > limit) {
                                     overBudget = true;
                                     cancel->store(true);
@@ -746,13 +757,16 @@ void Editor::startMesh() {
                             return mesh;
                         });
                     if (overBudget.load()) {
-                        next->error = "当前精度的网格超过512 MiB原型预算，未降低精度；请关闭原型或缩小样本";
+                        next->error =
+                            "当前精度的网格与颜色页超过512 MiB原型预算，未降低精度；请关闭原型或缩小样本";
                         return next;
                     }
                     if (cancel->load())
                         return std::shared_ptr<wb::MeshScene>{};
                     for (size_t i = 0; i < jobs.size(); ++i)
                         next->farTiles[jobs[i]].mesh = meshes[i];
+                    for (const auto &mesh : meshes)
+                        next->updatedSamples += mesh->sampleCount;
                     for (const auto &tile : next->farTiles) {
                         const auto &m = *tile.mesh;
                         next->vertices += m.opaqueIndices.size();
@@ -760,6 +774,7 @@ void Editor::startMesh() {
                         next->surfaceError = std::max(next->surfaceError, m.surfaceError);
                         next->bufferBytes +=
                             m.opaque.size() * sizeof(wb::Vertex) + m.opaqueIndices.size() * sizeof(uint32_t);
+                        next->colorBytes += m.surfaceColorBytes();
                     }
                     next->updatedFarTiles = int(jobs.size());
                     next->farMilliseconds = next->buildMilliseconds = timer.elapsed();
@@ -775,6 +790,7 @@ void Editor::startMesh() {
         emit changed();
         return;
     }
+    auto plan = wb::planFarTiles(m_world, wanted, m_previewX, m_previewZ);
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), dirty = std::move(dirty), old,
                                                serial, wanted, allFar, regions = std::move(regions),
                                                plan = std::move(plan)]() mutable {

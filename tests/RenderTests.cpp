@@ -212,7 +212,8 @@ int main(int argc, char **argv) {
         settle();
         const auto brushImage = window.grabWindow();
         check(brushImage.save("test-output/brush-full-16k.png"), "capture distant brush footprint");
-        const auto brushPixel = screen(brushHit.x + .5f, 25, brushHit.z + .5f) * brushImage.devicePixelRatio();
+        const auto brushPixel =
+            screen(brushHit.x + .5f, 25, brushHit.z + .5f) * brushImage.devicePixelRatio();
         int cyan = 0;
         for (int y = -5; y <= 5; ++y)
             for (int x = -5; x <= 5; ++x) {
@@ -344,6 +345,45 @@ int main(int argc, char **argv) {
             }
         }
         settle();
+        // Real D3D11 verification of per-patch surface color SRBs, both with
+        // and without the sky pass and after changing the source resource pack.
+        editor.setTool(-1);
+        editor.clearSelection();
+        check(editor.createWorld(256, 42, 24, 0, -60, true, 192), "create rectangular color fixture");
+        settle(); // New-world resource restore must finish before switching preview modes.
+        editor.setSurfacePreview(true);
+        v->applyCamera({{"position", QJsonArray{0, 110, 1}}, {"yaw", 0}, {"pitch", -89}});
+        auto colorPack = [&](const QString &name, QColor color) {
+            const auto path = temp.filePath(name + ".zip");
+            QImage tile(32, 32, QImage::Format_RGBA8888);
+            tile.fill(color);
+            QByteArray png;
+            QBuffer buffer(&png);
+            check(buffer.open(QIODevice::WriteOnly) && tile.save(&buffer, "PNG"),
+                  "create surface color fixture");
+            QZipWriter zip(path);
+            zip.addFile("assets/minecraft/textures/block/grass_block_top.png", png);
+            zip.close();
+            editor.importResource(QUrl::fromLocalFile(path), false);
+            settle();
+            const auto image = window.grabWindow();
+            check(image.save("test-output/" + name + ".png"), "capture GPU surface color evidence");
+            return image;
+        };
+        editor.setEnvironment({{"enabled", false}, {"atmosphere", false}});
+        const auto redSurface = colorPack("surface-pack-red", QColor("#e03020"));
+        editor.setEnvironment({{"enabled", true}, {"atmosphere", false}});
+        const auto blueSurface = colorPack("surface-pack-blue-lit", QColor("#2040e0"));
+        const auto red = redSurface.pixelColor(redSurface.width() / 2, redSurface.height() / 2);
+        const auto blue = blueSurface.pixelColor(blueSurface.width() / 2, blueSurface.height() / 2);
+        check(red.red() > red.blue() * 2 && blue.blue() > blue.red() * 2,
+              "GPU surface color follows resource-pack top texture across sky and SRB changes");
+        const auto redLitSurface = colorPack("surface-pack-red-lit", QColor("#e03020"));
+        const auto redLit = redLitSurface.pixelColor(redLitSurface.width() / 2, redLitSurface.height() / 2);
+        check(redLit.red() > redLit.blue() * 2 && difference(redLitSurface, blueSurface) > 20,
+              "same lit scene changes color with resources; a blue sky cannot satisfy the color test");
+        check(editor.scene()->colorBytes > 0 && editor.scene()->surfacePreview,
+              "surface color pages have accounted residency");
         std::cout << "Renderer checks " << checks << std::endl;
     } catch (const std::exception &e) {
         std::cerr << "FAIL " << e.what() << std::endl;

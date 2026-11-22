@@ -216,6 +216,44 @@ int main(int argc, char **argv) {
             rejected = true;
         }
         check(rejected, "reject non-power-of-two topology");
+        // Top-face atlas colors, including high-frequency resource-pack patterns,
+        // are sampled independently of terrain tessellation and vertex density.
+        auto colored = wb::World::create({65, 7, -60, 24, 0, true, 65});
+        auto assets = std::make_shared<wb::AssetLibrary>();
+        assets->atlas = QImage(32, 32, QImage::Format_RGBA8888);
+        for (int z = 0; z < 32; ++z)
+            for (int x = 0; x < 32; ++x)
+                assets->atlas.setPixelColor(x, z, x % 8 == 4 ? Qt::red : Qt::blue);
+        colored.assets = assets;
+        auto model = std::make_shared<wb::BlockModel>();
+        wb::ModelFace face;
+        face.normal = {0, 1, 0};
+        face.uv[0] = {0, 0};
+        face.uv[1] = {1, 0};
+        face.uv[2] = {1, 1};
+        face.uv[3] = {0, 1};
+        model->faces.push_back(face);
+        colored.models[wb::Grass] = model;
+        const auto colors = wb::farInputs(colored, false);
+        check(std::abs(colors.colors[wb::Grass].x() - .125f) < 1e-6 &&
+                  std::abs(colors.colors[wb::Grass].z() - .875f) < 1e-6 && colors.columns.empty(),
+              "all texture samples contribute without scanning sparse edits");
+        const auto tile = wb::planSurfaceTiles(colored).front();
+        auto beforeColor = wb::buildSurfaceMesh(colored, tile, colors, 1);
+        check(beforeColor->surfaceColors.size() == QSize(1, 1) && beforeColor->surfaceColorBytes() == 4,
+              "uniform surface colors use one exact texel rather than a full-map RGBA allocation");
+        const auto grassColor = beforeColor->surfaceColors.pixelColor(0, 0);
+        colored.setBlock(2, 24, 4, wb::Stone);
+        auto afterColor = wb::buildSurfaceMesh(colored, tile, colors, 2);
+        check(beforeColor->opaqueIndices == afterColor->opaqueIndices &&
+                  beforeColor->opaque.size() == afterColor->opaque.size(),
+              "a material edit does not change geometry");
+        check(afterColor->surfaceColors.pixelColor(35, 37) != grassColor &&
+                  afterColor->surfaceColors.pixelColor(34, 37) == grassColor,
+              "one-column material edits survive sparse adaptive geometry");
+        for (const auto &v : afterColor->opaque)
+            check(v.u >= 0 && v.u <= 1 && v.v >= 0 && v.v <= 1 && v.r == 1 && v.g == 1 && v.b == 1,
+                  "surface page coordinates cover geometry without applying tint twice");
         std::cout << QJsonDocument(reports).toJson().constData() << "\nSurface checks: " << checks
                   << " passed\n";
         return 0;
