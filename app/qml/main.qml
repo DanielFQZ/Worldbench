@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.16.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.0"
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
     palette.window: "#202630"; palette.windowText: "#e0e6ef"
@@ -17,12 +17,15 @@ ApplicationWindow {
     palette.placeholderText: "#7e8da1"
     palette.highlight: "#43a9bf"; palette.highlightedText: "#101b24"
     property string pendingAction: ""
+    property int shortcutRevision: 0
+    function shortcut(action) { shortcutRevision; return editor.shortcut(action) }
+    Connections { target: editor; function onChanged() { win.shortcutRevision++ } }
     function editingText() {
         const item = activeFocusItem
         return item && (typeof item.selectAll === "function" || typeof item.inputMethodComposing === "boolean")
     }
-    Shortcut {sequence:"Ctrl+D";enabled:!win.editingText()&&!editor.commandBusy;onActivated:if(!editor.commandBusy)editor.clearSelection()}
-    Shortcut {sequence:"Delete";enabled:!win.editingText()&&!editor.commandBusy&&!editor.exportBusy&&editor.terrainDetails.valid;onActivated:if(!editor.commandBusy)editor.removeTerrain()}
+    Shortcut {sequence:win.shortcut("clearSelection");enabled:!win.editingText()&&!editor.commandBusy;onActivated:if(!editor.commandBusy)editor.clearSelection()}
+    Shortcut {sequence:win.shortcut("deleteTerrain");enabled:!win.editingText()&&!editor.commandBusy&&!editor.exportBusy&&editor.terrainDetails.valid;onActivated:if(!editor.commandBusy)editor.removeTerrain()}
     property url pendingProject: ""
     function requestProjectDrop(urls) {
         if (!editor.acceptsProjectDrop(urls)) return false
@@ -101,6 +104,8 @@ ApplicationWindow {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
             Action { text: "相机与鼠标设置"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
+            Action { text: "性能设置"; onTriggered: { settingsContent.page = "performance"; settingsDialog.open() } }
+            Action { text: "快捷键绑定"; onTriggered: { settingsContent.page = "shortcuts"; settingsDialog.open() } }
             Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
             Action { text: "矩形选区"; onTriggered: editor.tool=6 }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
@@ -118,7 +123,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.16.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.17.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     SurfaceThemeDialog{id:surfaceThemeDialog}
@@ -185,7 +190,7 @@ ApplicationWindow {
     }
     Dialog {
         id: settingsDialog; objectName: "editorSettingsDialog"
-        title: settingsContent.page === "camera" ? "相机与鼠标设置" : "资源来源与导入诊断"
+        title: settingsContent.page === "camera" ? "相机与鼠标设置" : settingsContent.page === "performance" ? "性能与精度设置" : settingsContent.page === "shortcuts" ? "快捷键绑定" : "资源来源与导入诊断"
         modal: false; width: Math.min(680, win.width - 60); height: Math.min(650, win.height - 100)
         anchors.centerIn: parent; standardButtons: Dialog.Close
         contentItem: SettingsPanel { id: settingsContent; objectName: "settingsContent" }
@@ -217,11 +222,11 @@ ApplicationWindow {
             Button { text: "取消导出"; visible: editor.exportBusy; implicitHeight: 28; onClicked: editor.cancelExport() }
         }
     }
-    Shortcut { sequence: "Ctrl+S"; onActivated: win.saveCurrent() }
-    Shortcut { sequence: "Ctrl+O"; onActivated: win.requestAction("open") }
-    Shortcut { sequence: "Ctrl+N"; onActivated: win.requestAction("new") }
-    Shortcut { sequence: "Ctrl+Z"; enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.undo() }
-    Shortcut { sequences: ["Ctrl+Y", "Ctrl+Shift+Z"]; enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.redo() }
+    Shortcut { sequence: win.shortcut("save"); onActivated: win.saveCurrent() }
+    Shortcut { sequence: win.shortcut("open"); onActivated: win.requestAction("open") }
+    Shortcut { sequence: win.shortcut("new"); onActivated: win.requestAction("new") }
+    Shortcut { sequence: win.shortcut("undo"); enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.undo() }
+    Shortcut { sequences: [win.shortcut("redo"), "Ctrl+Shift+Z"]; enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.redo() }
     FileDialog {
         id: saveDialog; title: "保存 Worldbench 工程"; fileMode: FileDialog.SaveFile
         nameFilters: ["Worldbench 工程 (*.wbench)"]; defaultSuffix: "wbench"

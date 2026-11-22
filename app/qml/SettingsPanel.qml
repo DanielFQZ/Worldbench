@@ -7,6 +7,12 @@ ScrollView {
  clip:true;contentWidth:availableWidth
  ColumnLayout {
   width:panel.availableWidth;spacing:12
+  RowLayout { Layout.fillWidth:true; Layout.margins:12; spacing:6
+   Button{text:"相机";checkable:true;checked:panel.page==="camera";onClicked:panel.page="camera"}
+   Button{text:"性能";checkable:true;checked:panel.page==="performance";onClicked:panel.page="performance"}
+   Button{text:"快捷键";checkable:true;checked:panel.page==="shortcuts";onClicked:panel.page="shortcuts"}
+   Button{text:"资源";checkable:true;checked:panel.page==="resources";onClicked:panel.page="resources"}
+  }
     ColumnLayout {
      visible:panel.page==="camera";Layout.fillWidth:true;Layout.margins:12;spacing:12
      Label{text:"透视相机";font.pixelSize:17}
@@ -51,6 +57,42 @@ ScrollView {
      }
      Label{text:editor.resourceDiagnostics;wrapMode:Text.WrapAnywhere;Layout.fillWidth:true;color:"#d5ba82";font.pixelSize:11}
      Label{text:"从顶部“资源”菜单载入客户端 JAR，然后叠加 ZIP。后载入的包优先。\n专用实体渲染模型、动画及模组格式尚未支持；缺失模型显示洋红色方块。";color:"#8997a9";Layout.fillWidth:true;wrapMode:Text.WordWrap}
+    }
+    ColumnLayout {
+     visible:panel.page==="performance";Layout.fillWidth:true;Layout.margins:12;spacing:12
+     Label{text:"性能与精度";font.pixelSize:17}
+     Label{text:"全精度区域半径（区块）";color:"#dce4ee"}
+     RowLayout{Layout.fillWidth:true
+      Slider{id:exactRadius;from:1;to:12;stepSize:1;snapMode:Slider.SnapAlways;value:editor.exactRadiusChunks;Layout.fillWidth:true;onMoved:editor.exactRadiusChunks=Math.round(value)}
+      Label{text:editor.exactRadiusChunks+" · 约 "+(editor.exactRadiusChunks*2+1)+"×"+(editor.exactRadiusChunks*2+1)+" 区块";Layout.preferredWidth:180;color:"#78c9d2"}
+     }
+     Label{text:"范围越大，近处真实方块细节越多，同时构网、显存和后台线程开销也会增加。远景仍使用误差约束地表。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#91a8ba"}
+     Label{text:"交互预览";font.pixelSize:15;color:"#dce4ee"}
+     Label{text:"地貌实例拖动期间使用低成本预览网格，松开后自动恢复高精度结果。该行为不会写入工程数据。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#91a8ba"}
+     Label{text:"当前构网："+editor.meshUpdateSummary;color:"#a6b4c5";wrapMode:Text.WrapAnywhere;Layout.fillWidth:true}
+    }
+    ColumnLayout {
+     visible:panel.page==="shortcuts";Layout.fillWidth:true;Layout.margins:12;spacing:8
+     Label{text:"快捷键绑定";font.pixelSize:17}
+     Label{text:"修改后立即保存为本机偏好；输入 Qt 支持的组合键，例如 Ctrl+Shift+S。视口内的 W/E/R 也会同步用于操纵器切换。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#91a8ba"}
+     ListModel{id:shortcutModel
+      ListElement{action:"save";label:"保存工程"}
+      ListElement{action:"open";label:"打开工程"}
+      ListElement{action:"new";label:"新建工程"}
+      ListElement{action:"undo";label:"撤销"}
+      ListElement{action:"redo";label:"重做"}
+      ListElement{action:"clearSelection";label:"清除选区"}
+      ListElement{action:"deleteTerrain";label:"删除地貌实例"}
+      ListElement{action:"focus";label:"聚焦"}
+      ListElement{action:"translateGizmo";label:"位移操纵器"}
+      ListElement{action:"rotateGizmo";label:"旋转操纵器"}
+      ListElement{action:"scaleGizmo";label:"缩放操纵器"}
+     }
+     Repeater{model:shortcutModel;delegate:RowLayout{required property string action;required property string label;Layout.fillWidth:true
+       Label{text:label;Layout.fillWidth:true;color:"#c9d5e2"}
+       TextField{property string key:action;text:editor.shortcut(key);selectByMouse:true;Layout.preferredWidth:170;onEditingFinished:editor.setShortcut(key,text)}
+      }}
+     Button{text:"恢复默认快捷键";onClicked:editor.resetShortcuts()}
     }
  }
 }

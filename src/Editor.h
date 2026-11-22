@@ -59,6 +59,7 @@ class Editor : public QObject {
     Q_PROPERTY(QString mcpActivity READ mcpActivity NOTIFY changed)
     Q_PROPERTY(QString selectedNode READ selectedNode WRITE setSelectedNode NOTIFY changed)
     Q_PROPERTY(QObject *cameraController READ cameraController NOTIFY changed)
+    Q_PROPERTY(int exactRadiusChunks READ exactRadiusChunks WRITE setExactRadiusChunks NOTIFY changed)
   public:
     explicit Editor(QObject *parent = nullptr);
     ~Editor() override;
@@ -141,6 +142,11 @@ class Editor : public QObject {
     QString selectedNode() const { return m_selectedNode; }
     void setSelectedNode(const QString &node);
     QObject *cameraController() const { return m_cameraController; }
+    int exactRadiusChunks() const { return m_exactRadiusChunks; }
+    void setExactRadiusChunks(int value);
+    Q_INVOKABLE QString shortcut(const QString &action) const;
+    Q_INVOKABLE void setShortcut(const QString &action, const QString &sequence);
+    Q_INVOKABLE void resetShortcuts();
     void setCameraController(QObject *controller) {
         m_cameraController = controller;
         emit changed();
@@ -163,7 +169,8 @@ class Editor : public QObject {
     }
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
-    bool meshBusy() const { return m_meshActive || !m_dirty.empty() || m_farDirty; }
+    bool meshBusy() const { return m_meshActive || !m_dirty.empty() || m_farDirty || m_interactiveMesh ||
+                                   (m_scene && m_scene->provisional); }
     QString terrainUpdateStatus() const;
     bool exportBusy() const { return m_exportActive; }
     int exportProgress() const { return m_exportProgress; }
@@ -282,5 +289,7 @@ class Editor : public QObject {
     std::shared_ptr<const wb::AssetLibrary> m_defaultAssets;
     QString m_defaultFingerprint, m_loadingFingerprint;
     bool m_assetsLoading = false, m_meshActive = false, m_exportActive = false;
+    bool m_interactiveMesh = false;
+    int m_exactRadiusChunks = 4;
     std::atomic_bool m_cancelExport = false;
 };

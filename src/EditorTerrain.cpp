@@ -246,6 +246,12 @@ void Editor::beginTerrainEdit() {
         return;
     endStroke();
     m_terrainStart = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
+    // Transform gestures can emit many intermediate instance states.  Keep
+    // their derived terrain mesh cheap until the pointer is released; the
+    // authoritative instance data and the single undo entry remain exact.
+    m_interactiveMesh = true;
+    m_status = "交互预览 · 松开后恢复高精度地形";
+    emit changed();
 }
 void Editor::endTerrainEdit(bool cancel) {
     if (!m_terrainStart)
@@ -255,7 +261,11 @@ void Editor::endTerrainEdit(bool cancel) {
     c.terrainBefore = m_terrainStart;
     c.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
     m_terrainStart.reset();
+    const bool wasInteractive = m_interactiveMesh;
+    m_interactiveMesh = false;
     if (*c.terrainBefore == *c.terrainAfter) {
+        if (wasInteractive)
+            dirtyAll();
         emit changed();
         return;
     }
@@ -266,6 +276,8 @@ void Editor::endTerrainEdit(bool cancel) {
         emit changed();
     } else
         pushCommand(std::move(c));
+    if (wasInteractive)
+        dirtyAll();
 }
 void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &label) {
     if (assetBusy())

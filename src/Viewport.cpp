@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QCursor>
 #include <QJsonArray>
+#include <QKeySequence>
 #include <QSettings>
 #include <stdexcept>
 #ifdef Q_OS_WIN
@@ -18,6 +19,16 @@
 #include <array>
 #include <cstring>
 #include <rhi/qrhi.h>
+
+namespace {
+bool matchesShortcut(const QKeyEvent *event, const QString &sequence) {
+    if (sequence.isEmpty())
+        return false;
+    const auto actual = QKeySequence(event->modifiers() | event->key());
+    return QKeySequence::fromString(sequence, QKeySequence::PortableText).matches(actual) ==
+           QKeySequence::ExactMatch;
+}
+}
 
 Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton | Qt::MiddleButton);
@@ -339,7 +350,7 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->ignore();
         return;
     }
-    if (e->key() == Qt::Key_Delete && !e->modifiers() && !m_editor->commandBusy() &&
+    if (matchesShortcut(e, m_editor->shortcut("deleteTerrain")) && !m_editor->commandBusy() &&
         !m_editor->exportBusy() && m_editor->terrainDetails()["valid"].toBool()) {
         m_editor->removeTerrain();
         e->accept();
@@ -352,7 +363,7 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
-    if (e->key() == Qt::Key_F) {
+    if (matchesShortcut(e, m_editor->shortcut("focus"))) {
         focusTarget();
         e->accept();
         return;
@@ -372,9 +383,13 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
-    if (!e->modifiers() && (e->key() == Qt::Key_W || e->key() == Qt::Key_E || e->key() == Qt::Key_R) &&
-        m_editor->terrainDetails()["valid"].toBool()) {
-        setGizmoMode(e->key() == Qt::Key_W ? 0 : e->key() == Qt::Key_E ? 1 : 2);
+    if (m_editor->terrainDetails()["valid"].toBool() &&
+        (matchesShortcut(e, m_editor->shortcut("translateGizmo")) ||
+         matchesShortcut(e, m_editor->shortcut("rotateGizmo")) ||
+         matchesShortcut(e, m_editor->shortcut("scaleGizmo")))) {
+        setGizmoMode(matchesShortcut(e, m_editor->shortcut("translateGizmo"))
+                         ? 0
+                         : matchesShortcut(e, m_editor->shortcut("rotateGizmo")) ? 1 : 2);
         m_editor->setTool(-1);
         e->accept();
         return;

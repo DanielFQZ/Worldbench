@@ -55,6 +55,9 @@ struct MeshScene {
     uint64_t sourceRevision = 0, sampleCount = 0, bufferBytes = 0;
     uint64_t updatedSamples = 0, colorBytes = 0;
     float surfaceError = 0;
+    // True while the scene is an interactive low-cost preview.  The world
+    // data is still authoritative; this flag only describes the derived mesh.
+    bool provisional = false;
     QString error;
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision);

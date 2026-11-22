@@ -36,19 +36,49 @@ float shadowVisibility(vec3 position, vec3 normal) {
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
+// Tile-free, low-frequency value noise for water normals.  The previous
+// directional sine bands were mathematically clean but produced screen-space
+// moire on large, shallow-angle sea surfaces.  This noise is deliberately
+// band-limited with the pixel footprint below and uses a small domain warp so
+// there is no repeated stripe direction to lock onto the display grid.
+float waterHash(vec2 p){
+    p=fract(p*vec2(127.1,311.7));
+    p+=dot(p,p+vec2(34.5,17.3));
+    return fract(p.x*p.y*43758.5453);
+}
+float waterNoise(vec2 p){
+    vec2 i=floor(p), f=fract(p);
+    f=f*f*(3.0-2.0*f);
+    float a=waterHash(i), b=waterHash(i+vec2(1,0));
+    float c=waterHash(i+vec2(0,1)), d=waterHash(i+vec2(1,1));
+    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+}
+vec2 waterNoiseGradient(vec2 p){
+    const float e=.10;
+    return vec2(waterNoise(p+vec2(e,0))-waterNoise(p-vec2(e,0)),
+                waterNoise(p+vec2(0,e))-waterNoise(p-vec2(0,e)))/(2.0*e);
+}
+
 void main(){
     vec3 n=normalize(faceNormal);
-    // Analytic band-limited normal waves: no CPU mesh rebuild, no movement of
-    // Minecraft coastlines, and subpixel frequencies fade instead of shimmering.
+    // Multi-scale, band-limited normals: no CPU mesh rebuild, no movement of
+    // Minecraft coastlines, and distant water fades to a stable broad shape.
     if(n.y>.5 && u.water.y>0.0){
+        float footprint=max(length(fwidth(worldPos.xz)),.0001);
+        vec2 flow=u.water.x*vec2(.008,-.006);
+        vec2 p=worldPos.xz*.045+flow;
         vec2 gradient=vec2(0);
-        vec2 dirs[3]=vec2[3](vec2(.96,.28),vec2(-.64,.77),vec2(.23,-.97));
-        float frequencies[3]=float[3](.72,1.57,3.1);
+        const float scales[3]=float[3](1.0,1.9,3.2);
+        const float amplitudes[3]=float[3](.48,.27,.12);
         for(int i=0;i<3;++i){
-            float phase=dot(worldPos.xz,dirs[i])*frequencies[i]+u.water.x*(.9+float(i)*.39);
-            float attenuation=1.0-smoothstep(.5,2.7,fwidth(phase));
-            gradient+=dirs[i]*cos(phase)*attenuation*(.40/(1.0+float(i)))*u.water.y;
+            float frequency=scales[i];
+            float coverage=1.0-smoothstep(.18,.72,footprint*.045*frequency);
+            vec2 q=p*frequency+vec2(float(i)*17.31,-float(i)*9.17);
+            // A mild domain warp breaks up regular lattice contours.
+            q+=vec2(waterNoise(q*.37+vec2(2.1,4.7)),waterNoise(q*.37-vec2(5.4,1.8))-.5)*.65;
+            gradient+=waterNoiseGradient(q)*amplitudes[i]*coverage;
         }
+        gradient*=u.water.y;
         n=normalize(vec3(-gradient.x,1,-gradient.y));
     }
     vec3 view=normalize(u.camera.xyz-worldPos);

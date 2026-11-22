@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHash>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <QSettings>
@@ -17,8 +18,21 @@
 #include <QtConcurrent>
 #include <algorithm>
 
+namespace {
+QString defaultShortcut(const QString &action) {
+    static const QHash<QString, QString> defaults{
+        {"save", "Ctrl+S"},       {"open", "Ctrl+O"},       {"new", "Ctrl+N"},
+        {"undo", "Ctrl+Z"},       {"redo", "Ctrl+Y"},       {"clearSelection", "Ctrl+D"},
+        {"deleteTerrain", "Delete"}, {"focus", "F"},        {"translateGizmo", "W"},
+        {"rotateGizmo", "E"},     {"scaleGizmo", "R"}};
+    return defaults.value(action);
+}
+}
+
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
+    QSettings settings;
+    m_exactRadiusChunks = std::clamp(settings.value("performance/exactRadiusChunks", 4).toInt(), 1, 12);
     initializeTerrainImporter();
     m_regionTimer.setInterval(50);
     connect(&m_regionTimer, &QTimer::timeout, this, &Editor::regionProgressChanged);
@@ -153,6 +167,44 @@ Editor::Editor(QObject *parent)
     });
     restoreBrushProfile();
     dirtyAll();
+}
+
+void Editor::setExactRadiusChunks(int value) {
+    value = std::clamp(value, 1, 12);
+    if (value == m_exactRadiusChunks)
+        return;
+    m_exactRadiusChunks = value;
+    QSettings().setValue("performance/exactRadiusChunks", value);
+    dirtyAll();
+    emit changed();
+}
+
+QString Editor::shortcut(const QString &action) const {
+    const auto fallback = defaultShortcut(action);
+    if (fallback.isEmpty())
+        return {};
+    return QSettings().value("shortcuts/" + action, fallback).toString();
+}
+
+void Editor::setShortcut(const QString &action, const QString &sequence) {
+    if (defaultShortcut(action).isEmpty())
+        return;
+    const auto value = sequence.trimmed();
+    if (value.isEmpty())
+        return;
+    QSettings().setValue("shortcuts/" + action, value);
+    emit changed();
+}
+
+void Editor::resetShortcuts() {
+    QSettings settings;
+    for (const auto &action : {QStringLiteral("save"), QStringLiteral("open"), QStringLiteral("new"),
+                               QStringLiteral("undo"), QStringLiteral("redo"), QStringLiteral("clearSelection"),
+                               QStringLiteral("deleteTerrain"), QStringLiteral("focus"),
+                               QStringLiteral("translateGizmo"), QStringLiteral("rotateGizmo"),
+                               QStringLiteral("scaleGizmo")})
+        settings.remove("shortcuts/" + action);
+    emit changed();
 }
 Editor::~Editor() {
     if (m_meshCancel)
@@ -609,6 +661,8 @@ QString Editor::meshUpdateSummary() const {
 QString Editor::terrainUpdateStatus() const {
     if (!m_surfaceFailure.isEmpty())
         return "地形更新失败 · " + m_surfaceFailure;
+    if (m_interactiveMesh || (m_scene && m_scene->provisional))
+        return "交互预览网格 · 松开后恢复高精度地形";
     if (meshBusy())
         return QString("后台更新地形 %1 / %2 · 当前画面待收敛")
             .arg(m_surfaceCompleted ? m_surfaceCompleted->load() : 0)
@@ -622,8 +676,9 @@ std::set<int> Editor::desiredChunks() const {
     const bool local = m_world.width > 256 || m_world.depth > 256;
     const int cx = std::clamp((m_previewX - m_world.originX) / 16, 0, nx - 1),
               cz = std::clamp((m_previewZ - m_world.originZ) / 16, 0, nz - 1);
-    for (int z = local ? std::max(0, cz - 4) : 0; z < (local ? std::min(nz, cz + 5) : nz); ++z)
-        for (int x = local ? std::max(0, cx - 4) : 0; x < (local ? std::min(nx, cx + 5) : nx); ++x)
+    const int radius = std::clamp(m_exactRadiusChunks, 1, 12);
+    for (int z = local ? std::max(0, cz - radius) : 0; z < (local ? std::min(nz, cz + radius + 1) : nz); ++z)
+        for (int x = local ? std::max(0, cx - radius) : 0; x < (local ? std::min(nx, cx + radius + 1) : nx); ++x)
             result.insert(z * nx + x);
     return result;
 }
@@ -667,6 +722,7 @@ void Editor::startMesh() {
     auto snapshot = m_world;
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
+    const bool interactive = m_interactiveMesh;
     m_jobEpoch = m_epoch;
     m_meshActive = true;
     m_meshCancel = std::make_shared<std::atomic_bool>(false);
@@ -674,7 +730,7 @@ void Editor::startMesh() {
     m_surfaceCompleted = std::make_shared<std::atomic_int>(0);
     // Larger maps use wider patches to bound shared-edge geometry, without
     // skipping any source heights or relaxing the reference-surface error.
-    const int patchSize = std::max(m_world.width, m_world.depth) > 4096 ? 256 : 128;
+    const int patchSize = interactive ? 256 : (std::max(m_world.width, m_world.depth) > 4096 ? 256 : 128);
     m_surfaceTotal = int(wb::planSurfaceTiles(m_world, patchSize).size());
     m_surfaceProgressTimer.start();
     const auto completed = m_surfaceCompleted;
@@ -682,12 +738,14 @@ void Editor::startMesh() {
     const auto cancel = m_meshCancel;
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), old, serial, sourceRevision,
                                                allFar, wanted, dirty = std::move(dirty),
-                                               regions = std::move(regions), cancel, completed, patchSize]() {
+                                               regions = std::move(regions), cancel, completed, patchSize,
+                                               interactive]() {
         QElapsedTimer timer;
         timer.start();
         auto next = std::make_shared<wb::MeshScene>();
         next->revision = serial;
         next->sourceRevision = sourceRevision;
+        next->provisional = interactive;
         next->assets = snapshot.assets;
         next->worldArea = QRect(snapshot.originX, snapshot.originZ, snapshot.width, snapshot.depth);
         next->seaSurface = float(snapshot.seaLevel + 1);
@@ -767,7 +825,8 @@ void Editor::startMesh() {
                                              ? next->exactArea
                                              : QRect{};
                     auto mesh =
-                        wb::buildSurfaceMesh(snapshot, tile, inputs, serial, 1.f, cancel.get(), cutout);
+                        wb::buildSurfaceMesh(snapshot, tile, inputs, serial, interactive ? 8.f : 1.f,
+                                              cancel.get(), cutout);
                     if (mesh) {
                         if (bytes.fetch_add(cost(*mesh)) + cost(*mesh) > limit) {
                             overBudget = true;

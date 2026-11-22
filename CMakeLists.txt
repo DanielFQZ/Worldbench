@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.16.0 LANGUAGES CXX)
+project(Worldbench VERSION 0.17.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

@@ -719,11 +719,14 @@ int main(int argc, char **argv) {
             editor.setTerrainOption("x", originalInstance.x + n + 1);
             QTest::qWait(16);
         }
+        check(QTest::qWaitFor([&] { return editor.scene()->provisional; }, 30000),
+              "active transform publishes a provisional low-cost mesh");
         check(editor.scene()->revision > beforePreviewSerial,
               "exact preview publishes during active transform");
         editor.endTerrainEdit();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000),
               "latest exact transform preview settles");
+        check(!editor.scene()->provisional, "released transform replaces provisional mesh with exact mesh");
         std::cout << "Transform interaction 12 updates " << instanceLatency.elapsed() << " ms, final build "
                   << editor.scene()->buildMilliseconds << " ms; visibility " << visibilityMs << " ms\n";
         editor.undo();
