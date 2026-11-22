@@ -65,17 +65,21 @@ void main(){
     // Minecraft coastlines, and distant water fades to a stable broad shape.
     if(n.y>.5 && u.water.y>0.0){
         float footprint=max(length(fwidth(worldPos.xz)),.0001);
-        vec2 flow=u.water.x*vec2(.008,-.006);
-        vec2 p=worldPos.xz*.045+flow;
+        // Keep the base wavelength broad enough that a distant tile contains
+        // only a few lobes.  High-frequency detail is deliberately omitted:
+        // even filtered micro normals turn into moving stripes on a huge
+        // planar surface when the specular lobe is narrower than a pixel.
+        vec2 flow=u.water.x*vec2(.0025,-.0018);
+        vec2 p=worldPos.xz*.012+flow;
         vec2 gradient=vec2(0);
-        const float scales[3]=float[3](1.0,1.9,3.2);
-        const float amplitudes[3]=float[3](.48,.27,.12);
+        const float scales[3]=float[3](1.0,1.7,2.4);
+        const float amplitudes[3]=float[3](.16,.075,.032);
         for(int i=0;i<3;++i){
             float frequency=scales[i];
-            float coverage=1.0-smoothstep(.18,.72,footprint*.045*frequency);
+            float coverage=1.0-smoothstep(.20,.85,footprint*.012*frequency);
             vec2 q=p*frequency+vec2(float(i)*17.31,-float(i)*9.17);
             // A mild domain warp breaks up regular lattice contours.
-            q+=vec2(waterNoise(q*.37+vec2(2.1,4.7)),waterNoise(q*.37-vec2(5.4,1.8))-.5)*.65;
+            q+=vec2(waterNoise(q*.21+vec2(2.1,4.7)),waterNoise(q*.21-vec2(5.4,1.8))-.5)*.22;
             gradient+=waterNoiseGradient(q)*amplitudes[i]*coverage;
         }
         gradient*=u.water.y;
@@ -91,8 +95,8 @@ void main(){
         vec3 direct=u.sunColor.rgb*max(0.0,dot(n,u.sunDirection.xyz))*u.sunDirection.w*lit;
         col=tint*(ambient+direct*.55)*u.groundColor.w;
         vec3 halfVector=normalize(view+u.sunDirection.xyz);
-        float spec=pow(max(0.0,dot(n,halfVector)),120.0)*u.sunDirection.w*lit;
-        col+=u.sunColor.rgb*spec*1.8*u.groundColor.w;
+        float spec=pow(max(0.0,dot(n,halfVector)),64.0)*u.sunDirection.w*lit;
+        col+=u.sunColor.rgb*spec*.65*u.groundColor.w;
         col=col/(vec3(1)+col*.35);
     }
     // Only the common horizontal sea plane has a geometric reflection capture.
