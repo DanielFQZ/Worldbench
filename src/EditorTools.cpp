@@ -9,13 +9,21 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QtConcurrent>
 #include <cmath>
 #include <stdexcept>
+
+namespace {
+QVariantMap vecMap(const QVector3D &v) {
+    return {{"x", v.x()}, {"y", v.y()}, {"z", v.z()}};
+}
+} // namespace
 
 QString Editor::resourceSummary() const {
     if (assetBusy())
@@ -53,10 +61,27 @@ QVariantList Editor::sceneNodes() const {
                              {"kind", "terrain"},
                              {"visible", it->enabled},
                              {"active", it->id == m_world.heights.activeLayer}};
+    for (auto it = m_world.creation.volumes.rbegin(); it != m_world.creation.volumes.rend(); ++it)
+        nodes << QVariantMap{{"id", it->id},
+                             {"name", it->name},
+                             {"kind", "pcg-volume"},
+                             {"visible", it->visible},
+                             {"active", it->enabled}};
+    for (auto it = m_world.creation.presets.rbegin(); it != m_world.creation.presets.rend(); ++it)
+        nodes << QVariantMap{
+            {"id", it->id}, {"name", it->name}, {"kind", "asset-instance"}, {"visible", it->enabled}};
+    for (auto it = m_world.creation.roadNodes.rbegin(); it != m_world.creation.roadNodes.rend(); ++it)
+        nodes << QVariantMap{{"id", it->id},
+                             {"name", it->name.isEmpty() ? "道路节点" : it->name},
+                             {"kind", "road-node"},
+                             {"visible", it->enabled}};
     const auto e = environmentDetails();
     nodes << QVariantMap{
         {"id", "environment"}, {"name", "环境"}, {"kind", "environment"}, {"visible", e["enabled"]}};
-    for (auto pair : {std::pair{"sky", "天光 / 天空"}, {"sun", "太阳 · 平行光"}, {"atmosphere", "大气"}, {"water", "水面"}})
+    for (auto pair : {std::pair{"sky", "天光 / 天空"},
+                      {"sun", "太阳 · 平行光"},
+                      {"atmosphere", "大气"},
+                      {"water", "水面"}})
         nodes << QVariantMap{{"id", QString("environment-") + pair.first},
                              {"parent", "environment"},
                              {"name", QString("    ") + pair.second},
@@ -64,6 +89,7 @@ QVariantList Editor::sceneNodes() const {
                              {"visible", e[pair.first]}};
     return nodes;
 }
+
 QVariantMap Editor::layerDetails() const {
     int n = m_world.heights.layerIndex(m_selectedNode);
     if (n < 0)
@@ -398,11 +424,13 @@ QJsonObject Editor::worldInfo() const {
     for (const auto &l : m_world.heights.layers)
         sculptLayers.append(QJsonObject{
             {"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"columns", int(l.deltas->size())}});
+    const auto creation = QJsonObject::fromVariantMap(creationState());
     return {
         {"revision", double(m_revision)},
         {"sculpt_layers", sculptLayers},
         {"active_sculpt_layer", m_world.heights.activeLayer},
         {"terrain_instances", terrain},
+        {"creation", creation},
         {"size", m_world.width},
         {"width", m_world.width},
         {"depth", m_world.depth},
@@ -418,28 +446,29 @@ QJsonObject Editor::worldInfo() const {
         {"region_job", regionJobInfo()},
         {"mesh_busy", meshBusy()},
         {"environment", wb::saveEnvironment(m_world.environment)},
-        {"preview", QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
-                                {"renderer", "adaptive_terrain_with_local_voxels"},
-                                {"surface_failure", m_surfaceFailure},
-                                {"surface_scope", "formal error-bounded heightfield and sea plane plus local voxels; "
-                                                  "sparse interaction preview has no certified height bound; "
-                                                  "distant cave/model and independent water geometry pending"},
-                                {"provisional", m_scene->provisional},
-                                {"surface_error_bound", m_scene->provisional ? QJsonValue(QJsonValue::Null)
-                                                                            : QJsonValue(m_scene->surfaceError)},
-                                {"surface_samples", double(m_scene->sampleCount)},
-                                {"updated_surface_samples", double(m_scene->updatedSamples)},
-                                {"updated_surface_tiles", m_scene->updatedFarTiles},
-                                {"surface_color_bytes", double(m_scene->colorBytes)},
-                                {"surface_color_source",
-                                 "resolved top-face atlas average per column; no detailed texture mapping"},
-                                {"mesh_bytes", double(m_scene->bufferBytes)},
-                                {"source_revision", double(m_scene->sourceRevision)},
-                                {"far_tiles", int(m_scene->farTiles.size())},
-                                {"vertices", double(m_scene->vertices)},
-                                {"water_vertices", double(m_scene->waterVertices)},
-                                {"build_ms", double(m_scene->buildMilliseconds)},
-                                {"far_ms", double(m_scene->farMilliseconds)}}},
+        {"preview",
+         QJsonObject{{"exact_chunks", int(m_scene->chunks.size())},
+                     {"renderer", "adaptive_terrain_with_local_voxels"},
+                     {"surface_failure", m_surfaceFailure},
+                     {"surface_scope", "formal error-bounded heightfield and sea plane plus local voxels; "
+                                       "sparse interaction preview has no certified height bound; "
+                                       "distant cave/model and independent water geometry pending"},
+                     {"provisional", m_scene->provisional},
+                     {"surface_error_bound", m_scene->provisional ? QJsonValue(QJsonValue::Null)
+                                                                  : QJsonValue(m_scene->surfaceError)},
+                     {"surface_samples", double(m_scene->sampleCount)},
+                     {"updated_surface_samples", double(m_scene->updatedSamples)},
+                     {"updated_surface_tiles", m_scene->updatedFarTiles},
+                     {"surface_color_bytes", double(m_scene->colorBytes)},
+                     {"surface_color_source",
+                      "resolved top-face atlas average per column; no detailed texture mapping"},
+                     {"mesh_bytes", double(m_scene->bufferBytes)},
+                     {"source_revision", double(m_scene->sourceRevision)},
+                     {"far_tiles", int(m_scene->farTiles.size())},
+                     {"vertices", double(m_scene->vertices)},
+                     {"water_vertices", double(m_scene->waterVertices)},
+                     {"build_ms", double(m_scene->buildMilliseconds)},
+                     {"far_ms", double(m_scene->farMilliseconds)}}},
         {"can_undo", canUndo()},
         {"can_redo", canRedo()},
         {"scene_nodes", QJsonArray::fromVariantList(sceneNodes())}};
@@ -462,6 +491,14 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     };
     if (name == "world_info")
         return worldInfo();
+    if (name == "creation" && args["action"].toString() == "cancel") {
+        cancelCreation();
+        return {{"cancel_requested", creationBusy()}};
+    }
+    if (name == "creation" && args.value("action").toString("inspect") == "inspect")
+        return {{"revision", double(m_revision)},
+                {"creation", QJsonObject::fromVariantMap(creationState())},
+                {"node_types", wb::pcgNodeCatalog()}};
     if (name == "region_job") {
         const auto action = args["action"].toString();
         if (m_regionId.isEmpty() || args["job_id"].toString() != m_regionId)
@@ -581,6 +618,44 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
             throw std::runtime_error(error.toStdString());
         setEnvironment(args["changes"].toObject().toVariantMap());
         return worldInfo();
+    }
+    if (name == "creation") {
+        QObject feedback;
+        QString creationError;
+        connect(this, &Editor::failure, &feedback, [&](const QString &message) { creationError = message; });
+        const auto action = args["action"].toString();
+        bool ok = false;
+        if (action == "edit")
+            ok = creationEdit(args["operation"].toString(), args["data"].toObject().toVariantMap());
+        else if (action == "new_graph")
+            ok = createPcgGraph(args["name"].toString());
+        else if (action == "new_volume")
+            ok = addPcgVolume(args["graph_id"].toString());
+        else if (action == "import_asset")
+            ok = importStructureAsset(QUrl::fromLocalFile(args["path"].toString()));
+        else if (action == "place_asset")
+            ok = placeAssetInstance(args["asset_id"].toString(),
+                                    integer(args["x"], m_world.originX, m_world.originX + m_world.width - 1),
+                                    integer(args["y"], -63, 319),
+                                    integer(args["z"], m_world.originZ, m_world.originZ + m_world.depth - 1));
+        else if (action == "road_node")
+            ok = addRoadNode(integer(args["x"], m_world.originX, m_world.originX + m_world.width - 1),
+                             integer(args["y"], -63, 319),
+                             integer(args["z"], m_world.originZ, m_world.originZ + m_world.depth - 1));
+        else if (action == "file")
+            ok = creationFile(args["operation"].toString(), args["id"].toString(),
+                              QUrl::fromLocalFile(args["path"].toString()));
+        else if (action == "cave_analysis")
+            return QJsonObject::fromVariantMap(caveAnalysis(args["asset_id"].toString()));
+        else
+            throw std::runtime_error("未知创作操作");
+        if (!ok)
+            throw std::runtime_error(
+                (creationError.isEmpty()
+                     ? QString("创作操作失败；检查对象引用、参数、资源与生成预算。世界未提交。")
+                     : creationError)
+                    .toStdString());
+        return {{"revision", double(m_revision)}, {"creation", QJsonObject::fromVariantMap(creationState())}};
     }
     if (name == "undo") {
         undo();
@@ -728,7 +803,8 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         auto command = stroke.finish("MCP 雕刻");
         if (!command.cells.empty() || !command.heights.empty()) {
             ++m_revision;
-            dirtyCommand(command);
+            if (!dirtyCommand(command))
+                throw std::runtime_error("创作生成失败，修改已回滚");
             pushCommand(std::move(command));
         }
         return worldInfo();
@@ -836,7 +912,8 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
     if (count) {
         m_world = std::move(next);
         ++m_revision;
-        dirtyCommand(command);
+        if (!dirtyCommand(command))
+            throw std::runtime_error("创作生成失败，修改已回滚");
         pushCommand(std::move(command));
     }
     auto result = worldInfo();

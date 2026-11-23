@@ -42,7 +42,7 @@ void main(){
         float latitude=.5-asin(clamp(ray.y,-1.0,1.0))/PI;
         color=texture(skyTexture,vec2(longitude,latitude)).rgb;
     }
-    if(u.skyEffects.w>.5 && ray.y>-.02){
+    if(u.skyEffects.w>.5 && u.skyTextureEnabled<.5 && ray.y>-.02){
         // Spherical UVs avoid the stretched horizon bands of the old planar
         // projection while keeping a cheap, temporally stable cloud layer.
         float horizonFade=smoothstep(-.02,.22,ray.y);
@@ -57,5 +57,5 @@ void main(){
         color=mix(color,cloudColor,coverage*.72);
     }
     color*=u.groundColor.w;
-    fragColor=vec4(color/(vec3(1.0)+color*.35),1);
+    fragColor=vec4(u.skyTextureEnabled>.5 ? pow(color/(vec3(1.0)+color),vec3(1.0/2.2)) : color/(vec3(1.0)+color*.35),1);
 }

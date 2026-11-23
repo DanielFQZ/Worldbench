@@ -13,11 +13,15 @@ int Editor::selectedTerrainIndex() const {
     return -1;
 }
 void Editor::setSelectedNode(const QString &id) {
-    if (regionBusy())
+    if (regionBusy() || m_creationBusy)
         return;
     if (id == m_selectedNode)
         return;
-    if (!id.startsWith("environment") && m_world.heights.layerIndex(id) < 0 &&
+    bool creationNode = false;
+    for (auto value : sceneNodes())
+        if (value.toMap()["id"].toString() == id)
+            creationNode = true;
+    if (!creationNode && !id.startsWith("environment") && m_world.heights.layerIndex(id) < 0 &&
         std::none_of(m_world.heights.instances.begin(), m_world.heights.instances.end(),
                      [&](const auto &i) { return i.id == id; }))
         return;
@@ -85,7 +89,8 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     command.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(std::move(next));
     m_world.apply(command, true);
     ++m_revision;
-    dirtyCommand(command);
+    if (!dirtyCommand(command))
+        return;
     // Do not cancel every pointer event: let the current complete preview
     // publish, then coalesce pending changes into the next snapshot.
     if (!m_terrainStart)
@@ -282,7 +287,7 @@ void Editor::endTerrainEdit(bool cancel) {
     if (cancel) {
         m_world.apply(c, false);
         ++m_revision;
-        dirtyCommand(c);
+        dirtyCommand(c, false);
         emit changed();
     } else
         pushCommand(std::move(c));
@@ -311,7 +316,8 @@ void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &labe
         return;
     m_world.apply(c, true);
     ++m_revision;
-    dirtyCommand(c);
+    if (!dirtyCommand(c))
+        return;
     pushCommand(std::move(c));
 }
 void Editor::setNodeVisible(const QString &id, bool visible) {
@@ -334,6 +340,26 @@ void Editor::setNodeVisible(const QString &id, bool visible) {
         if (l.id == id) {
             l.enabled = visible;
             commitLayers(std::move(layers), "切换地形层");
+            return;
+        }
+    auto creation = m_world.creation;
+    for (auto &v : creation.volumes)
+        if (v.id == id) {
+            v.enabled = visible;
+            v.visible = visible;
+            commitCreation(std::move(creation), "切换 PCG 范围可见性");
+            return;
+        }
+    for (auto &p : creation.presets)
+        if (p.id == id) {
+            p.enabled = visible;
+            commitCreation(std::move(creation), "切换资产实例可见性");
+            return;
+        }
+    for (auto &n : creation.roadNodes)
+        if (n.id == id) {
+            n.enabled = visible;
+            commitCreation(std::move(creation), "切换道路节点可见性");
             return;
         }
 }

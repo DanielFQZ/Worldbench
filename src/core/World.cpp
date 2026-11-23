@@ -114,8 +114,8 @@ std::set<int> affectedChunks(const World &w, const Command &command) {
     std::set<int> chunks;
     const int n = w.chunksX();
     if (command.deltaAfter && command.heightArea.isValid()) {
-        const auto area = command.heightArea.adjusted(-1, -1, 1, 1).intersected(
-            QRect(w.originX, w.originZ, w.width, w.depth));
+        const auto area = command.heightArea.adjusted(-1, -1, 1, 1)
+                              .intersected(QRect(w.originX, w.originZ, w.width, w.depth));
         for (int z = (area.top() - w.originZ) / 16; z <= (area.bottom() - w.originZ) / 16; ++z)
             for (int x = (area.left() - w.originX) / 16; x <= (area.right() - w.originX) / 16; ++x)
                 chunks.insert(z * n + x);
@@ -146,7 +146,22 @@ int World::column(int x, int z) const {
     return (z - originZ) * width + x - originX;
 }
 int World::height(int x, int z) const {
-    return contains(x, 0, z) ? heights[column(x, z)] : MinY - 1;
+    if (!contains(x, 0, z))
+        return MinY - 1;
+    const int c = column(x, z);
+    if (generated) {
+        auto it = generated->heights.find(c);
+        if (it != generated->heights.end())
+            return it->second;
+    }
+    return heights[c];
+}
+bool World::rebuildCreation(QString &error, const CreationProgress &progress) {
+    auto next = generateCreation(*this, error, progress);
+    if (!next)
+        return false;
+    generated = std::move(next);
+    return true;
 }
 uint64_t World::key(int x, int y, int z) const {
     return (uint64_t(y - MinY) * depth + (z - originZ)) * width + x - originX;
@@ -162,6 +177,11 @@ Block World::baseBlock(int x, int y, int z) const {
         return Air;
     if (y == MinY)
         return Bedrock;
+    if (generated) {
+        auto it = generated->cells.find(key(x, y, z));
+        if (it != generated->cells.end())
+            return it->second;
+    }
     const int h = height(x, z);
     if (y > h)
         return y <= seaLevel ? Water : Air;
@@ -185,6 +205,11 @@ Block World::blockAtHeight(int x, int y, int z, int h) const {
         return it->second;
     if (y == MinY)
         return Bedrock;
+    if (generated) {
+        auto it = generated->cells.find(key(x, y, z));
+        if (it != generated->cells.end())
+            return it->second;
+    }
     if (y > h)
         return y <= seaLevel ? Water : Air;
     if (theme.enabled)
@@ -328,6 +353,8 @@ void World::apply(const Command &cmd, bool forward) {
         if (heights.layerIndex(heights.activeLayer) < 0)
             heights.activeLayer = heights.layers.front().id;
     }
+    if (cmd.creationBefore && cmd.creationAfter)
+        creation = *(forward ? cmd.creationAfter : cmd.creationBefore);
     for (auto c : cmd.heights)
         heights.restoreDelta(cmd.heightLayer.isEmpty() ? heights.activeLayer : cmd.heightLayer, c.index,
                              forward ? c.after : c.before);

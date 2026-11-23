@@ -17,4 +17,9 @@
 <file alias="WorkbenchMenu.qml">qml/WorkbenchMenu.qml</file>
 <file alias="WorkbenchComboBox.qml">qml/WorkbenchComboBox.qml</file>
 <file alias="NewWorldDialog.qml">qml/NewWorldDialog.qml</file>
+<file alias="CreationPanel.qml">qml/CreationPanel.qml</file>
+<file alias="PcgGraphEditor.qml">qml/PcgGraphEditor.qml</file>
+<file alias="AssetEditor.qml">qml/AssetEditor.qml</file>
+<file alias="CreationDetails.qml">qml/CreationDetails.qml</file>
+<file alias="CreationOverlay.qml">qml/CreationOverlay.qml</file>
 </qresource></RCC>

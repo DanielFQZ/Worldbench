@@ -21,15 +21,16 @@
 namespace {
 QString defaultShortcut(const QString &action) {
     static const QHash<QString, QString> defaults{
-        {"save", "Ctrl+S"},       {"open", "Ctrl+O"},       {"new", "Ctrl+N"},
-        {"undo", "Ctrl+Z"},       {"redo", "Ctrl+Y"},       {"clearSelection", "Ctrl+D"},
-        {"deleteTerrain", "Delete"}, {"focus", "F"},        {"translateGizmo", "W"},
-        {"rotateGizmo", "E"},     {"scaleGizmo", "R"},
-        {"toolCycle", "1"}, {"toolFlatten", "2"}, {"toolCarve", "3"}, {"toolFill", "4"},
-        {"toolPaint", "5"}, {"toolSmooth", "6"}, {"toolSelect", "7"}, {"toolNavigate", "0"}};
+        {"save", "Ctrl+S"},          {"open", "Ctrl+O"},  {"new", "Ctrl+N"},
+        {"undo", "Ctrl+Z"},          {"redo", "Ctrl+Y"},  {"clearSelection", "Ctrl+D"},
+        {"deleteTerrain", "Delete"}, {"focus", "F"},      {"translateGizmo", "W"},
+        {"rotateGizmo", "E"},        {"scaleGizmo", "R"}, {"toolCycle", "1"},
+        {"toolFlatten", "2"},        {"toolCarve", "3"},  {"toolFill", "4"},
+        {"toolPaint", "5"},          {"toolSmooth", "6"}, {"toolSelect", "7"},
+        {"toolNavigate", "0"}};
     return defaults.value(action);
 }
-}
+} // namespace
 
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
@@ -68,7 +69,12 @@ Editor::Editor(QObject *parent)
         if (count) {
             m_world.apply(result.command, true);
             ++m_revision;
-            dirtyCommand(result.command);
+            if (!dirtyCommand(result.command)) {
+                m_regionState = "failed";
+                m_regionError = "创作生成失败，区域修改回滚";
+                emit changed();
+                return;
+            }
             pushCommand(std::move(result.command));
         }
         m_status = QString("选区高度调整完成 · %1 列改变 · %2 列触及高度边界").arg(count).arg(result.clipped);
@@ -102,11 +108,11 @@ Editor::Editor(QObject *parent)
         // region instead of cancelling forever. meshBusy stays true until the
         // latest snapshot converges; MCP screenshots cannot mistake it for final.
         const bool sameRevision = result && result->sourceRevision == m_revision;
-        const bool activePreview = result && result->provisional && m_interactiveMesh &&
-                                   m_jobGesture == m_gesture;
+        const bool activePreview =
+            result && result->provisional && m_interactiveMesh && m_jobGesture == m_gesture;
         const bool correctQuality = result && (m_interactiveMesh ? activePreview : !result->provisional);
-        const bool valid = result && result->error.isEmpty() && m_jobEpoch == m_epoch &&
-                           correctQuality && (sameRevision || activePreview || !m_rejectStaleMeshes);
+        const bool valid = result && result->error.isEmpty() && m_jobEpoch == m_epoch && correctQuality &&
+                           (sameRevision || activePreview || !m_rejectStaleMeshes);
         if (valid) {
             m_scene = result;
             if (sameRevision && !m_interactiveMesh)
@@ -209,6 +215,42 @@ void Editor::setExactRadiusChunks(int value) {
     emit changed();
 }
 
+void Editor::setExactPreviewEnabled(bool value) {
+    if (m_exactPreviewEnabled == value)
+        return;
+    m_exactPreviewEnabled = value;
+    dirtyAll();
+    emit changed();
+}
+
+bool Editor::commitCreation(wb::CreationState next, const QString &label) {
+    if (next == m_world.creation)
+        return true;
+    if (regionBusy() || assetBusy()) {
+        emit failure("请等待当前任务完成");
+        return false;
+    }
+    endStroke();
+    wb::Command command;
+    command.label = label;
+    command.creationBefore = std::make_shared<const wb::CreationState>(m_world.creation);
+    command.creationAfter = std::make_shared<const wb::CreationState>(std::move(next));
+    auto candidate = m_world;
+    candidate.creation = *command.creationAfter;
+    QString error;
+    if (!prepareCreation(candidate, error)) {
+        emit failure(error);
+        return false;
+    }
+    m_world = std::move(candidate);
+    ++m_revision;
+    dirtyAll();
+    pushCommand(std::move(command));
+    m_status = label + " · Ctrl+Z 撤销";
+    emit changed();
+    return true;
+}
+
 QString Editor::shortcut(const QString &action) const {
     const auto fallback = defaultShortcut(action);
     if (fallback.isEmpty())
@@ -229,15 +271,13 @@ void Editor::setShortcut(const QString &action, const QString &sequence) {
 
 void Editor::resetShortcuts() {
     QSettings settings;
-    for (const auto &action : {QStringLiteral("save"), QStringLiteral("open"), QStringLiteral("new"),
-                               QStringLiteral("undo"), QStringLiteral("redo"), QStringLiteral("clearSelection"),
-                               QStringLiteral("deleteTerrain"), QStringLiteral("focus"),
-                               QStringLiteral("translateGizmo"), QStringLiteral("rotateGizmo"),
-                               QStringLiteral("scaleGizmo"), QStringLiteral("toolCycle"),
-                               QStringLiteral("toolFlatten"), QStringLiteral("toolCarve"),
-                               QStringLiteral("toolFill"), QStringLiteral("toolPaint"),
-                               QStringLiteral("toolSmooth"), QStringLiteral("toolSelect"),
-                               QStringLiteral("toolNavigate")})
+    for (const auto &action :
+         {QStringLiteral("save"), QStringLiteral("open"), QStringLiteral("new"), QStringLiteral("undo"),
+          QStringLiteral("redo"), QStringLiteral("clearSelection"), QStringLiteral("deleteTerrain"),
+          QStringLiteral("focus"), QStringLiteral("translateGizmo"), QStringLiteral("rotateGizmo"),
+          QStringLiteral("scaleGizmo"), QStringLiteral("toolCycle"), QStringLiteral("toolFlatten"),
+          QStringLiteral("toolCarve"), QStringLiteral("toolFill"), QStringLiteral("toolPaint"),
+          QStringLiteral("toolSmooth"), QStringLiteral("toolSelect"), QStringLiteral("toolNavigate")})
         settings.remove("shortcuts/" + action);
     emit shortcutsChanged();
     emit changed();
@@ -332,7 +372,7 @@ QJsonObject Editor::regionJobInfo() const {
 void Editor::setTool(int v) {
     endStroke();
     saveBrushProfile();
-    m_tool = std::clamp(v, -1, 6);
+    m_tool = m_inspectionOnly ? -1 : std::clamp(v, -1, 6);
     restoreBrushProfile();
     emit changed();
 }
@@ -363,7 +403,7 @@ QString Editor::sceneStats() const {
         .arg(m_scene->farTiles.size());
 }
 void Editor::beginStroke() {
-    if (!m_stroke) {
+    if (!m_stroke && !assetBusy()) {
         m_stroke = std::make_unique<wb::Stroke>(m_world);
         m_strokeChanged = false;
     }
@@ -403,11 +443,16 @@ void Editor::endStroke() {
     auto c = m_stroke->finish("雕刻笔划");
     m_stroke.reset();
     m_strokeChanged = false;
+    if ((!c.cells.empty() || !c.heights.empty()) &&
+        (!m_world.creation.volumes.empty() || !m_world.creation.presets.empty() ||
+         !m_world.creation.roadEdges.empty()) &&
+        !dirtyCommand(c))
+        return;
     pushCommand(std::move(c));
 }
 void Editor::pushCommand(wb::Command c) {
     if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter ||
-        c.environmentAfter || c.deltaAfter) {
+        c.environmentAfter || c.deltaAfter || c.creationAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
         const auto next = m_nextState++;
         m_history.push_back({std::move(c), m_state, next});
@@ -416,7 +461,9 @@ void Editor::pushCommand(wb::Command c) {
         auto bytes = [&] {
             size_t b = 0;
             std::set<const wb::HeightmapData *> images;
-            std::set<const void *> layerMaps;
+            std::set<const void *> layerMaps, structureData;
+            for (const auto &a : m_world.creation.assets)
+                structureData.insert(a.blocks.identity());
             // Only charge history for retained data beyond the live world.
             for (const auto &layer : m_world.heights.layers)
                 layer.deltas->uniqueBytes(layerMaps);
@@ -425,6 +472,14 @@ void Editor::pushCommand(wb::Command c) {
                     if (image)
                         images.insert(image.get());
             for (const auto &e : m_history) {
+                for (const auto &state : {e.command.creationBefore, e.command.creationAfter})
+                    if (state) {
+                        b += state->graphs.size() * 1024 + state->volumes.size() * 256 +
+                             state->presets.size() * 256;
+                        for (const auto &a : state->assets)
+                            if (structureData.insert(a.blocks.identity()).second)
+                                b += a.blocks.size() * 80;
+                    }
                 for (const auto &theme : {e.command.themeBefore, e.command.themeAfter})
                     if (theme)
                         b += theme->bands.size() * 256;
@@ -457,6 +512,7 @@ void Editor::pushCommand(wb::Command c) {
 void Editor::undo() {
     if (assetBusy())
         return;
+    endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
@@ -466,13 +522,18 @@ void Editor::undo() {
     m_world.apply(e.command, false);
     m_state = e.before;
     ++m_revision;
-    dirtyCommand(e.command);
+    if (!dirtyCommand(e.command, false)) {
+        ++m_cursor;
+        m_state = e.after;
+        return;
+    }
     m_status = "已撤销一个笔划";
     emit changed();
 }
 void Editor::redo() {
     if (assetBusy())
         return;
+    endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
@@ -482,7 +543,11 @@ void Editor::redo() {
     m_world.apply(e.command, true);
     m_state = e.after;
     ++m_revision;
-    dirtyCommand(e.command);
+    if (!dirtyCommand(e.command, true)) {
+        --m_cursor;
+        m_state = e.before;
+        return;
+    }
     m_status = "已重做一个笔划";
     emit changed();
 }
@@ -544,6 +609,7 @@ bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int
 bool Editor::save(const QUrl &url) {
     if (assetBusy())
         return false;
+    endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
@@ -567,6 +633,7 @@ bool Editor::save(const QUrl &url) {
 bool Editor::open(const QUrl &url) {
     if (exportBusy() || assetBusy())
         return false;
+    endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
@@ -625,7 +692,25 @@ bool Editor::open(const QUrl &url) {
     }
     return true;
 }
-void Editor::dirtyCommand(const wb::Command &command) {
+bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
+    if (command.creationAfter || (!m_world.creation.volumes.empty() || !m_world.creation.presets.empty() ||
+                                  !m_world.creation.roadEdges.empty()) &&
+                                     !command.environmentAfter) {
+        QString error;
+        auto candidate = m_world;
+        m_world.apply(command, !forward);
+        const auto committedRevision = m_revision;
+        --m_revision;
+        if (!prepareCreation(candidate, error, false)) {
+            dirtyAll();
+            emit failure(error + "；本次修改已回滚");
+            return false;
+        }
+        m_world = std::move(candidate);
+        m_revision = committedRevision;
+        dirtyAll();
+        return true;
+    }
     if (command.deltaAfter) {
         // Avoid scanning a million deltas on the UI thread at commit/undo.
         // Only resident exact chunks and intersecting far tiles are invalidated.
@@ -639,10 +724,10 @@ void Editor::dirtyCommand(const wb::Command &command) {
                 m_dirty.insert(id);
         }
         m_meshTimer.start();
-        return;
+        return true;
     }
     if (command.environmentAfter)
-        return;
+        return true;
     m_farDirty = true;
     if (command.themeAfter)
         m_farAllDirty = true;
@@ -654,7 +739,7 @@ void Editor::dirtyCommand(const wb::Command &command) {
         m_meshTimer.start();
     if (command.themeAfter) {
         dirtyAll();
-        return;
+        return true;
     }
     if (command.terrainAfter || command.layersAfter) {
         if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0 &&
@@ -710,12 +795,13 @@ void Editor::dirtyCommand(const wb::Command &command) {
         // complete QML detail/gizmo refreshes for every active drag sample.
         if (!m_terrainStart)
             emit changed();
-        return;
+        return true;
     }
     auto chunks = wb::affectedChunks(m_world, command);
     m_dirty.insert(chunks.begin(), chunks.end());
     if (!m_dirty.empty())
         m_meshTimer.start();
+    return true;
 }
 QString Editor::meshUpdateSummary() const {
     return QString("构网 %1 ms（远景 %2 ms）· 更新 %3 精确 / %4 地块 · 网格 %5 MiB · 颜色 %6 MiB")
@@ -730,9 +816,8 @@ QString Editor::terrainUpdateStatus() const {
     if (!m_surfaceFailure.isEmpty())
         return "地形更新失败 · " + m_surfaceFailure;
     if (m_interactiveMesh)
-        return m_scene && m_scene->provisional
-                   ? "交互预览网格 · 完整快照实时更新，松开后恢复高精度地形"
-                   : "交互编辑中 · 等待首个完整预览快照";
+        return m_scene && m_scene->provisional ? "交互预览网格 · 完整快照实时更新，松开后恢复高精度地形"
+                                               : "交互编辑中 · 等待首个完整预览快照";
     if (m_scene && m_scene->provisional)
         return "地形网格待收敛";
     if (meshBusy())
@@ -744,13 +829,16 @@ QString Editor::terrainUpdateStatus() const {
 }
 std::set<int> Editor::desiredChunks() const {
     std::set<int> result;
+    if (m_inspectionOnly || !m_exactPreviewEnabled)
+        return result;
     const int nx = m_world.chunksX(), nz = m_world.chunksZ();
     const bool local = m_world.width > 256 || m_world.depth > 256;
     const int cx = std::clamp((m_previewX - m_world.originX) / 16, 0, nx - 1),
               cz = std::clamp((m_previewZ - m_world.originZ) / 16, 0, nz - 1);
     const int radius = std::clamp(m_exactRadiusChunks, 1, 12);
     for (int z = local ? std::max(0, cz - radius) : 0; z < (local ? std::min(nz, cz + radius + 1) : nz); ++z)
-        for (int x = local ? std::max(0, cx - radius) : 0; x < (local ? std::min(nx, cx + radius + 1) : nx); ++x)
+        for (int x = local ? std::max(0, cx - radius) : 0; x < (local ? std::min(nx, cx + radius + 1) : nx);
+             ++x)
             result.insert(z * nx + x);
     return result;
 }
@@ -797,6 +885,7 @@ void Editor::startMesh() {
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
     const bool interactive = m_interactiveMesh;
+    const bool inspection = m_inspectionOnly;
     m_jobEpoch = m_epoch;
     m_jobGesture = m_gesture;
     m_jobDirty = dirty;
@@ -818,7 +907,7 @@ void Editor::startMesh() {
     m_meshWatcher.setFuture(QtConcurrent::run([snapshot = std::move(snapshot), old, serial, sourceRevision,
                                                allFar, wanted, dirty = std::move(dirty),
                                                regions = std::move(regions), cancel, completed, patchSize,
-                                               interactive, surfaceWorkers]() {
+                                               interactive, inspection, surfaceWorkers]() {
         QElapsedTimer timer;
         timer.start();
         auto next = std::make_shared<wb::MeshScene>();
@@ -841,8 +930,8 @@ void Editor::startMesh() {
                 if (allFar || dirty.contains(id) || !exactCache.contains(id))
                     exactJobs.push_back(id);
             }
-            const auto exactMeshes =
-                QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(surfaceWorkers, exactJobs, [&](int id) {
+            const auto exactMeshes = QtConcurrent::blockingMapped<std::vector<wb::MeshPtr>>(
+                surfaceWorkers, exactJobs, [&](int id) {
                     if (cancel->load())
                         return wb::MeshPtr{};
                     return wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
@@ -856,7 +945,30 @@ void Editor::startMesh() {
                 next->chunkIds.push_back(id);
                 next->chunks.push_back(exactCache.at(id));
             }
+            if (snapshot.generated)
+                for (int id : snapshot.generated->geometryChunks)
+                    if (!wanted.contains(id)) {
+                        const int cacheId = -id - 1;
+                        auto found = exactCache.find(cacheId);
+                        auto mesh = (!allFar && found != exactCache.end())
+                                        ? found->second
+                                        : wb::buildChunkMesh(snapshot,
+                                                             snapshot.originX / 16 + id % snapshot.chunksX(),
+                                                             snapshot.originZ / 16 + id / snapshot.chunksX(),
+                                                             serial, true, inspection);
+                        next->chunkIds.push_back(cacheId);
+                        next->chunks.push_back(mesh);
+                    }
             next->updatedChunks = int(exactJobs.size());
+            if (inspection) {
+                for (auto &mesh : next->chunks) {
+                    next->vertices += mesh->opaque.size() + mesh->transparent.size();
+                    next->bufferBytes +=
+                        (mesh->opaque.size() + mesh->transparent.size()) * sizeof(wb::Vertex);
+                }
+                next->buildMilliseconds = timer.elapsed();
+                return next;
+            }
             QElapsedTimer surfaceTimer;
             surfaceTimer.start();
             next->farTiles = wb::planSurfaceTiles(snapshot, patchSize);
@@ -881,17 +993,19 @@ void Editor::startMesh() {
                 } else
                     jobs.push_back(i);
             }
-            next->surfaceMaterials = old->assets == snapshot.assets && old->surfaceMaterials &&
-                                     old->surfaceMaterials->colors.size() == snapshot.models.size()
-                                         ? old->surfaceMaterials
-                                         : std::make_shared<const wb::SurfaceMaterials>(wb::surfaceMaterials(snapshot));
+            next->surfaceMaterials =
+                old->assets == snapshot.assets && old->surfaceMaterials &&
+                        old->surfaceMaterials->colors.size() == snapshot.models.size()
+                    ? old->surfaceMaterials
+                    : std::make_shared<const wb::SurfaceMaterials>(wb::surfaceMaterials(snapshot));
             const auto &inputs = *next->surfaceMaterials;
             const int previewStride = jobs.size() >= 64 ? 16 : 8;
             std::atomic_uint64_t bytes{0};
             std::atomic_bool overBudget{false};
             constexpr uint64_t limit = 512ull * 1024 * 1024;
             auto cost = [](const wb::ChunkMesh &m) {
-                return uint64_t((m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
+                return uint64_t((m.opaque.size() + m.transparent.size() + m.water.size()) *
+                                    sizeof(wb::Vertex) +
                                 m.opaqueIndices.size() * sizeof(uint32_t) + m.surfaceColorBytes());
             };
             for (const auto &m : next->chunks)
@@ -907,9 +1021,10 @@ void Editor::startMesh() {
                     const QRect cutout = tile.area.adjusted(0, 0, 1, 1).intersects(next->exactArea)
                                              ? next->exactArea
                                              : QRect{};
-                    auto mesh = interactive
-                                    ? wb::buildInteractiveSurfaceMesh(snapshot, tile, inputs, serial, cancel.get(), previewStride)
-                                    : wb::buildSurfaceMesh(snapshot, tile, inputs, serial, 1.f, cancel.get(), cutout);
+                    auto mesh = interactive ? wb::buildInteractiveSurfaceMesh(snapshot, tile, inputs, serial,
+                                                                              cancel.get(), previewStride)
+                                            : wb::buildSurfaceMesh(snapshot, tile, inputs, serial, 1.f,
+                                                                   cancel.get(), cutout);
                     if (mesh) {
                         if (bytes.fetch_add(cost(*mesh)) + cost(*mesh) > limit) {
                             overBudget = true;
@@ -931,10 +1046,12 @@ void Editor::startMesh() {
                 next->updatedSamples += meshes[i]->sampleCount;
             }
             auto account = [&](const wb::ChunkMesh &m, bool surface) {
-                next->vertices += (surface ? m.opaqueIndices.size() : m.opaque.size()) + m.transparent.size() + m.water.size();
+                next->vertices += (surface ? m.opaqueIndices.size() : m.opaque.size()) +
+                                  m.transparent.size() + m.water.size();
                 next->waterVertices += m.water.size();
-                next->bufferBytes += (m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
-                                     m.opaqueIndices.size() * sizeof(uint32_t);
+                next->bufferBytes +=
+                    (m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
+                    m.opaqueIndices.size() * sizeof(uint32_t);
                 next->colorBytes += m.surfaceColorBytes();
             };
             for (const auto &mesh : next->chunks)
@@ -961,6 +1078,7 @@ void Editor::startMesh() {
 void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {
     if (exportBusy() || assetBusy())
         return;
+    endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();

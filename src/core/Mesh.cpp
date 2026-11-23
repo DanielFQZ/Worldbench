@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <bitset>
 namespace wb {
-MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
+MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creationOnly, bool isolatedAsset) {
     auto mesh = std::make_shared<ChunkMesh>();
     mesh->revision = rev;
     mesh->center = {float(cx * 16 + 8), 20, float(cz * 16 + 8)};
@@ -18,6 +18,12 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
         for (int x = 0; x < 18; ++x)
             heights[z][x] = w.height(cx * 16 + x - 1, cz * 16 + z - 1);
     auto blockAt = [&](int x, int y, int z) -> Block {
+        if (isolatedAsset) {
+            if (!w.contains(x, y, z) || !w.generated)
+                return Air;
+            const auto it = w.generated->cells.find(w.key(x, y, z));
+            return it == w.generated->cells.end() ? Air : Block(it->second);
+        }
         const int h = heights[z - cz * 16 + 1][x - cx * 16 + 1];
         return w.blockAtHeight(x, y, z, h);
     };
@@ -43,15 +49,31 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
             exceptions[z][x].set(y - World::MinY);
     };
     int maxY = std::max(40, w.seaLevel + 1);
-    for (auto [k, v] : w.overrides) {
-        int x, y, z;
-        w.decode(k, x, y, z);
-        if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz)
-            maxY = std::max(maxY, y + 1);
-        mark(x, y, z);
-        for (const auto &n : normals)
-            mark(x + n[0], y + n[1], z + n[2]);
-    }
+    auto markCells = [&](const auto &cells) {
+        for (auto [k, v] : cells) {
+            if (creationOnly && w.generated && !w.generated->geometryCells.contains(k))
+                continue;
+            int x, y, z;
+            w.decode(k, x, y, z);
+            if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz)
+                maxY = std::max(maxY, y + 1);
+            mark(x, y, z);
+            for (const auto &n : normals)
+                mark(x + n[0], y + n[1], z + n[2]);
+        }
+    };
+    if (!creationOnly)
+        markCells(w.overrides);
+    if (w.generated)
+        for (int dz = -1; dz <= 1; ++dz)
+            for (int dx = -1; dx <= 1; ++dx) {
+                int gx = cx - w.originX / 16 + dx, gz = cz - w.originZ / 16 + dz;
+                if (gx < 0 || gz < 0 || gx >= w.chunksX() || gz >= w.chunksZ())
+                    continue;
+                auto it = w.generated->byChunk.find(gz * w.chunksX() + gx);
+                if (it != w.generated->byChunk.end())
+                    markCells(it->second);
+            }
     for (int z = cz * 16; z < cz * 16 + 16; ++z)
         for (int x = cx * 16; x < cx * 16 + 16; ++x)
             maxY = std::max(maxY, heights[z - cz * 16 + 1][x - cx * 16 + 1] + 1);
@@ -65,6 +87,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                                        heights[lz + 1][lx], heights[lz + 1][lx + 2]})
                            : World::MinY;
             for (int y = World::MinY; y < std::min(World::MaxY, maxY); ++y) {
+                if (creationOnly && !exceptions[lz][lx].test(y - World::MinY))
+                    continue;
                 if (y > World::MinY && y < surface && !exceptions[lz][lx].test(y - World::MinY))
                     continue;
                 const Block b = blockAt(x, y, z);
@@ -73,6 +97,9 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                 const auto &m = *w.models[b];
                 auto &vertices = b == Water ? mesh->water : m.translucent ? mesh->transparent : mesh->opaque;
                 for (const auto &face : m.faces) {
+                    if (creationOnly && face.normal.y() > .5f && y == heights[lz + 1][lx + 1] &&
+                        (!w.generated || !w.generated->geometryCells.contains(w.key(x, y, z))))
+                        continue;
                     if (face.cull >= 0) {
                         const auto &n = normals[face.cull];
                         Block nb = blockAt(x + n[0], y + n[1], z + n[2]);
@@ -91,7 +118,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev) {
                             // absorption and shoreline foam; opaque materials
                             // keep their original face alpha unchanged.
                             const int columnHeight = heights[lz + 1][lx + 1];
-                            c.setW(std::clamp(float(w.seaLevel - columnHeight + 1) / 64.f, 0.f, 1.f));
+                            c.setW(std::clamp(float(w.seaLevel - columnHeight) / 64.f, 0.f, 1.f));
                         }
                         vertices.push_back({x + p.x(), y + p.y(), z + p.z(), n.x(), n.y(), n.z(), c.x(),
                                             c.y(), c.z(), c.w(), face.uv[t].x(), face.uv[t].y()});

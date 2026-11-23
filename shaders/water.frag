@@ -88,9 +88,15 @@ void main(){
     float fresnel=.025+.975*pow(1.0-clamp(dot(n,view),0.0,1.0),5.0);
     float lit=shadowVisibility(worldPos,n);
     float depth=clamp(baseColor.a,0.0,1.0);
-    float depthFactor=clamp(mix(.35,depth,clamp(u.skyEffects.x,0.0,1.0)),0.0,1.0);
+    // Alpha stores the water column depth over 64 Minecraft blocks. Keep the
+    // shoreline clear, then absorb light aggressively: five blocks is the
+    // visible transition and ten blocks is effectively opaque black water.
+    float physicalDepth=depth*64.0;
+    float depthFactor=smoothstep(5.0,10.0,physicalDepth);
+    depthFactor*=clamp(u.skyEffects.x,0.0,1.0);
     vec3 tint=clamp(baseColor.rgb,vec3(.015),vec3(.9));
-    tint*=mix(1.06,.78,depthFactor);
+    tint*=mix(1.06,.16,depthFactor);
+    tint=mix(tint,vec3(.006,.012,.02),depthFactor*depthFactor);
     vec3 col=tint*.9;
     if(u.sunColor.w>.5){
         vec3 ambient=mix(u.groundColor.rgb,u.skyColor.rgb,.8)*u.skyColor.w;
@@ -140,6 +146,9 @@ void main(){
         fogColor=fogColor/(vec3(1)+fogColor*.35);
         col=mix(col,fogColor,fog);
     }
+    // At maximum absorption the requested 10-block reference is black even
+    // under bright sky reflections; lower values preserve reflected light.
+    col=mix(col,vec3(0.0),depthFactor);
     // The brush hit is resolved against the underwater terrain column. Do not
     // draw a second footprint on the water surface: it makes one brush look
     // like two concentric edits when the cursor crosses a shoreline.
@@ -154,7 +163,7 @@ void main(){
         col=mix(col,vec3(1.0,0.68,0.2),coverage*(.12+.78*outline));
     }
 
-    float alpha=mix(.42,.92,depthFactor);
-    alpha=clamp(alpha+foam*.18,0.0,.98);
+    float alpha=mix(.42,1.0,depthFactor);
+    alpha=clamp(alpha+foam*.18,0.0,1.0);
     fragColor=vec4(col,alpha);
 }

@@ -1558,3 +1558,16 @@ THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM,OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS
 IN THE MATERIALS.
+
+WorldEdit legacy block state mappings
+Source: EngineHub/WorldEdit commit 0725e850198c97a44c13fbc0b49db6d293e5ddb0
+File: worldedit-core/src/main/resources/com/sk89q/worldedit/world/registry/legacy.json
+Copyright EngineHub/WorldEdit contributors. GPL-3.0 (see WorldEdit-LICENSE.txt).
+Copied mapping data; WorldEdit Java code is not linked.
+
+stb_image: nothings/stb commit f0569113c93ad095470c54bf34a17b36646bbbb5; see stb_image.txt.
+TinyEXR: syoyo/tinyexr v1.0.9, including OpenEXR portions; see TinyEXR.txt.
+
+Minecraft gameplay block-property values: PrismarineJS/minecraft-data 68c9e840e127858e9548b0d477b992202120dfaa (MIT, declared in upstream README).
+Source data/pc/1.20/blocks.json, dataPaths maps Java 1.20.1 to pc/1.20.
+Only property names and allowed values derived; attribution in minecraft-data.txt.

@@ -184,7 +184,17 @@ QByteArray chunk(const World &w, int cx, int cz) {
     n.longs("MOTION_BLOCKING_NO_LEAVES", pack(surface, 9));
     n.longs("OCEAN_FLOOR", pack(floor, 9));
     n.end();
-    n.list("block_entities", 10, 0);
+    std::vector<QByteArray> blockEntities;
+    if (w.generated)
+        for (auto &[key, raw] : w.generated->blockEntities) {
+            int x, y, z;
+            w.decode(key, x, y, z);
+            if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz && !w.overrides.contains(key))
+                blockEntities.push_back(raw);
+        }
+    n.list("block_entities", 10, int(blockEntities.size()));
+    for (auto &raw : blockEntities)
+        n.b += raw;
     n.list("block_ticks", 10, 0);
     n.list("fluid_ticks", 10, 0);
     n.list("PostProcessing", 9, 24);
@@ -305,6 +315,9 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
         };
         for (const auto &[key, b] : w.overrides)
             validateMaterial(b);
+        if (w.generated)
+            for (auto &[key, b] : w.generated->cells)
+                validateMaterial(b);
         QString themeError;
         if (!validateTheme(w.theme, w.palette.size(), themeError))
             throw std::runtime_error(themeError.toStdString());
@@ -356,6 +369,49 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
                     }
                 write(temp + QString("/region/r.%1.%2.mca").arg(rx).arg(rz), region);
             }
+        if (w.generated && !w.generated->entities.empty()) {
+            if (!QDir().mkpath(temp + "/entities"))
+                throw std::runtime_error("无法创建实体目录");
+            std::map<std::pair<int, int>, std::map<std::pair<int, int>, std::vector<QByteArray>>> regions;
+            for (auto &e : w.generated->entities) {
+                int x = int(std::floor(e.position.x())), z = int(std::floor(e.position.z()));
+                if (!area.contains(x, z))
+                    continue;
+                int cx = floorDiv(x, 16), cz = floorDiv(z, 16);
+                regions[{floorDiv(cx, 32), floorDiv(cz, 32)}][{cx, cz}].push_back(e.nbt);
+            }
+            for (auto &[r, chunks] : regions) {
+                QByteArray region(8192, 0);
+                for (auto &[c, entities] : chunks) {
+                    if (cancelled && cancelled->load())
+                        throw std::runtime_error("导出已取消");
+                    Nbt n;
+                    n.compound("");
+                    n.integer("DataVersion", 3465);
+                    n.tag(11, "Position");
+                    n.i32(2);
+                    n.i32(c.first);
+                    n.i32(c.second);
+                    n.list("Entities", 10, int(entities.size()));
+                    for (auto &raw : entities)
+                        n.b += raw;
+                    n.end();
+                    auto data = qCompress(n.b, 6).mid(4);
+                    int sectors = (data.size() + 5 + 4095) / 4096;
+                    if (sectors > 255)
+                        throw std::runtime_error("实体区块超过Region容量");
+                    int index = c.first - r.first * 32 + (c.second - r.second * 32) * 32;
+                    int offset = region.size() / 4096;
+                    qToBigEndian(uint32_t(offset << 8 | sectors), region.data() + index * 4);
+                    QByteArray record(sectors * 4096, 0);
+                    qToBigEndian(uint32_t(data.size() + 1), record.data());
+                    record[4] = 2;
+                    std::copy(data.begin(), data.end(), record.begin() + 5);
+                    region += record;
+                }
+                write(temp + QString("/entities/r.%1.%2.mca").arg(r.first).arg(r.second), region);
+            }
+        }
         write(temp + "/level.dat", level(w, QFileInfo(result.path).fileName(), area));
         if (cancelled && cancelled->load())
             throw std::runtime_error("导出已取消");

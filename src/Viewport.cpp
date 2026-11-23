@@ -28,7 +28,7 @@ bool matchesShortcut(const QKeyEvent *event, const QString &sequence) {
     return QKeySequence::fromString(sequence, QKeySequence::PortableText).matches(actual) ==
            QKeySequence::ExactMatch;
 }
-}
+} // namespace
 
 Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton | Qt::MiddleButton);
@@ -78,6 +78,8 @@ void Viewport::setEditor(Editor *e) {
             emit cameraChanged();
         });
         connect(e, &Editor::worldReset, this, &Viewport::resetCamera);
+        if (e->inspectionOnly())
+            resetCamera();
     }
     emit editorChanged();
     update();
@@ -114,7 +116,7 @@ QMatrix4x4 Viewport::viewProjection() const {
     v.lookAt(m_camera, m_camera + forward(), {0, 1, 0});
     float nearPlane = std::clamp((m_camera.y() - wb::World::MaxY) * .002f, .15f, 64.f);
     float farPlane = 3000;
-    if (m_editor) {
+    if (m_editor && !m_editor->inspectionOnly()) {
         const auto &w = m_editor->world();
         QVector3D center(float(w.originX + w.width / 2), 128, float(w.originZ + w.depth / 2));
         farPlane = std::max(3000.f, (m_camera - center).length() +
@@ -174,12 +176,14 @@ void Viewport::pick(QPointF pos) {
 }
 void Viewport::changedCamera() {
     m_pitch = std::clamp(m_pitch, -89.f, 89.f);
-    if (m_editor) {
-        auto p = m_camera + forward() * 60;
-        if (m_camera.y() > 500 && forward().y() < -.05f)
-            p = m_camera +
-                forward() * ((m_editor->world().heights.baseHeight - m_camera.y()) / forward().y());
-        m_editor->setPreviewCenter(int(p.x()), int(p.z()));
+    if (m_editor && !m_editor->inspectionOnly()) {
+        const auto &w = m_editor->world();
+        const float px = std::clamp(m_camera.x(), float(w.originX), float(w.originX + w.width - 1));
+        const float pz = std::clamp(m_camera.z(), float(w.originZ), float(w.originZ + w.depth - 1));
+        const float distance = (m_camera - QVector3D(px, float(w.height(int(px), int(pz)) + 1), pz)).length();
+        const float range = m_editor->exactRadiusChunks() * 16.f + 32.f;
+        m_editor->setExactPreviewEnabled(distance < range);
+        m_editor->setPreviewCenter(int(m_camera.x()), int(m_camera.z()));
     }
     pick(m_pointer);
     emit cameraChanged();
@@ -188,6 +192,18 @@ void Viewport::changedCamera() {
 void Viewport::resetCamera() {
     stopInput();
     const auto &w = m_editor->world();
+    if (m_editor->inspectionOnly() && !w.creation.assets.empty()) {
+        const auto &asset = w.creation.assets.front();
+        m_pivot = {0, -63.f + asset.height * .5f, 0};
+        const float extent = std::max({asset.width, asset.depth, asset.height}) * 1.8f;
+        m_camera = m_pivot + QVector3D(extent * .65f, extent * .42f, extent * .8f);
+        const auto direction = (m_pivot - m_camera).normalized();
+        m_yaw = qRadiansToDegrees(std::atan2(direction.x(), -direction.z()));
+        m_pitch = qRadiansToDegrees(std::asin(direction.y()));
+        m_speed = std::max(3.f, extent * .3f);
+        changedCamera();
+        return;
+    }
     if (w.width > 256 || w.depth > 256) {
         frameWorld();
         return;
@@ -288,6 +304,9 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_anchorGlobal = e->globalPosition();
         setCursor(QCursor(Qt::BlankCursor));
         beginRawInput();
+    } else if (e->button() == Qt::LeftButton && m_editor && !m_editor->placementAsset().isEmpty() &&
+               m_hit.valid) {
+        m_editor->placeAt(m_hit.x, m_hit.y, m_hit.z);
     } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() == 6 && m_hit.valid) {
         m_selecting = true;
         m_selectionStart = {m_hit.x, m_hit.z};
@@ -380,7 +399,8 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         return;
     }
     const bool cycleTool = matchesShortcut(e, m_editor->shortcut("toolCycle"));
-    if (!cycleTool) m_toolCycleActive = false;
+    if (!cycleTool)
+        m_toolCycleActive = false;
     if (m_buttons == Qt::NoButton && !m_editor->commandBusy() && !m_editor->exportBusy()) {
         if (cycleTool) {
             if (!e->isAutoRepeat() || !m_toolCycleClock.isValid() || m_toolCycleClock.elapsed() >= 220) {
@@ -394,23 +414,30 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
             e->accept();
             return;
         }
-        const std::array<QString,7> actions{"toolNavigate","toolFlatten","toolCarve","toolFill",
-                                           "toolPaint","toolSmooth","toolSelect"};
-        for (int i=0;i<int(actions.size());++i) {
-            if (matchesShortcut(e,m_editor->shortcut(actions[i]))) {
-                m_editor->setTool(i==0 ? -1 : i);
+        const std::array<QString, 7> actions{"toolNavigate", "toolFlatten", "toolCarve", "toolFill",
+                                             "toolPaint",    "toolSmooth",  "toolSelect"};
+        for (int i = 0; i < int(actions.size()); ++i) {
+            if (matchesShortcut(e, m_editor->shortcut(actions[i]))) {
+                m_editor->setTool(i == 0 ? -1 : i);
                 e->accept();
                 return;
             }
         }
     }
     if (matchesShortcut(e, m_editor->shortcut("deleteTerrain")) && !m_editor->commandBusy() &&
-        !m_editor->exportBusy() && m_editor->terrainDetails()["valid"].toBool()) {
-        m_editor->removeTerrain();
+        !m_editor->exportBusy() &&
+        (m_editor->terrainDetails()["valid"].toBool() || m_editor->creationDetails()["valid"].toBool())) {
+        auto detail = m_editor->creationDetails();
+        if (detail["valid"].toBool())
+            m_editor->creationEdit("remove", {{"kind", detail["kind"]}, {"id", detail["id"]}});
+        else
+            m_editor->removeTerrain();
         e->accept();
         return;
     }
     if (e->key() == Qt::Key_Escape) {
+        m_editor->beginPlacement("");
+        m_editor->endCreationTransform(true);
         if (m_gizmoDragging)
             finishGizmo(true);
         stopInput();
@@ -437,13 +464,13 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
-    if (m_editor->terrainDetails()["valid"].toBool() &&
+    if ((m_editor->terrainDetails()["valid"].toBool() || m_editor->creationDetails()["valid"].toBool()) &&
         (matchesShortcut(e, m_editor->shortcut("translateGizmo")) ||
          matchesShortcut(e, m_editor->shortcut("rotateGizmo")) ||
          matchesShortcut(e, m_editor->shortcut("scaleGizmo")))) {
-        setGizmoMode(matchesShortcut(e, m_editor->shortcut("translateGizmo"))
-                         ? 0
-                         : matchesShortcut(e, m_editor->shortcut("rotateGizmo")) ? 1 : 2);
+        setGizmoMode(matchesShortcut(e, m_editor->shortcut("translateGizmo")) ? 0
+                     : matchesShortcut(e, m_editor->shortcut("rotateGizmo"))  ? 1
+                                                                              : 2);
         m_editor->setTool(-1);
         e->accept();
         return;
@@ -485,8 +512,8 @@ void Viewport::tick() {
     // Animate shader normals without dirtying the world or rebuilding geometry.
     if (m_editor && isVisible() && window() && window()->isVisible() &&
         window()->visibility() != QWindow::Minimized && m_editor->scene()->waterVertices &&
-        m_metrics->visibleWater && m_editor->world().environment.water && m_editor->world().environment.waterWaves &&
-        m_editor->world().environment.waveStrength > 0)
+        m_metrics->visibleWater && m_editor->world().environment.water &&
+        m_editor->world().environment.waterWaves && m_editor->world().environment.waveStrength > 0)
         update();
     if (!hasActiveFocus() || !window() || !window()->isActive()) {
         if (m_buttons != Qt::NoButton)
@@ -675,4 +702,96 @@ void Viewport::jumpTo(int x, int z) {
     m_yaw = qRadiansToDegrees(std::atan2(f.x(), -f.z()));
     m_pitch = qRadiansToDegrees(std::asin(f.y()));
     changedCamera();
+}
+
+bool Viewport::dropAsset(const QString &id, double x, double y) {
+    if (!m_editor)
+        return false;
+    pick({x, y});
+    return m_hit.valid && m_editor->placeAssetInstance(id, m_hit.x, m_hit.y + 1, m_hit.z);
+}
+QVariantList Viewport::creationOverlay() const {
+    QVariantList objects;
+    if (!m_editor)
+        return objects;
+    const auto &world = m_editor->world();
+    auto add = [&](const QString &id, const QString &name, QVector3D lo, QVector3D hi, float transition,
+                   QString kind, QVector3D anchor = QVector3D()) {
+        QVector3D center = kind == "asset" ? anchor : (lo + hi) * .5f;
+        bool visible;
+        auto c = projectPoint(center, &visible);
+        if (!visible)
+            return;
+        QVariantList edges;
+        auto box = [&](QVector3D a, QVector3D b, bool inner) {
+            QVector3D corners[8];
+            for (int i = 0; i < 8; ++i)
+                corners[i] = {i & 1 ? b.x() : a.x(), i & 2 ? b.y() : a.y(), i & 4 ? b.z() : a.z()};
+            for (int i = 0; i < 8; ++i)
+                for (int axis = 0; axis < 3; ++axis)
+                    if (!(i & (1 << axis))) {
+                        bool va, vb;
+                        auto pa = projectPoint(corners[i], &va),
+                             pb = projectPoint(corners[i | (1 << axis)], &vb);
+                        if (va && vb)
+                            edges << QVariantMap{{"x1", pa.x()},
+                                                 {"y1", pa.y()},
+                                                 {"x2", pb.x()},
+                                                 {"y2", pb.y()},
+                                                 {"inner", inner}};
+                    }
+        };
+        box(lo, hi, false);
+        if (transition > 0) {
+            auto size = (hi - lo) * .5f;
+            float t = std::min({transition, size.x() * .95f, size.z() * .95f});
+            box(lo + QVector3D(t, 0, t), hi - QVector3D(t, 0, t), true);
+        }
+        QVariantList axes;
+        float length = std::max(1.f, (center - m_camera).length() * .13f);
+        for (int i = 0; i < 3; ++i) {
+            QVector3D v;
+            v[i] = length;
+            auto end = projectPoint(center + v);
+            axes << QVariantMap{{"x", end.x()}, {"y", end.y()}, {"length", length}};
+        }
+        objects << QVariantMap{{"id", id},
+                               {"name", name},
+                               {"x", c.x()},
+                               {"y", c.y()},
+                               {"edges", edges},
+                               {"axes", axes},
+                               {"selected", id == m_editor->selectedNode()},
+                               {"kind", kind}};
+    };
+    for (auto &v : world.creation.volumes)
+        if (v.visible)
+            add(v.id, v.name, v.min, v.max, v.transition, "volume");
+    for (auto &p : world.creation.presets)
+        if (p.enabled) {
+            auto a = std::find_if(world.creation.assets.begin(), world.creation.assets.end(),
+                                  [&](auto &a) { return a.id == p.assetId; });
+            if (a != world.creation.assets.end()) {
+                QVector3D lo(1e8, 1e8, 1e8), hi(-1e8, -1e8, -1e8);
+                int turn = (int(p.rotation.y() / 90) % 4 + 4) % 4;
+                for (int i = 0; i < 8; ++i) {
+                    QVector3D v =
+                        (QVector3D(i & 1 ? a->width : 0, i & 2 ? a->height : 0, i & 4 ? a->depth : 0) -
+                         a->pivot) *
+                        p.scale;
+                    for (int j = 0; j < turn; ++j)
+                        v = {-v.z(), v.y(), v.x()};
+                    v += p.position;
+                    for (int j = 0; j < 3; ++j) {
+                        lo[j] = std::min(lo[j], v[j]);
+                        hi[j] = std::max(hi[j], v[j]);
+                    }
+                }
+                add(p.id, p.name, lo, hi, 0, "asset", p.position);
+            }
+        }
+    for (auto &n : world.creation.roadNodes)
+        if (n.enabled)
+            add(n.id, n.name, n.position - QVector3D(1, 0, 1), n.position + QVector3D(1, 2, 1), 0, "road");
+    return objects;
 }

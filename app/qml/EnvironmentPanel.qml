@@ -21,10 +21,10 @@ ColumnLayout {
    CheckBox {visible:modelData.key==="sky";text:"天空云层";checked:panel.env.clouds;Layout.leftMargin:16;onToggled:panel.change("clouds",checked)}
    RowLayout {visible:modelData.key==="sky";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
     Label{text:"天空盒 / 球";Layout.fillWidth:true;elide:Text.ElideMiddle}
-    Button {objectName:"environment_skyTexture";Layout.preferredWidth:130;text:panel.env.skyTexturePath ? "更换文件" : "选择文件";onClicked:skyFileDialog.open()}
+    Button {objectName:"environment_skyTexture";Layout.preferredWidth:130;text:panel.env.skyTexturePath ? "更换文件" : "选择文件";onClicked:{skyFileDialog.currentFolder=editor.dialogFolder("skyTexture");skyFileDialog.open()}}
     Button {visible:!!panel.env.skyTexturePath;Layout.preferredWidth:70;text:"清除";onClicked:panel.change("skyTexturePath","")}
    }
-   Label {visible:modelData.key==="sky";text:panel.env.skyTexturePath ? panel.env.skyTexturePath : "未设置：使用程序化天空；支持2:1 PNG/JPG等经纬度天空图";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;elide:Text.ElideMiddle;color:"#99afbf"}
+   Label {visible:modelData.key==="sky";text:panel.env.skyTexturePath ? panel.env.skyTexturePath : "未设置：使用程序化天空；支持2:1 HDR/EXR/PNG/JPG/TGA等经纬度天空图";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;elide:Text.ElideMiddle;color:"#99afbf"}
    CheckBox {objectName:"environment_shadows";visible:modelData.key==="sun";text:"太阳投影阴影";checked:panel.env.shadows;Layout.leftMargin:16;onToggled:panel.change("shadows",checked)}
    Repeater {
     model:modelData.key==="sky" ? [{key:"skyIntensity",label:"天光强度 %",lo:0,hi:200},{key:"cloudDensity",label:"云层密度 %",lo:0,hi:100},{key:"cloudSpeed",label:"云层速度 %",lo:0,hi:100}] : modelData.key==="sun" ? [{key:"azimuth",label:"方位角 °",lo:-180,hi:180},{key:"elevation",label:"仰角 °",lo:0,hi:90},{key:"sunIntensity",label:"太阳强度 %",lo:0,hi:300}] : [{key:"haze",label:"大气浓度 %",lo:0,hi:100}]
@@ -88,5 +88,5 @@ ColumnLayout {
  Label{text:"大气浓度采用渐进曲线：低值适合全图观察，高值在近景也明显。0% 无雾，50% 约3606格衰减至37%，100% 约250格。需开启光照预览与大气。";visible:panel.selected==="environment"||panel.selected==="environment-atmosphere";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  Label{text:"太阳阴影采用局部＋全图两级2048贴图与PCF过滤。天空云层使用球面坐标投影噪声，随时间缓慢移动并会进入水面反射；可选用本地2:1天空盒/球图替换背景。体积云雾和间接光照GI仍未实现。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:"#99afbf"}
  ColorDialog{id:colorPicker;property string targetKey;title:"选择环境颜色";options:ColorDialog.DontUseNativeDialog;onAccepted:panel.change(targetKey,selectedColor.toString())}
- FileDialog{id:skyFileDialog;title:"选择经纬度天空图（2:1）";nameFilters:["天空图 (*.png *.jpg *.jpeg)","所有文件 (*)"];onAccepted:panel.change("skyTexturePath",selectedFile.toLocalFile())}
+ FileDialog{id:skyFileDialog;objectName:"skyFileDialog";title:"选择经纬度天空图（2:1）";nameFilters:["天空图 (*.hdr *.exr *.png *.jpg *.jpeg *.tga *.bmp)","所有文件 (*)"];onRejected:editor.rememberDialogFolder("skyTexture",currentFolder,true);onAccepted:{editor.rememberDialogFolder("skyTexture",selectedFile);panel.change("skyTexturePath",selectedFile.toString())}}
 }

@@ -7,8 +7,8 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
-#include <QTimer>
 #include <QThreadPool>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <set>
@@ -31,6 +31,10 @@ class Editor : public QObject {
     Q_PROPERTY(QString projectPath READ projectPath NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY changed)
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
+    Q_PROPERTY(Editor *assetInspector READ assetInspector CONSTANT)
+    Q_PROPERTY(bool creationBusy READ creationBusy NOTIFY changed)
+    Q_PROPERTY(int creationProgress READ creationProgress NOTIFY changed)
+    Q_PROPERTY(bool creationCancellable READ creationCancellable NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
     Q_PROPERTY(bool commandBusy READ commandBusy NOTIFY changed)
     Q_PROPERTY(bool regionBusy READ regionBusy NOTIFY changed)
@@ -61,6 +65,19 @@ class Editor : public QObject {
     Q_PROPERTY(QString selectedNode READ selectedNode WRITE setSelectedNode NOTIFY changed)
     Q_PROPERTY(QObject *cameraController READ cameraController NOTIFY changed)
     Q_PROPERTY(int exactRadiusChunks READ exactRadiusChunks WRITE setExactRadiusChunks NOTIFY changed)
+    Q_PROPERTY(bool exactPreviewEnabled READ exactPreviewEnabled NOTIFY changed)
+    Q_PROPERTY(QVariantMap creationState READ creationState NOTIFY changed)
+    Q_PROPERTY(QVariantMap creationDetails READ creationDetails NOTIFY changed)
+    Q_PROPERTY(QVariantList pcgNodeTypes READ pcgNodeTypes CONSTANT)
+    Q_PROPERTY(QString placementAsset READ placementAsset NOTIFY changed)
+    Q_PROPERTY(bool roadPlacement READ roadPlacement NOTIFY changed)
+    Q_PROPERTY(QVariantList pcgGraphs READ pcgGraphs NOTIFY changed)
+    Q_PROPERTY(QVariantList pcgVolumes READ pcgVolumes NOTIFY changed)
+    Q_PROPERTY(QVariantList structureAssets READ structureAssets NOTIFY changed)
+    Q_PROPERTY(QVariantList assetPresets READ assetPresets NOTIFY changed)
+    Q_PROPERTY(QVariantList roadNodes READ roadNodes NOTIFY changed)
+    Q_PROPERTY(QVariantList roadEdges READ roadEdges NOTIFY changed)
+    Q_PROPERTY(QVariantList caveMarkers READ caveMarkers NOTIFY changed)
   public:
     explicit Editor(QObject *parent = nullptr);
     ~Editor() override;
@@ -72,7 +89,9 @@ class Editor : public QObject {
     void setStrength(int v);
     int material() const { return m_material; }
     void setMaterial(int v);
-    bool assetBusy() const { return m_assetsLoading || m_heightmapLoading || m_regionLoading; }
+    bool assetBusy() const {
+        return m_creationBusy || m_assetsLoading || m_heightmapLoading || m_regionLoading;
+    }
     bool regionBusy() const { return m_regionLoading; }
     int regionProgress() const;
     QString regionStatus() const;
@@ -145,6 +164,59 @@ class Editor : public QObject {
     QObject *cameraController() const { return m_cameraController; }
     int exactRadiusChunks() const { return m_exactRadiusChunks; }
     void setExactRadiusChunks(int value);
+    bool exactPreviewEnabled() const { return m_exactPreviewEnabled; }
+    void setExactPreviewEnabled(bool value);
+    Editor *assetInspector();
+    Q_INVOKABLE bool showAssetPreview(const QString &id);
+    bool inspectionOnly() const { return m_inspectionOnly; }
+    bool creationBusy() const { return m_creationBusy; }
+    bool creationCancellable() const { return m_creationCancellable; }
+    int creationProgress() const { return m_creationControl ? m_creationControl->progress.load() : 0; }
+    Q_INVOKABLE void cancelCreation() {
+        if (m_creationCancellable && m_creationControl)
+            m_creationControl->cancelled = true;
+    }
+    Q_INVOKABLE QString pcgPreview(const QString &graphId, const QString &nodeId,
+                                   const QString &volumeId = QString()) const;
+    Q_INVOKABLE QVariantMap assetSlice(const QString &id, int y, bool classified = false) const;
+    QVariantMap creationState() const;
+    QVariantMap creationDetails() const;
+    QVariantList pcgNodeTypes() const { return wb::pcgNodeCatalog().toVariantList(); }
+    Q_INVOKABLE bool creationEdit(const QString &action, const QVariantMap &data);
+    Q_INVOKABLE QVariantMap graphData(const QString &id) const;
+    Q_INVOKABLE QVariantMap assetData(const QString &id) const;
+    Q_INVOKABLE QVariantMap caveAnalysis(const QString &id) const;
+    Q_INVOKABLE bool creationFile(const QString &action, const QString &id, const QUrl &url);
+    QString placementAsset() const { return m_placementAsset; }
+    bool roadPlacement() const { return m_roadPlacement; }
+    Q_INVOKABLE void beginPlacement(const QString &id) {
+        m_placementAsset = id;
+        m_roadPlacement = id == "@road";
+        setTool(-1);
+        emit changed();
+    }
+    Q_INVOKABLE bool placeAt(int x, int y, int z);
+    Q_INVOKABLE void beginCreationTransform();
+    Q_INVOKABLE void previewCreationTransform(int axis, double amount, int mode);
+    Q_INVOKABLE void endCreationTransform(bool cancel = false);
+    QVariantList pcgGraphs() const;
+    QVariantList pcgVolumes() const;
+    QVariantList structureAssets() const;
+    QVariantList assetPresets() const;
+    QVariantList roadNodes() const;
+    QVariantList roadEdges() const;
+    QVariantList caveMarkers() const;
+    Q_INVOKABLE bool createPcgGraph(const QString &name = QString());
+    Q_INVOKABLE bool addPcgVolume(const QString &graphId = QString());
+    Q_INVOKABLE bool connectPcgNodes(const QString &graphId, const QString &fromNode, const QString &fromPort,
+                                     const QString &toNode, const QString &toPort);
+    Q_INVOKABLE bool importStructureAsset(const QUrl &url);
+    Q_INVOKABLE bool saveAssetPreset(const QString &assetId, const QUrl &url);
+    Q_INVOKABLE bool placeAssetInstance(const QString &assetId, int x = 0, int y = 0, int z = 0);
+    Q_INVOKABLE bool addRoadNode(int x, int y, int z);
+    Q_INVOKABLE bool connectRoadNodes(const QString &from, const QString &to, int width = 5);
+    Q_INVOKABLE bool addCaveMarker(const QString &assetId, const QString &kind, int x, int y, int z);
+    Q_INVOKABLE QVariantMap evaluatePcg(const QString &graphId, double x, double z) const;
     Q_INVOKABLE QString shortcut(const QString &action) const;
     Q_INVOKABLE void setShortcut(const QString &action, const QString &sequence);
     Q_INVOKABLE void resetShortcuts();
@@ -154,7 +226,8 @@ class Editor : public QObject {
     }
     uint64_t revision() const { return m_revision; }
     bool commandBusy() const {
-        return bool(m_stroke) || bool(m_terrainStart) || bool(m_environmentStart) || assetBusy();
+        return bool(m_stroke) || bool(m_terrainStart) || bool(m_creationStart) || bool(m_environmentStart) ||
+               assetBusy();
     }
     QJsonObject worldInfo() const;
     QJsonObject executeTool(const QString &name, const QJsonObject &args);
@@ -165,13 +238,15 @@ class Editor : public QObject {
     Q_INVOKABLE void removeResource(int index);
     Q_INVOKABLE void copyMcpConfiguration();
     bool modified() const {
-        return m_strokeChanged || bool(m_terrainStart) || bool(m_environmentStart) ||
+        return m_strokeChanged || bool(m_terrainStart) || bool(m_creationStart) || bool(m_environmentStart) ||
                m_state != m_savedState || m_resourceRevision != m_savedResourceRevision;
     }
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < int(m_history.size()); }
-    bool meshBusy() const { return m_meshActive || !m_dirty.empty() || m_farDirty || m_interactiveMesh ||
-                                   (m_scene && m_scene->provisional); }
+    bool meshBusy() const {
+        return m_meshActive || !m_dirty.empty() || m_farDirty || m_interactiveMesh ||
+               (m_scene && m_scene->provisional);
+    }
     QString terrainUpdateStatus() const;
     bool exportBusy() const { return m_exportActive; }
     int exportProgress() const { return m_exportProgress; }
@@ -211,7 +286,7 @@ class Editor : public QObject {
     bool startHeightRegion(const QRect &area, int offset, QString &error);
     QJsonObject regionJobInfo() const;
     void dirtyAll();
-    void dirtyCommand(const wb::Command &command);
+    bool dirtyCommand(const wb::Command &command, bool forward = true);
     void startMesh();
     void resetHistory();
     void pushCommand(wb::Command command);
@@ -224,6 +299,20 @@ class Editor : public QObject {
     int selectedTerrainIndex() const;
     void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
     void commitLayers(std::vector<wb::SculptLayer> next, const QString &label);
+    std::unique_ptr<Editor> m_assetInspector;
+    bool m_inspectionOnly = false;
+    QString m_inspectionId;
+    struct CreationControl {
+        std::atomic_bool cancelled{false};
+        std::atomic_int progress{0};
+    };
+    std::shared_ptr<CreationControl> m_creationControl;
+    bool m_creationBusy = false, m_creationCancellable = false;
+    bool prepareCreation(wb::World &candidate, QString &error, bool cancellable = true);
+    bool commitCreation(wb::CreationState next, const QString &label);
+    std::shared_ptr<const wb::CreationState> m_creationStart;
+    QString m_placementAsset;
+    bool m_roadPlacement = false;
     std::shared_ptr<const std::vector<wb::TerrainInstance>> m_terrainStart;
     std::shared_ptr<const wb::Environment> m_environmentStart;
     std::set<int> desiredChunks() const;
@@ -302,5 +391,6 @@ class Editor : public QObject {
     bool m_assetsLoading = false, m_meshActive = false, m_exportActive = false;
     bool m_interactiveMesh = false;
     int m_exactRadiusChunks = 4;
+    bool m_exactPreviewEnabled = true;
     std::atomic_bool m_cancelExport = false;
 };

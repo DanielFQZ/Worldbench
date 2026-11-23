@@ -3,6 +3,7 @@
 #include "Environment.h"
 #include "HeightDeltas.h"
 #include "Heightmap.h"
+#include "WorldCreation.h"
 #include <QRect>
 #include <QString>
 #include <QVector3D>
@@ -86,6 +87,7 @@ struct Command {
     std::shared_ptr<const std::vector<TerrainInstance>> terrainBefore, terrainAfter;
     std::shared_ptr<const SurfaceTheme> themeBefore, themeAfter;
     std::shared_ptr<const Environment> environmentBefore, environmentAfter;
+    std::shared_ptr<const CreationState> creationBefore, creationAfter;
 };
 struct WorldOptions {
     int width = 128, seed = 2026, seaLevel = 12, baseHeight = 24, variation = 12;
@@ -143,6 +145,9 @@ class World {
     std::vector<BlockState> palette;
     std::vector<std::shared_ptr<const BlockModel>> models;
     std::shared_ptr<const AssetLibrary> assets;
+    CreationState creation;
+    std::shared_ptr<const GeneratedCreation> generated;
+    bool rebuildCreation(QString &error, const CreationProgress &progress = {});
     QStringList resourcePaths;
     QString resourceVersion;
     Block intern(const BlockState &state);

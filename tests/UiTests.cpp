@@ -69,14 +69,14 @@ int main(int argc, char **argv) {
         auto *chrome = win->findChild<QQuickItem *>("windowChrome");
         auto *menus = win->findChild<QQuickItem *>("mainMenuBar");
         check(chrome && menus && win->flags().testFlag(Qt::FramelessWindowHint) &&
-                  chrome->mapToScene({0, 0}).y() == 0 &&
-                  menus->mapToScene({0, 0}).y() >= chrome->height(),
+                  chrome->mapToScene({0, 0}).y() == 0 && menus->mapToScene({0, 0}).y() >= chrome->height(),
               "custom dark title bar precedes menu and removes native frame");
-        auto *minimize=win->findChild<QQuickItem *>("windowMinimize");
-        auto *maximize=win->findChild<QQuickItem *>("windowMaximize");
-        auto *closeButton=win->findChild<QQuickItem *>("windowClose");
-        check(minimize && maximize && closeButton && minimize->width()==maximize->width() &&
-                  maximize->width()==closeButton->width(), "window controls have equal widths");
+        auto *minimize = win->findChild<QQuickItem *>("windowMinimize");
+        auto *maximize = win->findChild<QQuickItem *>("windowMaximize");
+        auto *closeButton = win->findChild<QQuickItem *>("windowClose");
+        check(minimize && maximize && closeButton && minimize->width() == maximize->width() &&
+                  maximize->width() == closeButton->width(),
+              "window controls have equal widths");
         std::function<QQuickItem *(QQuickItem *, const QString &)> visualItem =
             [&](QQuickItem *root, const QString &name) -> QQuickItem * {
             if (root->objectName() == name)
@@ -103,28 +103,28 @@ int main(int argc, char **argv) {
         QTest::qWait(40);
         check(!brushPanel->isVisible(), "navigation collapses brush settings");
         v->forceActiveFocus();
-        QTest::keyClick(win,Qt::Key_1);
-        check(editor.tool()==0,"first 1 selects raise");
-        for(int expected:{1,2,3,4,5,6,-1,0}) {
-            QTest::keyClick(win,Qt::Key_1);
-            check(editor.tool()==expected,"repeated 1 cycles every tool including navigation");
+        QTest::keyClick(win, Qt::Key_1);
+        check(editor.tool() == 0, "first 1 selects raise");
+        for (int expected : {1, 2, 3, 4, 5, 6, -1, 0}) {
+            QTest::keyClick(win, Qt::Key_1);
+            check(editor.tool() == expected, "repeated 1 cycles every tool including navigation");
         }
-        QTest::keyClick(win,Qt::Key_5);
-        check(editor.tool()==4,"5 selects material painting");
-        QTest::keyClick(win,Qt::Key_1);
-        check(editor.tool()==0,"1 after another shortcut starts with raise");
-        QKeyEvent repeated(QEvent::KeyPress,Qt::Key_1,Qt::NoModifier,QString(),true);
-        QCoreApplication::sendEvent(v,&repeated);
-        check(editor.tool()==0,"held key repeat is throttled");
+        QTest::keyClick(win, Qt::Key_5);
+        check(editor.tool() == 4, "5 selects material painting");
+        QTest::keyClick(win, Qt::Key_1);
+        check(editor.tool() == 0, "1 after another shortcut starts with raise");
+        QKeyEvent repeated(QEvent::KeyPress, Qt::Key_1, Qt::NoModifier, QString(), true);
+        QCoreApplication::sendEvent(v, &repeated);
+        check(editor.tool() == 0, "held key repeat is throttled");
         QTest::qWait(240);
-        QCoreApplication::sendEvent(v,&repeated);
-        check(editor.tool()==1,"held key cycles after repeat interval");
-        editor.setShortcut("toolPaint","9");
-        QTest::keyClick(win,Qt::Key_9);
-        check(editor.tool()==4,"tool shortcuts use saved preferences");
+        QCoreApplication::sendEvent(v, &repeated);
+        check(editor.tool() == 1, "held key cycles after repeat interval");
+        editor.setShortcut("toolPaint", "9");
+        QTest::keyClick(win, Qt::Key_9);
+        check(editor.tool() == 4, "tool shortcuts use saved preferences");
         editor.resetShortcuts();
-        QTest::keyClick(win,Qt::Key_0);
-        check(editor.tool()==-1,"0 returns to navigation");
+        QTest::keyClick(win, Qt::Key_0);
+        check(editor.tool() == -1, "0 returns to navigation");
         editor.setTool(0);
         QTest::qWait(40);
         check(editor.selectedNode() == "terrain-base-1", "tool selection preserves scene selection");
@@ -326,7 +326,7 @@ int main(int argc, char **argv) {
         check(init["result"].toObject()["protocolVersion"] == "2025-06-18", "MCP negotiation");
         bridge.write("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n");
         auto tools = request("tools/list", {});
-        check(tools["result"].toObject()["tools"].toArray().size() == 15, "MCP discoverable tools");
+        check(tools["result"].toObject()["tools"].toArray().size() == 16, "MCP discoverable tools");
         auto call = [&](QString name, QJsonObject args) {
             return request("tools/call", {{"name", name}, {"arguments", args}})["result"].toObject();
         };
@@ -342,15 +342,32 @@ int main(int argc, char **argv) {
         const auto envBlocks = editor.world().overrides;
         const auto envHeights = editor.world().heights;
         const auto envBefore = editor.world().environment;
-        auto envResult = call(
-            "environment",
-            {{"changes", QJsonObject{{"enabled", true}, {"azimuth", 75}, {"elevation", 20}, {"haze", 40}, {"clouds", true}, {"cloudDensity", 70}, {"cloudSpeed", 35}, {"waterWaves", false}, {"waterReflections", false}, {"shadows", false}, {"waveStrength", 62}, {"waveDensity", 73}, {"waveSpeed", 22}, {"waterDepthFade", 80}, {"waterFoamStrength", 75}, {"waterFoamWidth", 8}}},
-             {"expected_revision", double(editor.revision())}});
+        auto envResult = call("environment", {{"changes", QJsonObject{{"enabled", true},
+                                                                      {"azimuth", 75},
+                                                                      {"elevation", 20},
+                                                                      {"haze", 40},
+                                                                      {"clouds", true},
+                                                                      {"cloudDensity", 70},
+                                                                      {"cloudSpeed", 35},
+                                                                      {"waterWaves", false},
+                                                                      {"waterReflections", false},
+                                                                      {"shadows", false},
+                                                                      {"waveStrength", 62},
+                                                                      {"waveDensity", 73},
+                                                                      {"waveSpeed", 22},
+                                                                      {"waterDepthFade", 80},
+                                                                      {"waterFoamStrength", 75},
+                                                                      {"waterFoamWidth", 8}}},
+                                              {"expected_revision", double(editor.revision())}});
         check(!envResult["isError"].toBool() && editor.world().environment.enabled &&
                   editor.world().environment.azimuth == 75,
               "stdio MCP environment change");
         check(!editor.world().environment.waterWaves && !editor.world().environment.waterReflections &&
-              !editor.world().environment.shadows && editor.world().environment.waveStrength==62 && editor.world().environment.waveDensity==73 && editor.world().environment.waveSpeed==22 && editor.world().environment.cloudDensity==70 && editor.world().environment.waterFoamWidth==8,
+                  !editor.world().environment.shadows && editor.world().environment.waveStrength == 62 &&
+                  editor.world().environment.waveDensity == 73 &&
+                  editor.world().environment.waveSpeed == 22 &&
+                  editor.world().environment.cloudDensity == 70 &&
+                  editor.world().environment.waterFoamWidth == 8,
               "real stdio MCP accepts water and shadow controls");
         check(editor.scene() == envScene && !editor.meshBusy() && editor.world().overrides == envBlocks &&
                   editor.world().heights == envHeights,
@@ -760,10 +777,12 @@ int main(int argc, char **argv) {
             }
         }
         check(liveSnapshots >= 2, "continuous moving input publishes previews without waiting for a pause");
-        check(QTest::qWaitFor([&] {
-                  return editor.scene()->provisional && editor.scene()->revision > beforePreviewSerial &&
-                         editor.scene()->sourceRevision == editor.revision();
-              }, 30000),
+        check(QTest::qWaitFor(
+                  [&] {
+                      return editor.scene()->provisional && editor.scene()->revision > beforePreviewSerial &&
+                             editor.scene()->sourceRevision == editor.revision();
+                  },
+                  30000),
               "active transform publishes complete provisional snapshots without mixed preview tiles");
         editor.endTerrainEdit();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000),
@@ -772,8 +791,9 @@ int main(int argc, char **argv) {
         check(std::none_of(editor.scene()->farTiles.begin(), editor.scene()->farTiles.end(),
                            [](const auto &tile) { return tile.mesh->provisional; }),
               "release rebuilds every temporary tile at final precision");
-        std::cout << "Transform interaction 180 updates, " << liveSnapshots << " live snapshots in " << instanceLatency.elapsed() << " ms, final build "
-                  << editor.scene()->buildMilliseconds << " ms; visibility " << visibilityMs << " ms\n";
+        std::cout << "Transform interaction 180 updates, " << liveSnapshots << " live snapshots in "
+                  << instanceLatency.elapsed() << " ms, final build " << editor.scene()->buildMilliseconds
+                  << " ms; visibility " << visibilityMs << " ms\n";
         editor.undo();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "interaction undo settles");
         auto overlay = v->gizmoOverlay();
@@ -970,8 +990,8 @@ int main(int argc, char **argv) {
         v->forceActiveFocus();
         QTest::keyClick(win, Qt::Key_Delete);
         std::cout << "Delete instance count " << editor.world().heights.instances.size()
-                  << " selected=" << editor.selectedNode().toStdString()
-                  << " top=" << topId.toStdString() << std::endl;
+                  << " selected=" << editor.selectedNode().toStdString() << " top=" << topId.toStdString()
+                  << std::endl;
         check(editor.world().heights.instances.size() == 1, "Delete removes selected instance");
         editor.undo();
         check(editor.world().heights.instances.size() == 2, "Delete participates in undo");
@@ -1493,7 +1513,8 @@ int main(int argc, char **argv) {
                   v->viewProjection() == remoteMatrix,
               "stationary remote brush edits authoritative column without moving camera");
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 20000) &&
-                  !editor.previewContains(remoteHit.x, remoteHit.z) && editor.scene()->exactArea == fullScene->exactArea,
+                  !editor.previewContains(remoteHit.x, remoteHit.z) &&
+                  editor.scene()->exactArea == fullScene->exactArea,
               "remote brush keeps continuous terrain and does not move exact residency");
         win->grabWindow().save("test-output/remote-brush-0.13.0.png");
         QTest::keyClick(win, Qt::Key_Z, Qt::ControlModifier);

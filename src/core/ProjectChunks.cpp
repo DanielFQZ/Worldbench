@@ -67,6 +67,7 @@ bool saveProject(const QString &path, const World &world, QString &error) {
         Environment environment;
         if (!validateTerrain(world.heights.instances, error) ||
             !validateTheme(world.theme, world.palette.size(), error) ||
+            !validateCreation(world.creation, error) ||
             !loadEnvironment(saveEnvironment(world.environment), environment, error))
             return false;
         QSaveFile file(path);
@@ -171,7 +172,19 @@ bool saveProject(const QString &path, const World &world, QString &error) {
         }
         if (!flush())
             return false;
-        const QJsonObject manifest{{"world", projectMetadata(world, false)},
+        auto metadata = projectMetadata(world, false);
+        const auto creationBytes =
+            QJsonDocument(metadata["creation"].toObject()).toJson(QJsonDocument::Compact);
+        if (creationBytes.size() > 256ll * 1024 * 1024)
+            return fail("创作资产存储超过256MiB预算");
+        metadata.remove("creation");
+        int creationParts = 0;
+        for (qsizetype at = 0; at < creationBytes.size(); at += MaxBlock) {
+            if (!write({{"kind", "creation"}, {"part", creationParts++}}, creationBytes.mid(at, MaxBlock)))
+                return false;
+        }
+        const QJsonObject manifest{{"world", metadata},
+                                   {"creationParts", creationParts},
                                    {"blocks", blocks},
                                    {"hasDense", bool(world.heights.dense)}};
         const auto raw = QJsonDocument(manifest).toJson(QJsonDocument::Compact);
@@ -231,7 +244,8 @@ bool loadProject(const QString &path, World &world, QString &error) {
         const auto doc = QJsonDocument::fromJson(raw, &parse);
         if (parse.error != QJsonParseError::NoError || !doc.isObject())
             return fail("分块工程索引JSON错误");
-        const auto manifest = doc.object(), metadata = manifest["world"].toObject();
+        const auto manifest = doc.object();
+        auto metadata = manifest["world"].toObject();
         if (!integer(metadata["format"], 9, 9) || !integer(metadata["width"], 32, 16384) ||
             !integer(metadata["depth"], 32, 16384) || !manifest["blocks"].isArray() ||
             !manifest["hasDense"].isBool() || manifest["blocks"].toArray().size() > MaxRecords)
@@ -270,6 +284,8 @@ bool loadProject(const QString &path, World &world, QString &error) {
         for (int i = 0; i < layerDefs.toArray().size(); ++i)
             payload.deltas.push_back(std::make_shared<HeightDeltas>());
         std::vector<std::set<int>> tiles(images.size() + 1), groups(payload.deltas.size());
+        QByteArray creationBytes;
+        int creationParts = 0;
         uint64_t expectedOffset = HeaderSize, totalRaw = 0, deltaBytes = 0;
         for (const auto &value : manifest["blocks"].toArray()) {
             const auto entry = value.toObject();
@@ -357,6 +373,12 @@ bool loadProject(const QString &path, World &world, QString &error) {
                 deltaBytes += payload.deltas[layer]->allocatedBytes() - before;
                 if (deltaBytes > 512ull * 1024 * 1024)
                     return fail("雕刻驻留数据超过512 MiB预算");
+            } else if (kind == "creation") {
+                if (!integer(entry["part"], creationParts, creationParts) ||
+                    creationBytes.size() + bytes.size() > 256ll * 1024 * 1024)
+                    return fail("创作数据分块顺序或大小无效");
+                ++creationParts;
+                creationBytes.append(bytes);
             } else if (kind == "cells") {
                 if (rawSize % 12 || payload.overrides.size() + rawSize / 12 > 4 * 1024 * 1024)
                     return fail("体素分块数量无效");
@@ -379,6 +401,14 @@ bool loadProject(const QString &path, World &world, QString &error) {
         }
         if (dense && tiles.back().size() != size_t((width + Tile - 1) / Tile) * ((depth + Tile - 1) / Tile))
             return fail("高度基底分块不完整");
+        if (creationParts != manifest["creationParts"].toInt())
+            return fail("创作数据分块缺失");
+        if (creationParts) {
+            auto creation = QJsonDocument::fromJson(creationBytes);
+            if (!creation.isObject() || metadata.contains("creation"))
+                return fail("创作数据损坏或重复");
+            metadata["creation"] = creation.object();
+        }
         return decodeProjectMetadata(metadata, world, error, &payload);
     } catch (const std::bad_alloc &) {
         error = "读取工程内存不足，当前工程未替换";

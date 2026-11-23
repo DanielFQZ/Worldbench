@@ -44,6 +44,16 @@ Pane {
      }
      if(sceneModel.count>nodes.length)sceneModel.remove(nodes.length,sceneModel.count-nodes.length)
     }
+    MouseArea {
+     anchors.fill:parent;anchors.rightMargin:14;z:10;preventStealing:true
+     property int pressedRow:-1
+     property real pressY:0
+     property real startY:0
+     onPressed: function(mouse) { sceneList.cancelFlick(); pressedRow=sceneList.indexAt(mouse.x,mouse.y+sceneList.contentY);pressY=mouse.y;startY=sceneList.contentY }
+     onPositionChanged:function(mouse){if(pressed && Math.abs(mouse.y-pressY)>5)sceneList.contentY=Math.max(0,Math.min(sceneList.contentHeight-sceneList.height,startY+pressY-mouse.y))}
+     onReleased:function(mouse){if(Math.abs(mouse.y-pressY)>5||pressedRow<0||pressedRow>=sceneModel.count)return;const row=sceneModel.get(pressedRow);if(mouse.x>width-36)editor.setNodeVisible(row.nodeId,!row.nodeVisible);else editor.selectedNode=row.nodeId}
+     onWheel:function(wheel){sceneList.cancelFlick();const dy=wheel.pixelDelta.y!==0?wheel.pixelDelta.y:wheel.angleDelta.y/3;sceneList.contentY=Math.max(0,Math.min(Math.max(0,sceneList.contentHeight-sceneList.height),sceneList.contentY-dy));wheel.accepted=true}
+    }
     delegate:ItemDelegate{
      required property string nodeId
      required property string nodeName
@@ -54,6 +64,7 @@ Pane {
      enabled:!editor.regionBusy
      width:ListView.view.width;implicitHeight:34;text:(nodeActive?"✎  ":"▧  ")+nodeName;rightPadding:38;highlighted:editor.selectedNode===nodeId
      background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
+     onPressed: { if (sceneList.moving) sceneList.cancelFlick() }
      onClicked:editor.selectedNode=nodeId
      Button {
       id:eyeButton
@@ -79,9 +90,10 @@ Pane {
     width:details.availableWidth;spacing:12
     property var selectedLayer:editor.layerDetails
     EnvironmentPanel{Layout.fillWidth:true;visible:editor.selectedNode.indexOf("environment")===0}
+    CreationDetails{Layout.fillWidth:true;visible:editor.creationDetails.valid}
     TerrainPanel{Layout.fillWidth:true;visible:editor.terrainDetails.valid}
     ColumnLayout {
-    Layout.fillWidth:true;visible:!editor.terrainDetails.valid && editor.selectedNode.indexOf("environment")!==0;spacing:12
+    Layout.fillWidth:true;visible:!editor.creationDetails.valid && !editor.terrainDetails.valid && editor.selectedNode.indexOf("environment")!==0;spacing:12
     property var selectedLayer:editor.layerDetails
     Label{text:"详细信息";font.bold:true;Layout.margins:12;color:"#c9d2df"}
     TextField{text:parent.selectedLayer.name;Layout.fillWidth:true;Layout.margins:12;onEditingFinished:editor.renameSculptLayer(text)}

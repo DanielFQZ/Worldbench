@@ -1,0 +1,34 @@
+{
+  "version": "0.18.0",
+  "core": "205 checks passed",
+  "creationMcpAndGui": "passed including two-client cancellation and graph dialog keyboard undo",
+  "originalProjectSha256": "14470d657955641e41056531165460a6418b13893570d1070713e13dffa77cf6",
+  "largeProject": "3072 x 3072 copy, local 128 x 128 PCG, save/reopen deterministic",
+  "nativeMouse": [
+    "asset shelf drag creates tree at surface",
+    "noise to scatter link updates tree count from 26 to 15"
+  ],
+  "waterBandBrightness1_5_10_20": [
+    135,
+    135,
+    0,
+    0
+  ],
+  "fullCtest": {
+    "passed": 15,
+    "failed": 0,
+    "seconds": 289.37,
+    "configuration": "MSVC Release, Qt 6.8.3, D3D11"
+  },
+  "sky": "37 MB real HDR selected through actual QML file handler, rendered on D3D11; synthetic HDR/EXR float path also passed",
+  "standalonePackageSmoke": {
+    "version": "0.18.0",
+    "exitCode": 0,
+    "toolchainPathExcluded": true,
+    "screenshot": "package-0.18.0-smoke.png",
+    "time": "2026-11-23T09:06:25.7527950+08:00"
+  },
+  "executableSha256": "dc7f3ed0c744c2c84aad3a48acd32fa5088b17bdb435a91d02a09d753c91f9e9",
+  "minecraftClientTested": false,
+  "userAcceptance": "pending"
+}

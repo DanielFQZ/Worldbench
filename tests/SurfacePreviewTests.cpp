@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
              {"clientInfo", QJsonObject{{"name", "Worldbench terrain verification"}, {"version", "1"}}}});
         check(init["protocolVersion"] == "2025-06-18", "MCP negotiated");
         bridge.write("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n");
-        check(request("tools/list", {})["tools"].toArray().size() == 15, "MCP discovers current tool schema");
+        check(request("tools/list", {})["tools"].toArray().size() == 16, "MCP discovers current tool schema");
         const auto initialCamera = viewport->camera();
         auto rejected =
             request("tools/call", {{"name", "camera"},
@@ -203,7 +203,8 @@ int main(int argc, char **argv) {
                                                                {"rotationY", int(i) * 17}}}});
             settle();
         }
-        write("environment", {{"changes", QJsonObject{{"enabled", benchmarkLighting}, {"atmosphere", false}}}});
+        write("environment",
+              {{"changes", QJsonObject{{"enabled", benchmarkLighting}, {"atmosphere", false}}}});
         const auto authoritative = editor.world().heights;
         check(editor.save(QUrl::fromLocalFile(out + "/terrain-test.wbench")), "save only prepared test copy");
         const double height = std::max(400., extent * .75);
@@ -225,9 +226,9 @@ int main(int argc, char **argv) {
         const auto initialMs = build.elapsed();
         check(editor.world().heights == authoritative && !editor.modified(),
               "preview never bakes or modifies project");
-        check(!editor.scene()->farTiles.empty() && !editor.scene()->chunks.empty() &&
+        check(!editor.scene()->farTiles.empty() && editor.scene()->chunks.empty() &&
                   editor.scene()->surfaceError <= 1,
-              "default terrain combines bounded surface and ready local voxels");
+              "high-altitude overview uses accurate surface without an exact voxel island");
         capture("surface-overview");
         auto initial = info();
         const auto beforeNavigation = editor.scene();
@@ -249,12 +250,13 @@ int main(int argc, char **argv) {
         bool measuringTransform = false;
         const auto transformConnection = QObject::connect(&editor, &Editor::sceneChanged, &app, [&] {
             if (measuringTransform && editor.scene()->provisional)
-                transformPublications.append(QJsonObject{{"ms", double(transformClock.elapsed())},
-                    {"source_revision", double(editor.scene()->sourceRevision)},
-                    {"current_revision", double(editor.revision())},
-                    {"build_ms", double(editor.scene()->buildMilliseconds)},
-                    {"samples", double(editor.scene()->updatedSamples)},
-                    {"tiles", editor.scene()->updatedFarTiles}});
+                transformPublications.append(
+                    QJsonObject{{"ms", double(transformClock.elapsed())},
+                                {"source_revision", double(editor.scene()->sourceRevision)},
+                                {"current_revision", double(editor.revision())},
+                                {"build_ms", double(editor.scene()->buildMilliseconds)},
+                                {"samples", double(editor.scene()->updatedSamples)},
+                                {"tiles", editor.scene()->updatedFarTiles}});
         });
         const auto initialFrames = viewport->frameCounter()->load();
         transformClock.start();
@@ -262,13 +264,15 @@ int main(int argc, char **argv) {
         const auto frameConnection = QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&] {
             // A queued frameSwapped callback can still run after disconnect.
             // Exclude screenshot/MCP/readback and post-release frames.
-            if (!measuringTransform) return;
+            if (!measuringTransform)
+                return;
             const auto now = transformClock.nsecsElapsed();
-            if(lastFrameNs) transformFrameTimes.append((now-lastFrameNs)/1000000.0);
+            if (lastFrameNs)
+                transformFrameTimes.append((now - lastFrameNs) / 1000000.0);
             lastFrameNs = now;
             const auto current = viewport->renderMetrics()->renderedSourceRevision.load();
-            if(current != lastDisplayed) {
-                transformDisplayTimes.append(now/1000000.0);
+            if (current != lastDisplayed) {
+                transformDisplayTimes.append(now / 1000000.0);
                 lastDisplayed = current;
             }
         });
@@ -277,17 +281,18 @@ int main(int argc, char **argv) {
             QElapsedTimer inputTime;
             inputTime.start();
             editor.setTerrainOption("x", target.x + (n % 96) + 1);
-            transformInputTimes.append(inputTime.nsecsElapsed()/1000000.0);
+            transformInputTimes.append(inputTime.nsecsElapsed() / 1000000.0);
             QTest::qWait(16);
         }
         const auto transformMs = transformClock.elapsed();
         measuringTransform = false;
         QObject::disconnect(frameConnection);
-        const auto transformFrames = viewport->frameCounter()->load()-initialFrames;
+        const auto transformFrames = viewport->frameCounter()->load() - initialFrames;
         const auto transformCount = transformPublications.size();
         check(transformPublications.size() >= 2,
               "large instance publishes multiple coherent previews while pointer keeps moving");
-        check(window->grabWindow().save(out + "/transform-active.png"), "capture unreleased instance preview");
+        check(window->grabWindow().save(out + "/transform-active.png"),
+              "capture unreleased instance preview");
         const auto activePreviewInfo = info()["preview"].toObject();
         check(activePreviewInfo["provisional"].toBool() && activePreviewInfo["surface_error_bound"].isNull(),
               "MCP explicitly reports temporary geometry without an uncertified error bound");
@@ -297,9 +302,9 @@ int main(int argc, char **argv) {
         settle();
         const auto convergenceMs = releaseClock.elapsed();
         QObject::disconnect(transformConnection);
-        check(!editor.scene()->provisional && !editor.scene()->chunks.empty() &&
-                  editor.scene()->sourceRevision == editor.revision() && editor.scene()->surfaceError <= 1,
-              "released instance converges to exact revision and restores local block meshes");
+        check(!editor.scene()->provisional && editor.scene()->sourceRevision == editor.revision() &&
+                  editor.scene()->surfaceError <= 1,
+              "released instance converges to exact revision at the current camera distance");
         for (const auto &tile : editor.scene()->farTiles)
             check(!tile.mesh->provisional, "all low-detail transform tiles replaced");
         capture("transform-final");
@@ -316,7 +321,8 @@ int main(int argc, char **argv) {
         editor.endTerrainEdit(true);
         settle();
         check(editor.world().heights == authoritative && !editor.scene()->provisional &&
-                  editor.scene()->sourceRevision == editor.revision(), "cancel rejects in-flight preview");
+                  editor.scene()->sourceRevision == editor.revision(),
+              "cancel rejects in-flight preview");
         editor.beginTerrainEdit();
         editor.setTerrainOption("x", target.x + 40);
         check(QTest::qWaitFor([&] { return editor.scene()->provisional; }, 30000),
@@ -325,7 +331,8 @@ int main(int argc, char **argv) {
         editor.endTerrainEdit();
         settle();
         check(editor.world().heights == authoritative && !editor.modified() && !editor.scene()->provisional &&
-                  editor.scene()->sourceRevision == editor.revision(), "return-to-start restores final precision without undo entry");
+                  editor.scene()->sourceRevision == editor.revision(),
+              "return-to-start restores final precision without undo entry");
         const int x = std::clamp(target.x + target.width / 2, editor.world().originX,
                                  editor.world().originX + editor.world().width - 1);
         const int z = std::clamp(target.z + target.depth / 2, editor.world().originZ,
@@ -367,6 +374,9 @@ int main(int argc, char **argv) {
         const auto transformed = info();
         capture("surface-rotated");
         write("undo", {});
+        settle();
+        call("camera",
+             {{"position", QJsonArray{0, editor.world().height(0, 0) + 25, 0}}, {"yaw", 20}, {"pitch", -25}});
         settle();
         check(editor.scene()->chunks.size() > 0 && !editor.scene()->exactArea.isEmpty(),
               "exact voxel inspection is part of the default view without a mode switch");
@@ -469,8 +479,8 @@ int main(int argc, char **argv) {
                            {"benchmark_lighting", benchmarkLighting},
                            {"transform_wall_ms", double(transformMs)},
                            {"transform_frames", transformFrames},
-                           {"transform_fps", 1000.0*transformFrames/transformMs},
-                           {"transform_mesh_hz", 1000.0*transformCount/transformMs},
+                           {"transform_fps", 1000.0 * transformFrames / transformMs},
+                           {"transform_mesh_hz", 1000.0 * transformCount / transformMs},
                            {"transform_convergence_ms", double(convergenceMs)},
                            {"source_sha256", QString(sourceHash.toHex())},
                            {"transcript", transcript},

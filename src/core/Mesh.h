@@ -63,5 +63,6 @@ struct MeshScene {
     bool provisional = false;
     QString error;
 };
-MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision);
+MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision,
+                       bool creationOnly = false, bool isolatedAsset = false);
 } // namespace wb

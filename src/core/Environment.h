@@ -10,7 +10,7 @@ struct Environment {
     int waveStrength = 35, waveDensity = 45, waveSpeed = 35;
     int waterDepthFade = 55, waterFoamStrength = 65, waterFoamWidth = 4;
     int cloudDensity = 55, cloudSpeed = 25;
-    // Optional equirectangular sky texture (2:1 PNG/JPG). Empty keeps the
+    // Optional equirectangular sky texture (2:1 HDR/EXR or standard raster). Empty keeps the
     // procedural gradient sky.
     QString skyTexturePath;
     // Wave controls affect preview normals only; they never move authoritative water blocks.

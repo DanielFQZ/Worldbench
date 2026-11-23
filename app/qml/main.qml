@@ -8,7 +8,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.4"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.18.0"
     flags: Qt.platform.os === "windows" ? Qt.FramelessWindowHint | Qt.Window : Qt.Window
     color: "#171c24"
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
@@ -86,7 +86,7 @@ ApplicationWindow {
                 Text { anchors.centerIn: parent; text: "W"; color: "#effcff"; font.bold: true; font.pixelSize: 15 }
             }
             Text {
-                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.17.4"
+                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.18.0"
                 color: "#dce8f3"
                 font.pixelSize: 13
                 elide: Text.ElideRight
@@ -154,6 +154,10 @@ ApplicationWindow {
             Action {text:"地表高度主题…";enabled:!editor.commandBusy&&!editor.exportBusy;onTriggered:surfaceThemeDialog.open()}
         }
         WorkbenchMenu {
+            title: "创作"
+            Action { text: "PCG / 资产 / 道路 / 洞穴…"; onTriggered: creationDialog.open() }
+        }
+        WorkbenchMenu {
             title: "视图"
             Action { text: "场景大纲 / 详细信息"; onTriggered: worldDock.dockWidget.show() }
             Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
@@ -173,7 +177,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.17.4 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.18.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
     }
@@ -270,6 +274,18 @@ ApplicationWindow {
         anchors.centerIn: parent; standardButtons: Dialog.Close
         contentItem: SettingsPanel { id: settingsContent; objectName: "settingsContent" }
     }
+    Popup {
+        anchors.centerIn:parent;visible:editor.creationBusy;modal:true;closePolicy:Popup.NoAutoClose;width:400;height:170
+        background:Rectangle{color:"#263342";border.color:"#496277";radius:8}
+        ColumnLayout {anchors.fill:parent;Label{text:"正在生成 PCG / 资产 / 道路";color:"#dce9f5"}ProgressBar{Layout.fillWidth:true;from:0;to:100;value:editor.creationProgress}Label{text:"完成后一次提交；当前工程保持可恢复。";color:"#9cb1c5"}Button{text:"取消";enabled:editor.creationCancellable;onClicked:editor.cancelCreation()}}
+    }
+    Dialog {
+        id: creationDialog; objectName: "creationWorkspace"
+        title: "创作工作区 · PCG / 资产 / 道路 / 洞穴"
+        modal: false; width: Math.min(1300, win.width - 60); height: Math.min(850, win.height - 80)
+        anchors.centerIn: parent; standardButtons: Dialog.Close
+        contentItem: CreationPanel {onPlaceRequested:creationDialog.close()}
+    }
     Dialog {
         id: mcpDialog; title: "MCP / LLM 接入"; modal: true; width: 670; anchors.centerIn: parent
         standardButtons: Dialog.Close
@@ -300,8 +316,8 @@ ApplicationWindow {
     Shortcut { sequence: win.shortcut("save"); onActivated: win.saveCurrent() }
     Shortcut { sequence: win.shortcut("open"); onActivated: win.requestAction("open") }
     Shortcut { sequence: win.shortcut("new"); onActivated: win.requestAction("new") }
-    Shortcut { sequence: win.shortcut("undo"); enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.undo() }
-    Shortcut { sequences: [win.shortcut("redo"), "Ctrl+Shift+Z"]; enabled: win.activeFocusItem && win.activeFocusItem.objectName === "voxelViewport"; onActivated: editor.redo() }
+    Shortcut { sequence: win.shortcut("undo"); enabled: !win.editingText() && !editor.commandBusy; onActivated: editor.undo() }
+    Shortcut { sequences: [win.shortcut("redo"), "Ctrl+Shift+Z"]; enabled: !win.editingText() && !editor.commandBusy; onActivated: editor.redo() }
     FileDialog {
         id: saveDialog; title: "保存 Worldbench 工程"; fileMode: FileDialog.SaveFile
         nameFilters: ["Worldbench 工程 (*.wbench)"]; defaultSuffix: "wbench"
@@ -319,7 +335,7 @@ ApplicationWindow {
             else {win.pendingAction = "";win.pendingProject=""}
         }
     }
-    MessageDialog { id: errorBox; title: "Worldbench"; buttons: MessageDialog.Ok }
+    MessageDialog { id: errorBox; objectName:"errorDialog"; title: "Worldbench"; buttons: MessageDialog.Ok }
     FolderDialog { id: exportFolder; title: "选择存放新 Minecraft 存档的父目录"; onAccepted: { editor.rememberDialogFolder("exportParent",selectedFolder,true); exportParent.text = selectedFolder.toString() } onRejected: editor.rememberDialogFolder("exportParent",currentFolder,true) }
     Dialog {
         id: exportDialog; title: "导出 Minecraft Java 1.20.1"; modal: true
@@ -337,7 +353,7 @@ ApplicationWindow {
             Label{visible:editor.layerDetails.width>256||editor.layerDetails.depth>256;text:"大地图建议先导出小选区。全图烘焙可能耗时很长，可取消。";color:"#d5ba82";Layout.fillWidth:true;wrapMode:Text.WordWrap}
             Label { text: "新存档名称"; color: "#96a8bc" }
             TextField { id: exportName; text: "Worldbench-001"; Layout.fillWidth: true; selectByMouse: true; maximumLength: 64 }
-            Label { text: "使用字母、数字、短横线或下划线。已存在的目录不会被覆盖。\nP0：地形范围外为虚空；光照由游戏重新计算。\n不含实体/方块实体、其他版本或自定义高度。动态方块需 1.20.1 JAR。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12; color: "#9aaabe" }
+            Label { text: "使用字母、数字、短横线或下划线。已存在的目录不会被覆盖。\nP0：地形范围外为虚空；光照由游戏重新计算。\n资产携带的受支持实体/NBT一并导出；其他版本和自定义高度尚未开放。动态方块需 1.20.1 JAR。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12; color: "#9aaabe" }
         }
         onAccepted: editor.exportWorld(exportParent.text, exportName.text,exportSelection.checked&&editor.selection.valid)
     }

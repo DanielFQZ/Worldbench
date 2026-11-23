@@ -188,10 +188,14 @@ bool appendSeaSurface(ChunkMesh &mesh, const World &w, const FarTile &tile, cons
     auto depthAt = [&](int wx, int wz) {
         const int lx = std::clamp(wx - r.x(), 0, r.width());
         const int lz = std::clamp(wz - r.y(), 0, r.height());
-        const int gx = r.width() > 0 ? std::clamp(int(std::lround(double(lx) * grid.size / r.width())), 0, grid.size) : 0;
-        const int gz = r.height() > 0 ? std::clamp(int(std::lround(double(lz) * grid.size / r.height())), 0, grid.size) : 0;
+        const int gx = r.width() > 0
+                           ? std::clamp(int(std::lround(double(lx) * grid.size / r.width())), 0, grid.size)
+                           : 0;
+        const int gz = r.height() > 0
+                           ? std::clamp(int(std::lround(double(lz) * grid.size / r.height())), 0, grid.size)
+                           : 0;
         const float terrain = grid.heights[size_t(gz) * side + gx] - 1.f;
-        return std::clamp((float(w.seaLevel) - terrain + 1.f) / 64.f, 0.f, 1.f);
+        return std::clamp((float(w.seaLevel) - terrain) / 64.f, 0.f, 1.f);
     };
     auto append = [&](const QRect &rect) {
         const float y = float(w.seaLevel + 1);
@@ -204,8 +208,8 @@ bool appendSeaSurface(ChunkMesh &mesh, const World &w, const FarTile &tile, cons
         const float d10 = depthAt(int(std::floor(x1)), int(std::floor(z0)));
         const float d01 = depthAt(int(std::floor(x0)), int(std::floor(z1)));
         const float d11 = depthAt(int(std::floor(x1)), int(std::floor(z1)));
-        mesh.water.insert(mesh.water.end(), {v(x0, z0, d00), v(x1, z1, d11), v(x1, z0, d10),
-                                             v(x0, z0, d00), v(x0, z1, d01), v(x1, z1, d11)});
+        mesh.water.insert(mesh.water.end(), {v(x0, z0, d00), v(x1, z1, d11), v(x1, z0, d10), v(x0, z0, d00),
+                                             v(x0, z1, d01), v(x1, z1, d11)});
     };
     for (int z = 0; z < depth; ++z) {
         if (cancelled && cancelled->load())
@@ -226,11 +230,15 @@ bool appendSeaSurface(ChunkMesh &mesh, const World &w, const FarTile &tile, cons
                 continue;
             }
             const int start = x++;
-            while (x < width && wet(x))
+            while (x < width && wet(x) &&
+                   (depthAt(r.x() + start, r.y() + z) >= 10.f / 64.f
+                        ? depthAt(r.x() + x, r.y() + z) >= 10.f / 64.f
+                        : x - start < 2))
                 ++x;
             const Run key{start, x};
             auto found = previous.find(key);
-            if (found == previous.end())
+            if (found == previous.end() ||
+                (depthAt(r.x() + start, r.y() + z) < 10.f / 64.f && found->second.height() >= 2))
                 current.emplace(key, QRect(r.x() + start, r.y() + z, x - start, 1));
             else {
                 auto rect = found->second;
@@ -308,14 +316,14 @@ MeshPtr buildInteractiveSurfaceMesh(const World &w, const FarTile &tile, const S
     std::vector<int32_t> ids(size_t(side) * (r.height() + 1), -1);
     const int cellsX = (r.width() + stride - 1) / stride;
     const int cellsZ = (r.height() + stride - 1) / stride;
-    mesh->opaque.reserve((cellsX + 1) * (cellsZ + 1) + cellsX * cellsZ +
-                         2 * (r.width() + r.height()));
+    mesh->opaque.reserve((cellsX + 1) * (cellsZ + 1) + cellsX * cellsZ + 2 * (r.width() + r.height()));
     mesh->opaqueIndices.reserve(3 * (4 * cellsX * cellsZ + 2 * (r.width() + r.height())));
     const bool left = r.x() == w.originX, right = r.x() + r.width() == w.originX + w.width - 1;
     const bool top = r.y() == w.originZ, bottom = r.y() + r.height() == w.originZ + w.depth - 1;
     auto vertex = [&](int x, int z) {
         auto &id = ids[size_t(z) * side + x];
-        if (id >= 0) return uint32_t(id);
+        if (id >= 0)
+            return uint32_t(id);
         const int wx = r.x() + x, wz = r.y() + z;
         const int h = heights[w.column(wx, wz)];
         const auto color = in.colors.at(w.blockAtHeight(wx, h, wz, h));
@@ -328,57 +336,89 @@ MeshPtr buildInteractiveSurfaceMesh(const World &w, const FarTile &tile, const S
     };
     auto triangle = [&](uint32_t a, uint32_t b, uint32_t c) {
         mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, b, c});
-        const auto &va=mesh->opaque[a], &vb=mesh->opaque[b], &vc=mesh->opaque[c];
-        auto n = QVector3D::crossProduct({vb.x-va.x,vb.y-va.y,vb.z-va.z},
-                                         {vc.x-va.x,vc.y-va.y,vc.z-va.z});
-        if(n.y()<0) n=-n;
-        for(auto k:{a,b,c}) {auto &v=mesh->opaque[k];v.nx+=n.x();v.ny+=n.y();v.nz+=n.z();}
+        const auto &va = mesh->opaque[a], &vb = mesh->opaque[b], &vc = mesh->opaque[c];
+        auto n = QVector3D::crossProduct({vb.x - va.x, vb.y - va.y, vb.z - va.z},
+                                         {vc.x - va.x, vc.y - va.y, vc.z - va.z});
+        if (n.y() < 0)
+            n = -n;
+        for (auto k : {a, b, c}) {
+            auto &v = mesh->opaque[k];
+            v.nx += n.x();
+            v.ny += n.y();
+            v.nz += n.z();
+        }
     };
     // Each coarse cell is a centre fan. Only cells touching the patch border
     // add per-column edge vertices, matching the full-resolution neighbour.
-    for(int z=0;z<r.height();z+=stride) {
-        if(cancelled && cancelled->load()) return {};
-        const int z1=std::min(z+stride,r.height());
-        for(int x=0;x<r.width();x+=stride) {
-            const int x1=std::min(x+stride,r.width());
+    for (int z = 0; z < r.height(); z += stride) {
+        if (cancelled && cancelled->load())
+            return {};
+        const int z1 = std::min(z + stride, r.height());
+        for (int x = 0; x < r.width(); x += stride) {
+            const int x1 = std::min(x + stride, r.width());
             // At most four edges of the maximum supported stride. Reuse
             // stack storage instead of allocating a vector for every cell.
             std::array<uint32_t, 128> rim;
             size_t rimCount = 0;
-            for(int xx=x;xx<x1;xx+=z==0?1:x1-x) rim[rimCount++]=vertex(xx,z);
-            for(int zz=z;zz<z1;zz+=x1==r.width()?1:z1-z) rim[rimCount++]=vertex(x1,zz);
-            for(int xx=x1;xx>x;xx-=z1==r.height()?1:x1-x) rim[rimCount++]=vertex(xx,z1);
-            for(int zz=z1;zz>z;zz-=x==0?1:z1-z) rim[rimCount++]=vertex(x,zz);
-            if(x1-x>1 && z1-z>1) {
-                const auto center=vertex((x+x1)/2,(z+z1)/2);
-                for(size_t i=0;i<rimCount;++i) triangle(center,rim[i],rim[(i+1)%rimCount]);
+            for (int xx = x; xx < x1; xx += z == 0 ? 1 : x1 - x)
+                rim[rimCount++] = vertex(xx, z);
+            for (int zz = z; zz < z1; zz += x1 == r.width() ? 1 : z1 - z)
+                rim[rimCount++] = vertex(x1, zz);
+            for (int xx = x1; xx > x; xx -= z1 == r.height() ? 1 : x1 - x)
+                rim[rimCount++] = vertex(xx, z1);
+            for (int zz = z1; zz > z; zz -= x == 0 ? 1 : z1 - z)
+                rim[rimCount++] = vertex(x, zz);
+            if (x1 - x > 1 && z1 - z > 1) {
+                const auto center = vertex((x + x1) / 2, (z + z1) / 2);
+                for (size_t i = 0; i < rimCount; ++i)
+                    triangle(center, rim[i], rim[(i + 1) % rimCount]);
             } else {
-                for(size_t i=1;i+1<rimCount;++i) triangle(rim[0],rim[i],rim[i+1]);
+                for (size_t i = 1; i + 1 < rimCount; ++i)
+                    triangle(rim[0], rim[i], rim[i + 1]);
             }
             // Temporary water covers cells touching the sea; opaque terrain
             // depth-clips the shoreline. Final per-column water replaces it.
-            bool wet=false;
-            for(size_t i=0;i<rimCount;++i) wet |= mesh->opaque[rim[i]].y<=w.seaLevel+1;
-            if(wet) {
-                const auto c=in.colors.at(Water);
-                auto v=[&](uint32_t k){auto p=mesh->opaque[k];const float terrain=p.y-1.f;p.y=float(w.seaLevel+1);p.nx=0;p.ny=1;p.nz=0;p.r=c.x();p.g=c.y();p.b=c.z();p.a=std::clamp((float(w.seaLevel)-terrain+1.f)/64.f,0.f,1.f);return p;};
-                auto a=v(vertex(x,z)), b=v(vertex(x1,z)), c0=v(vertex(x1,z1)), d=v(vertex(x,z1));
-                mesh->water.insert(mesh->water.end(),{a,b,c0,a,c0,d});
+            bool wet = false;
+            for (size_t i = 0; i < rimCount; ++i)
+                wet |= mesh->opaque[rim[i]].y <= w.seaLevel + 1;
+            if (wet) {
+                const auto c = in.colors.at(Water);
+                auto v = [&](uint32_t k) {
+                    auto p = mesh->opaque[k];
+                    const float terrain = p.y - 1.f;
+                    p.y = float(w.seaLevel + 1);
+                    p.nx = 0;
+                    p.ny = 1;
+                    p.nz = 0;
+                    p.r = c.x();
+                    p.g = c.y();
+                    p.b = c.z();
+                    p.a = std::clamp((float(w.seaLevel) - terrain) / 64.f, 0.f, 1.f);
+                    return p;
+                };
+                auto a = v(vertex(x, z)), b = v(vertex(x1, z)), c0 = v(vertex(x1, z1)), d = v(vertex(x, z1));
+                mesh->water.insert(mesh->water.end(), {a, b, c0, a, c0, d});
             }
         }
     }
-    mesh->lower={float(r.x()),float(World::MaxY),float(r.y())};
-    mesh->upper={float(r.x()+r.width()+1),float(World::MinY),float(r.y()+r.height()+1)};
-    for(auto &v:mesh->opaque) {
-        auto n=QVector3D(v.nx,v.ny,v.nz).normalized();
-        if(n.isNull()) n={0,1,0};
-        v.nx=n.x();v.ny=n.y();v.nz=n.z();
-        mesh->lower.setY(std::min(mesh->lower.y(),v.y));
-        mesh->upper.setY(std::max(mesh->upper.y(),v.y));
+    mesh->lower = {float(r.x()), float(World::MaxY), float(r.y())};
+    mesh->upper = {float(r.x() + r.width() + 1), float(World::MinY), float(r.y() + r.height() + 1)};
+    for (auto &v : mesh->opaque) {
+        auto n = QVector3D(v.nx, v.ny, v.nz).normalized();
+        if (n.isNull())
+            n = {0, 1, 0};
+        v.nx = n.x();
+        v.ny = n.y();
+        v.nz = n.z();
+        mesh->lower.setY(std::min(mesh->lower.y(), v.y));
+        mesh->upper.setY(std::max(mesh->upper.y(), v.y));
     }
-    if(!mesh->water.empty()) {mesh->lower.setY(std::min(mesh->lower.y(),float(w.seaLevel+1)));mesh->upper.setY(std::max(mesh->upper.y(),float(w.seaLevel+1)));}
-    mesh->referenceVertices=mesh->opaque.size();
-    mesh->center=(mesh->lower+mesh->upper)*.5f;
+    if (!mesh->water.empty()) {
+        mesh->lower.setY(std::min(mesh->lower.y(), float(w.seaLevel + 1)));
+        mesh->upper.setY(std::max(mesh->upper.y(), float(w.seaLevel + 1)));
+    }
+    mesh->referenceVertices = mesh->opaque.size();
+    mesh->center = (mesh->lower + mesh->upper) * .5f;
     return mesh;
 }
 MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMaterials &in, uint64_t revision,
@@ -530,6 +570,11 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMater
             mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, a + 1, a + 2, a, a + 2, a + 3});
         }
     cutExactArea(*mesh, w, exactArea);
+    if (w.generated)
+        for (const auto &hole : w.generated->surfaceHoles)
+            if (tile.area.adjusted(-1, -1, 1, 1).intersects(hole) && !exactArea.contains(hole))
+                cutExactArea(*mesh, w, hole);
+    mesh->surfaceCutout = exactArea;
     if (mesh->opaqueIndices.empty()) {
         mesh->opaque.clear();
         mesh->referenceVertices = 0;
@@ -539,10 +584,10 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMater
     mesh->lower = {float(r.x()), float(World::MaxY), float(r.y())};
     mesh->upper = {float(r.x() + r.width() + 1), float(World::MinY), float(r.y() + r.height() + 1)};
     for (const auto *vertices : {&mesh->opaque, &mesh->water})
-      for (const auto &v : *vertices) {
-        mesh->lower.setY(std::min(mesh->lower.y(), v.y));
-        mesh->upper.setY(std::max(mesh->upper.y(), v.y));
-    }
+        for (const auto &v : *vertices) {
+            mesh->lower.setY(std::min(mesh->lower.y(), v.y));
+            mesh->upper.setY(std::max(mesh->upper.y(), v.y));
+        }
     mesh->center = (mesh->lower + mesh->upper) * .5f;
     return mesh;
 }

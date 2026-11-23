@@ -33,6 +33,26 @@ QJsonArray toolList() {
         "Inspect editable bounds, protected bedrock, busy state, scene nodes and monotonic revision. "
         "Coordinates are Minecraft XYZ; Y is up.",
         {}, {}, true);
+    add("creation",
+        "Inspect or edit the shared PCG/asset/road/cave creation state. "
+        "action=inspect/new_graph/new_volume/import_asset/place_asset/road_node/edit/file/cave_analysis. "
+        "Mutations require expected_revision. edit operation=add/patch/remove/graph/replace; data uses the "
+        "inspect schema. file operation=save_graph/load_graph/save_asset/load_asset. All edits are one undo "
+        "command and use the same revision as GUI.",
+        {{"action", str},
+         {"name", str},
+         {"graph_id", str},
+         {"path", str},
+         {"asset_id", str},
+         {"kind", str},
+         {"x", integer},
+         {"y", integer},
+         {"z", integer},
+         {"id", str},
+         {"operation", str},
+         {"data", QJsonObject{{"type", "object"}}},
+         {"expected_revision", revision}},
+        {"action"}, false);
     add("catalog",
         "Search loaded version's block names, visual properties and suggested states. JAR assets do not "
         "define all gameplay defaults.",
@@ -100,11 +120,15 @@ QJsonArray toolList() {
         {"action", "expected_revision"}, false);
     add("environment",
         "Change viewport environment only (water, waterWaves, waterReflections, shadows, clouds: bool; "
-        "waveStrength/waveDensity/waveSpeed/waterDepthFade/waterFoamStrength/cloudDensity/cloudSpeed: integer 0..100; "
-        "waterFoamWidth: integer 1..32); shared undo and project persistence. Changes: enabled,sky,sun,atmosphere "
-        "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 degrees; "
+        "waveStrength/waveDensity/waveSpeed/waterDepthFade/waterFoamStrength/cloudDensity/cloudSpeed: "
+        "integer 0..100; "
+        "waterFoamWidth: integer 1..32); shared undo and project persistence. Changes: "
+        "enabled,sky,sun,atmosphere "
+        "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 "
+        "degrees; "
         "haze 0..100, exposure -30..30 tenths EV; skyColor,horizonColor,groundColor,sunColor #RRGGBB; "
-        "skyTexturePath is an optional local 2:1 equirectangular PNG/JPG. Clouds use a low-cost spherical noise layer; "
+        "skyTexturePath is an optional local 2:1 equirectangular HDR/EXR/PNG/JPG/TGA/DDS/KTX2 (HDR is "
+        "decoded with RGBE tone mapping). Clouds use a low-cost spherical noise layer; "
         "volumetric clouds and GI are not included.",
         {{"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"changes", "expected_revision"}, false);

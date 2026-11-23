@@ -346,7 +346,21 @@ bool AssetLibrary::validate(const BlockState &state, QString &error) const {
         error = "方块不在已加载目录中：" + state.name;
         return false;
     }
+    static const QJsonObject gameplay = [] {
+        QFile f(":/translations/block_properties_1.20.1.json");
+        if (!f.open(QIODevice::ReadOnly))
+            return QJsonObject{};
+        return QJsonDocument::fromJson(f.readAll()).object();
+    }();
+    const auto known = version == "1.20.1" ? gameplay[state.name].toObject() : QJsonObject{};
     for (auto p = state.properties.begin(); p != state.properties.end(); ++p) {
+        if (known.contains(p.key())) {
+            if (!known[p.key()].toArray().contains(p.value())) {
+                error = "无效游戏方块状态：" + state.label();
+                return false;
+            }
+            continue;
+        }
         if (it->options.contains(p.key()) && !it->options[p.key()].contains(p.value())) {
             error = "无效方块状态：" + state.label();
             return false;

@@ -67,7 +67,8 @@ bool Editor::applySurfaceTheme(const QVariantMap &values) {
     command.themeAfter = std::make_shared<const wb::SurfaceTheme>(std::move(next));
     m_world.apply(command, true);
     ++m_revision;
-    dirtyCommand(command);
+    if (!dirtyCommand(command))
+        return false;
     pushCommand(std::move(command));
     m_status = "已应用地表主题 · 高度变化会重新匹配材料 · Ctrl+Z 撤销";
     emit changed();

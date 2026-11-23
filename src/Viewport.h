@@ -24,6 +24,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(bool rawActive READ rawActive NOTIFY cameraChanged)
     Q_PROPERTY(double sensitivity READ sensitivity WRITE setSensitivity NOTIFY cameraChanged)
     Q_PROPERTY(bool flightInertia READ flightInertia WRITE setFlightInertia NOTIFY cameraChanged)
+    Q_PROPERTY(QVariantList creationOverlay READ creationOverlay NOTIFY cameraChanged)
     Q_PROPERTY(QVariantMap gizmoOverlay READ gizmoOverlay NOTIFY cameraChanged)
     Q_PROPERTY(int gizmoMode READ gizmoMode WRITE setGizmoMode NOTIFY cameraChanged)
     Q_PROPERTY(bool snapEnabled READ snapEnabled WRITE setSnapEnabled NOTIFY cameraChanged)
@@ -45,6 +46,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
     void applyCamera(const QJsonObject &arguments);
     QVariantMap gizmoOverlay() const;
+    QVariantList creationOverlay() const;
+    Q_INVOKABLE bool dropAsset(const QString &id, double x, double y);
     int gizmoMode() const { return m_gizmoMode; }
     Q_INVOKABLE void setGizmoMode(int mode);
     bool gizmoDragging() const { return m_gizmoDragging; }

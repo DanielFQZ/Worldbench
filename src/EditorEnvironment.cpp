@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "core/SkyImage.h"
 
 QVariantMap Editor::environmentDetails() const {
     return wb::saveEnvironment(m_world.environment).toVariantMap();
@@ -35,9 +36,22 @@ bool Editor::setEnvironment(const QVariantMap &changes) {
         return false;
     wb::Environment next;
     QString error;
-    if (!wb::patchEnvironment(m_world.environment, QJsonObject::fromVariantMap(changes), next, error)) {
+    auto normalized = changes;
+    if (normalized.contains("skyTexturePath")) {
+        const QUrl url(normalized.value("skyTexturePath").toString());
+        if (url.isLocalFile())
+            normalized["skyTexturePath"] = url.toLocalFile();
+    }
+    if (!wb::patchEnvironment(m_world.environment, QJsonObject::fromVariantMap(normalized), next, error)) {
         emit failure(error);
         return false;
+    }
+    if (changes.contains("skyTexturePath") && !next.skyTexturePath.isEmpty()) {
+        QString skyError;
+        if (wb::loadSkyImage(next.skyTexturePath, skyError).isNull()) {
+            emit failure(skyError);
+            return false;
+        }
     }
     if (next == m_world.environment)
         return true;

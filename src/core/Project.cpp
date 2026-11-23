@@ -59,6 +59,7 @@ QJsonObject projectMetadata(const World &w, bool inlinePayload) {
                      {"palette", palette},
                      {"resources", paths},
                      {"resourceVersion", w.resourceVersion}};
+    root["creation"] = saveCreation(w.creation);
     return root;
 }
 bool loadLegacyProject(const QString &path, World &world, QString &error) {
@@ -273,6 +274,10 @@ bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, P
         w.overrides = std::move(payload->overrides);
     }
     if (format >= 8 && !loadEnvironment(o["environment"].toObject(), w.environment, error))
+        return false;
+    if (o.contains("creation") && !loadCreation(o["creation"].toObject(), w.creation, error))
+        return false;
+    if (!w.rebuildCreation(error))
         return false;
     world = std::move(w);
     return true;
