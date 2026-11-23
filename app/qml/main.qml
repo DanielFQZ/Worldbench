@@ -9,7 +9,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.20.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.21.0"
     flags: Qt.platform.os === "windows" ? Qt.FramelessWindowHint | Qt.Window : Qt.Window
     color: Theme.window
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
@@ -19,17 +19,70 @@ ApplicationWindow {
     palette.placeholderText: Theme.muted
     palette.highlight: Theme.selectionHover; palette.highlightedText: Theme.text
     palette.light: Theme.border; palette.midlight: Theme.raised; palette.mid: Theme.border; palette.dark: Theme.field; palette.shadow: Theme.divider
-    property int workspacePage: 0
-    property int creationPage: 0
+    ListModel { id: openTabs }
+    property string activeId: ""
+    readonly property bool inScene: activeId === ""
+    readonly property int openAssetCount: openTabs.count
+    property var catalog: editor.libraryAssets
+    readonly property var activeAsset: activeId === "@road" ? {id:"@road",kind:"road",name:"道路网络"} :
+                                               catalog.find(a => a.id === activeId) || {}
     property bool restoreSceneDock: true
-    property int priorWorkspacePage: 0
-    onWorkspacePageChanged: {
-        if (priorWorkspacePage === 0 && workspacePage > 0) restoreSceneDock = worldDock.isOpen
-        if (workspacePage > 0) {
-            creationPage = workspacePage - 1
-            if (worldDock.isOpen) worldDock.close()
-        } else if (restoreSceneDock) worldDock.open()
-        priorWorkspacePage = workspacePage
+    function activate(id) {
+        if (activeId === id) return
+        if (inScene && id) restoreSceneDock = worldDock.isOpen
+        activeId = id
+        if (activeAsset.kind === "terrain") editor.selectedNode = id
+        if (id && worldDock.isOpen) worldDock.close()
+        else if (!id && restoreSceneDock) worldDock.open()
+    }
+    function openAsset(id) {
+        const asset = id === "@road" ? {id:id,name:"道路网络"} : editor.libraryAssets.find(a => a.id === id)
+        if (!asset) return
+        for (let i=0; i<openTabs.count; ++i)
+            if (openTabs.get(i).assetId === id) { activate(id); tabStrip.positionViewAtIndex(i,ListView.Contain); return }
+        openTabs.append({assetId:id,caption:asset.name})
+        activate(id)
+        tabStrip.positionViewAtEnd()
+    }
+    function closeTab(id) {
+        for (let i=0; i<openTabs.count; ++i) {
+            if (openTabs.get(i).assetId !== id) continue
+            if (activeId === id) activate("")
+            openTabs.remove(i)
+            break
+        }
+    }
+    function syncTabs() {
+        for (let i=openTabs.count-1; i>=0; --i) {
+            const tab=openTabs.get(i)
+            if (tab.assetId === "@road") continue
+            const asset=catalog.find(a => a.id === tab.assetId)
+            if (!asset) closeTab(tab.assetId)
+            else if (asset.name !== tab.caption) openTabs.setProperty(i,"caption",asset.name)
+        }
+    }
+    onCatalogChanged: if (openTabs.count) syncTabs()
+    Connections { target:editor; function onWorldReset(){win.activate("");openTabs.clear()} }
+    function newGraph(material) {
+        if (editor.createPcgGraph("",material)) openAsset(editor.pcgGraphs[editor.pcgGraphs.length-1].id)
+    }
+    function importAsset() {
+        structureFile.currentFolder=editor.dialogFolder("structureImport")
+        structureFile.open()
+    }
+    FileDialog {
+        id:structureFile; title:"导入资产"
+        nameFilters:["结构或 PCG (*.schem *.schematic *.nbt *.json *.wbasset *.wbpcg)"]
+        onRejected:editor.rememberDialogFolder("structureImport",currentFolder,true)
+        onAccepted:{
+            editor.rememberDialogFolder("structureImport",selectedFile)
+            const before=editor.libraryAssets.map(a=>a.id)
+            const graph=String(selectedFile).toLowerCase().endsWith(".wbpcg")
+            if (graph ? editor.creationFile("load_graph","",selectedFile) : editor.importStructureAsset(selectedFile)) {
+                const imported=editor.libraryAssets.find(a=>!before.includes(a.id) && (!graph || a.collection==="graphs"))
+                if(imported) win.openAsset(imported.id)
+            }
+        }
     }
     property string pendingAction: ""
     property int shortcutRevision: 0
@@ -39,8 +92,8 @@ ApplicationWindow {
         const item = activeFocusItem
         return item && (typeof item.selectAll === "function" || typeof item.inputMethodComposing === "boolean")
     }
-    Shortcut {sequence:win.shortcut("clearSelection");enabled:!win.editingText()&&!editor.commandBusy;onActivated:if(!editor.commandBusy)editor.clearSelection()}
-    Shortcut {sequence:win.shortcut("deleteTerrain");enabled:!win.editingText()&&!editor.commandBusy&&!editor.exportBusy&&editor.terrainDetails.valid;onActivated:if(!editor.commandBusy)editor.removeTerrain()}
+    Shortcut {sequence:win.shortcut("clearSelection");enabled:win.inScene&&!win.editingText()&&!editor.commandBusy;onActivated:if(!editor.commandBusy)editor.clearSelection()}
+    Shortcut {sequence:win.shortcut("deleteTerrain");enabled:win.inScene&&!win.editingText()&&!editor.commandBusy&&!editor.exportBusy&&editor.terrainDetails.valid;onActivated:if(!editor.commandBusy)editor.removeTerrain()}
     property url pendingProject: ""
     function requestProjectDrop(urls) {
         if (!editor.acceptsProjectDrop(urls)) return false
@@ -100,7 +153,7 @@ ApplicationWindow {
                 Text { anchors.centerIn: parent; text: "W"; color: Theme.text; font.bold: true; font.pixelSize: 15 }
             }
             Text {
-                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.20.0"
+                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.21.0"
                 color: Theme.text
                 font.pixelSize: 13
                 elide: Text.ElideRight
@@ -147,7 +200,7 @@ ApplicationWindow {
             Action { text: "撤销    Ctrl+Z"; enabled: editor.canUndo && !editor.assetBusy; onTriggered: editor.undo() }
             Action { text: "重做    Ctrl+Y"; enabled: editor.canRedo && !editor.assetBusy; onTriggered: editor.redo() }
             Action {text:"清除选区    Ctrl+D";enabled:editor.selection.valid&&!editor.commandBusy;onTriggered:editor.clearSelection()}
-            Action {text:"删除地貌实例    Delete";enabled:editor.terrainDetails.valid&&!editor.commandBusy&&!editor.exportBusy;onTriggered:editor.removeTerrain()}
+            Action {text:"删除地貌实例    Delete";enabled:win.inScene&&editor.terrainDetails.valid&&!editor.commandBusy&&!editor.exportBusy;onTriggered:editor.removeTerrain()}
             MenuSeparator {}
             Action { text: "偏好设置…"; onTriggered: { settingsContent.page = "camera"; settingsDialog.open() } }
         }
@@ -167,13 +220,14 @@ ApplicationWindow {
         }
         WorkbenchMenu {
             title: "创作"
-            Action { text: "PCG 节点工作区"; onTriggered: win.workspacePage=1 }
-            Action { text: "资产与洞穴编辑"; onTriggered: win.workspacePage=2 }
-            Action { text: "道路网络"; onTriggered: win.workspacePage=3 }
+            Action { text:"新建 PCG 图"; enabled:!editor.commandBusy; onTriggered:win.newGraph(false) }
+            Action { text:"新建地表材质"; enabled:!editor.commandBusy; onTriggered:win.newGraph(true) }
+            Action { text:"导入资产…"; enabled:!editor.commandBusy; onTriggered:win.importAsset() }
+            Action { text:"道路网络"; onTriggered:win.openAsset("@road") }
         }
         WorkbenchMenu {
             title: "视图"
-            Action { text: "场景大纲 / 详细信息"; onTriggered: { win.workspacePage=0; worldDock.open(); win.restoreSceneDock=true } }
+            Action { text: "场景大纲 / 详细信息"; onTriggered: { win.activate(""); worldDock.open(); win.restoreSceneDock=true } }
             Action { text: "跳转至坐标…"; onTriggered: jumpDialog.open() }
             Action { text: "矩形选区"; onTriggered: editor.tool=6 }
             Action { text: "重置视角"; onTriggered: if(editor.cameraController) editor.cameraController.resetCamera() }
@@ -191,25 +245,41 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.20.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.21.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
       Rectangle {
         width:parent.width; height:34; color:Theme.window
         RowLayout {
             anchors.fill:parent; spacing:0
-            TabBar {
-                id:workspaceTabs;objectName:"workspaceTabs"
-                Layout.fillHeight:true; Layout.preferredWidth:440
-                currentIndex:win.workspacePage
-                background:Rectangle{color:Theme.window}
-                Repeater {
-                    model:["场景","PCG 节点","资产 / 洞穴","道路"]
-                    WorkbenchTabButton {required property string modelData;required property int index;objectName:"workspaceTab"+index;text:modelData;onClicked:win.workspacePage=index}
+            WorkbenchButton {
+                objectName:"sceneTab";text:"场景";flat:true;checked:win.inScene;Layout.preferredWidth:84;Layout.fillHeight:true
+                onClicked:win.activate("")
+            }
+            ListView {
+                id:tabStrip;objectName:"workspaceTabs";Layout.fillWidth:true;Layout.fillHeight:true
+                orientation:ListView.Horizontal;clip:true;model:openTabs
+                delegate:Rectangle {
+                    id:tab;required property string assetId;required property string caption
+                    width:Math.min(235,Math.max(130,label.implicitWidth+52));height:tabStrip.height
+                    color:win.activeId===assetId?Theme.raised:Theme.window
+                    RowLayout {
+                        anchors.fill:parent;spacing:0
+                        WorkbenchButton {
+                            id:label;objectName:"openTab-"+tab.assetId;text:tab.caption
+                            flat:true;Layout.fillWidth:true;Layout.minimumWidth:0;Layout.fillHeight:true
+                            onClicked:win.activate(tab.assetId)
+                        }
+                        WorkbenchButton {
+                            objectName:"closeTab-"+tab.assetId;text:"×";flat:true
+                            Layout.preferredWidth:26;Layout.fillHeight:true
+                            Accessible.name:"关闭 "+tab.caption
+                            onClicked:win.closeTab(tab.assetId)
+                        }
+                    }
+                    Rectangle{anchors.bottom:parent.bottom;width:parent.width;height:2;color:win.activeId===tab.assetId?Theme.accent:Theme.divider}
                 }
             }
-            Item{Layout.fillWidth:true}
-            Label {text:["地形与场景编辑","程序化生成","结构资产编辑","道路网络编辑"][win.workspacePage];color:Theme.muted;font.pixelSize:11;Layout.rightMargin:16}
         }
         Rectangle{anchors.bottom:parent.bottom;width:parent.width;height:1;color:Theme.divider}
       }
@@ -241,10 +311,10 @@ ApplicationWindow {
     SurfaceThemeDialog{id:surfaceThemeDialog}
     RowLayout {
         anchors.fill: parent; spacing: 0
-        ToolRail { visible:win.workspacePage===0; Layout.preferredWidth: 46; Layout.fillHeight: true }
+        ToolRail { visible:win.inScene; Layout.preferredWidth: 46; Layout.fillHeight: true }
         Pane {
             objectName: "leftBrushSettings"
-            visible: win.workspacePage===0 && editor.tool >= 0
+            visible: win.inScene && editor.tool >= 0
             Layout.preferredWidth: 256; Layout.fillHeight: true; padding: 0
             background: Rectangle { color: Theme.panel; border.color: Theme.border }
             ScrollView {
@@ -258,14 +328,18 @@ ApplicationWindow {
             options: KDDW.KDDockWidgets.MainWindowOption_HasCentralWidget
             persistentCentralItemComponent: Item {
                 anchors.fill:parent
-                ViewportPane { id:sceneViewport;visible:win.workspacePage===0; onAssetsRequested:win.workspacePage=2 }
-                CreationPanel {
-                    anchors.fill:parent;visible:win.workspacePage>0;embedded:true
-                    page:win.creationPage
-                    onPageChanged:{win.creationPage=page;if(win.workspacePage>0)win.workspacePage=page+1}
-                    onPlaceRequested:win.workspacePage=0
+                ViewportPane {
+                    id:sceneViewport;visible:win.inScene
+                    onAssetRequested:id=>win.openAsset(id)
+                    onImportRequested:win.importAsset()
+                    onGraphRequested:material=>win.newGraph(material)
                 }
-                Connections {target:win;function onWorkspacePageChanged(){if(win.workspacePage===0)Qt.callLater(function(){sceneViewport.focusViewport()})}}
+                CreationPanel {
+                    anchors.fill:parent;visible:!win.inScene;asset:win.activeAsset
+                    onPlaceRequested:win.activate("")
+                    onAssetRequested:id=>win.openAsset(id)
+                }
+                Connections {target:win;function onInSceneChanged(){if(win.inScene)Qt.callLater(function(){sceneViewport.focusViewport()})}}
             }
             KDDW.DockWidget { id: worldDock; uniqueName: "world-info"; source: "qrc:/WorldPanel.qml" }
             Component.onCompleted: {
@@ -317,17 +391,6 @@ ApplicationWindow {
         anchors.centerIn: parent; standardButtons: Dialog.Close
         contentItem: SettingsPanel { id: settingsContent; objectName: "settingsContent" }
     }
-    Popup {
-        anchors.centerIn:parent;visible:editor.creationBusy;modal:true;closePolicy:Popup.NoAutoClose;width:400;height:170
-        background:Rectangle{color:Theme.panel;border.color:Theme.border;radius:8}
-        ColumnLayout {anchors.fill:parent;Label{text:"正在生成 PCG / 资产 / 道路";color:Theme.text}ProgressBar{Layout.fillWidth:true;from:0;to:100;value:editor.creationProgress}Label{text:"完成后一次提交；当前工程保持可恢复。";color:Theme.secondary}WorkbenchButton {text:"取消";enabled:editor.creationCancellable;onClicked:editor.cancelCreation()}}
-    }
-    Item {
-        // Stable automation entry point; the content now lives in workspace tabs.
-        id:creationDialog;objectName:"creationWorkspace"
-        function open(){win.workspacePage=win.creationPage+1}
-        function close(){win.workspacePage=0}
-    }
     Dialog {
         id: mcpDialog; title: "MCP / LLM 接入"; modal: true; width: 670; anchors.centerIn: parent
         standardButtons: Dialog.Close
@@ -348,7 +411,9 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 14; spacing: 12
             Rectangle { width: 6; height: 6; radius: 3; color: editor.meshBusy ? "#e4b763" : Theme.accent }
-            Label { text: editor.regionBusy ? editor.regionStatus : editor.status; color: Theme.secondary; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+            Label { text: editor.creationBusy ? "正在更新创作对象" : editor.regionBusy ? editor.regionStatus : editor.status; color: Theme.secondary; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideMiddle }
+            ProgressBar {objectName:"creationProgressBar";visible:editor.creationBusy;from:0;to:100;value:editor.creationProgress;Layout.preferredWidth:140}
+            WorkbenchButton {text:"取消生成";visible:editor.creationBusy && editor.creationCancellable;implicitHeight:28;onClicked:editor.cancelCreation()}
             ProgressBar {objectName:"regionProgressBar";visible:editor.regionBusy;from:0;to:100;value:editor.regionProgress;Layout.preferredWidth:140}
             WorkbenchButton {objectName:"cancelRegionButton";text:"取消区域操作";visible:editor.regionBusy;implicitHeight:28;onClicked:editor.cancelRegion()}
             Label { objectName:"backgroundBuildStatus";text: editor.exportBusy ? "烘焙 " + editor.exportProgress + "%" : editor.meshBusy ? "网格更新中" : "就绪"; color: Theme.accent; font.pixelSize: 11 }

@@ -1,0 +1,24 @@
+{
+  "version": "0.21.0",
+  "baseline": "edba570",
+  "ctest": {
+    "passed": 15,
+    "failed": 0
+  },
+  "client_jar": "1.20.1",
+  "real_jar_checks": 1311,
+  "desktop_stdio_checks_on_current_3072_project_copy": 2154,
+  "original_project_sha256": "cb6af039b9a6369c0dd518e64675692b1403df31a140d3d92e07eb21ac18341e",
+  "tree_scale": [
+    8,
+    8,
+    8
+  ],
+  "tree_height": 80,
+  "exact_tree_vertex_bytes": 4331520,
+  "near_asset_triangles_before": 68250,
+  "near_asset_triangles_after": 16450,
+  "far_asset_triangles_after": 6160,
+  "package_smoke": "3072 map copy opened and rendered",
+  "user_acceptance": "pending"
+}

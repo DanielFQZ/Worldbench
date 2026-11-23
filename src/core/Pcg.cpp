@@ -385,6 +385,9 @@ bool validateCreation(const CreationState &s, QString &error) {
     };
     for (auto &a : s.assets) {
         assets.insert(a.id);
+        if (!a.category.isEmpty() && a.category != "plant" && a.category != "building" &&
+            a.category != "cave")
+            return fail("结构资产分类无效");
         if (!validTransform(a.defaultRotation, a.defaultScale) || a.groundBlend < 0 || a.groundBlend > 2)
             return fail("资产默认变换或地基模式无效");
         for (int axis = 0; axis < 3; ++axis)

@@ -197,6 +197,29 @@ int main(int argc, char **argv) {
                 std::cout << "Stay True: " << pack->skippedEntries << " skipped, " << pack->unsupportedEntries
                           << " unsupported, " << pack->catalog.size() << " catalog entries\n";
             }
+            {
+                auto world = wb::World::create(64);
+                world.setAssets(real);
+                auto birch = real->catalog["minecraft:birch_leaves"].defaults;
+                auto oak = real->catalog["minecraft:oak_leaves"].defaults;
+                oak.properties["persistent"] = "true";
+                world.setBlock(-1, 220, 0, world.intern(birch));
+                world.setBlock(0, 220, 0, world.intern(oak));
+                for (int cx : {-1, 0}) {
+                    auto mesh = wb::buildChunkMesh(world, cx, 0, 1);
+                    const auto exterior = std::count_if(mesh->opaque.begin(), mesh->opaque.end(),
+                                                        [](const auto &v) { return v.y >= 220; });
+                    check(exterior == 30, "mixed leaves across chunk edge expose five faces each");
+                }
+                wb::StructureAsset pair;
+                pair.blocks.push_back({0, 0, 0, birch.label()});
+                pair.blocks.push_back({1, 0, 0, oak.label()});
+                check(wb::buildAssetGhost(world, pair)->opaque.size() == 60,
+                      "ghost culls only shared leaf faces");
+                check(!real->model(oak)->hidesFace(
+                          *real->model(real->catalog["minecraft:oak_fence"].defaults), false),
+                      "partial resource model preserves neighboring foliage");
+            }
             auto gallery = wb::World::create(32);
             gallery.heights.fill(4);
             gallery.overrides.clear();

@@ -205,6 +205,7 @@ class Editor : public QObject {
     Q_INVOKABLE void beginCreationTransform();
     void previewCreationTransform(const QVariantMap &changes);
     Q_INVOKABLE void endCreationTransform(bool cancel = false);
+    Q_INVOKABLE QVariantList rangeDependencies(const QString &id) const;
     QVariantList pcgGraphs() const;
     QVariantList pcgVolumes() const;
     QVariantList structureAssets() const;
@@ -212,7 +213,7 @@ class Editor : public QObject {
     QVariantList roadNodes() const;
     QVariantList roadEdges() const;
     QVariantList caveMarkers() const;
-    Q_INVOKABLE bool createPcgGraph(const QString &name = QString());
+    Q_INVOKABLE bool createPcgGraph(const QString &name = QString(), bool surfaceMaterial = false);
     Q_INVOKABLE bool addPcgVolume(const QString &graphId = QString());
     Q_INVOKABLE bool connectPcgNodes(const QString &graphId, const QString &fromNode, const QString &fromPort,
                                      const QString &toNode, const QString &toPort);
@@ -303,6 +304,7 @@ class Editor : public QObject {
     void saveBrushProfile();
     void restoreBrushProfile();
     void initializeTerrainImporter();
+    bool placeGraphVolume(const QString &graphId, QVector3D center);
     int selectedTerrainIndex() const;
     void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
     void commitLayers(std::vector<wb::SculptLayer> next, const QString &label);

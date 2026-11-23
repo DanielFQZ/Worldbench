@@ -7,18 +7,28 @@ import "Theme.js" as Theme
 Rectangle {
     id:root
     property var viewport
+    // Qt delivers editor notifications during a drag. Keep delegates alive for
+    // focus, double-click recognition and pointer grabs until the catalog changes.
+    property string inventorySignature:JSON.stringify(editor.libraryAssets)
+    readonly property var entries:JSON.parse(inventorySignature)
     property bool expanded:false
-    signal editorRequested()
+    signal editorRequested(string id)
+    signal importRequested()
+    signal graphRequested(bool material)
+    function kindName(kind) {
+        return ({graph:"PCG 图",range:"PCG 范围预设",plant:"植物",building:"建筑",cave:"洞穴",material:"地表材质",terrain:"地形实例"})[kind] || kind
+    }
     color:Theme.window
     property string saveId:""
     property bool dragActive:false
     property bool dragCancelled:false
     Shortcut{sequence:"Esc";enabled:root.dragActive;onActivated:{root.dragCancelled=true;root.dragActive=false;root.viewport.clearAssetPreview()}}
-    Menu {id:assetMenu;property string assetId;property bool pcg
-        MenuItem{text:"导出资产预设…";onTriggered:{root.saveId=assetMenu.assetId;saveAsset.currentFolder=editor.dialogFolder("assetPresetSave");saveAsset.open()}}
-        MenuItem{text:"从资产库删除";onTriggered:editor.creationEdit("remove",{kind:assetMenu.pcg?"pcgAssets":"assets",id:assetMenu.assetId})}
+    Menu {id:assetMenu;property string assetId;property string collection
+        MenuItem{text:"编辑资产";onTriggered:root.editorRequested(assetMenu.assetId)}
+        MenuItem{text:"导出资产…";visible:assetMenu.collection!=="terrains";onTriggered:{root.saveId=assetMenu.assetId;saveAsset.currentFolder=editor.dialogFolder("assetPresetSave");saveAsset.open()}}
+        MenuItem{text:"从资产库删除";visible:assetMenu.collection!=="terrains";onTriggered:editor.creationEdit("remove",{kind:assetMenu.collection,id:assetMenu.assetId})}
     }
-    FileDialog{id:saveAsset;fileMode:FileDialog.SaveFile;nameFilters:["Worldbench 资产 (*.wbasset)"];onAccepted:{editor.rememberDialogFolder("assetPresetSave",selectedFile);editor.saveAssetPreset(root.saveId,selectedFile)}
+    FileDialog{id:saveAsset;fileMode:FileDialog.SaveFile;nameFilters:assetMenu.collection==="graphs"?["Worldbench PCG (*.wbpcg)"]:["Worldbench 资产 (*.wbasset)"];onAccepted:{editor.rememberDialogFolder("assetPresetSave",selectedFile);editor.creationFile(assetMenu.collection==="graphs"?"save_graph":"save_asset",root.saveId,selectedFile)}
         onRejected:editor.rememberDialogFolder("assetPresetSave",currentFolder,true)}
     ColumnLayout {
         anchors.fill:parent;spacing:0
@@ -27,10 +37,16 @@ Rectangle {
             RowLayout {
                 anchors.fill:parent;anchors.leftMargin:6;anchors.rightMargin:8;spacing:8
                 WorkbenchButton {objectName:"assetShelfToggle";text:(root.expanded?"▾  ":"▸  ")+"资产库";flat:true;implicitHeight:28;checkable:true;checked:root.expanded;onClicked:root.expanded=!root.expanded}
-                Label{text:editor.libraryAssets.length+" 项";color:Theme.muted;font.pixelSize:11}
+                Label{text:root.entries.length+" 项";color:Theme.muted;font.pixelSize:11}
                 Item{Layout.fillWidth:true}
                 WorkbenchTextField {id:search;visible:root.expanded;Layout.preferredWidth:180;implicitHeight:24;placeholderText:"搜索资产…"}
-                WorkbenchButton {visible:root.expanded;text:"管理资产 ↗";flat:true;implicitHeight:26;onClicked:root.editorRequested()}
+                WorkbenchButton {visible:root.expanded;text:"+ 新建";flat:true;implicitHeight:26;onClicked:createMenu.popup()
+                    Menu{id:createMenu
+                        MenuItem{text:"PCG 图";onTriggered:root.graphRequested(false)}
+                        MenuItem{text:"地表材质";onTriggered:root.graphRequested(true)}
+                    }
+                }
+                WorkbenchButton {visible:root.expanded;text:"导入…";flat:true;implicitHeight:26;onClicked:root.importRequested()}
             }
         }
         Item {
@@ -38,10 +54,10 @@ Rectangle {
             GridView {
                 id:grid;objectName:"assetShelfGrid";anchors.fill:parent;anchors.margins:10
                 clip:true;cellWidth:150;cellHeight:142
-                model:root.expanded?editor.libraryAssets.filter(a=>!search.text||a.name.toLowerCase().indexOf(search.text.toLowerCase())>=0):[]
+                model:root.expanded?root.entries.filter(a=>!search.text||a.name.toLowerCase().indexOf(search.text.toLowerCase())>=0):[]
                 ScrollBar.vertical:ScrollBar{}
                 delegate:Rectangle {
-                    id:card;required property var modelData
+                    id:card;required property var modelData;objectName:"libraryCard-"+modelData.id
                     width:140;height:132;radius:3;color:drag.hovered?Theme.hover:Theme.panel;border.color:drag.dragging?Theme.accent:Theme.border
                     Column {
                         anchors.fill:parent;anchors.margins:9;spacing:5
@@ -53,7 +69,7 @@ Rectangle {
                             }
                         }
                         Text {text:card.modelData.name;width:parent.width;elide:Text.ElideRight;color:Theme.text;font.pixelSize:12}
-                        Text {text:(card.modelData.kind==="pcg"?"PCG · ":"")+card.modelData.width+" × "+card.modelData.height+" × "+card.modelData.depth;width:parent.width;elide:Text.ElideRight;color:Theme.muted;font.pixelSize:10}
+                        Text {text:root.kindName(card.modelData.kind)+(card.modelData.collection==="graphs"?"":" · "+card.modelData.width+" × "+card.modelData.height+" × "+card.modelData.depth);width:parent.width;elide:Text.ElideRight;color:Theme.muted;font.pixelSize:10}
                     }
                     MouseArea {
                         id:drag;anchors.fill:parent;hoverEnabled:true;preventStealing:true
@@ -62,7 +78,7 @@ Rectangle {
                         readonly property bool hovered:containsMouse
                         acceptedButtons:Qt.LeftButton|Qt.RightButton
                         cursorShape:dragging?Qt.DragCopyCursor:Qt.OpenHandCursor
-                        onPressed:function(mouse){if(mouse.button===Qt.RightButton){assetMenu.assetId=card.modelData.id;assetMenu.pcg=card.modelData.kind==="pcg";assetMenu.popup();return;}root.dragCancelled=false;startPoint=Qt.point(mouse.x,mouse.y);dragging=false}
+                        onPressed:function(mouse){if(mouse.button===Qt.RightButton){assetMenu.assetId=card.modelData.id;assetMenu.collection=card.modelData.collection;assetMenu.popup();return;}root.dragCancelled=false;startPoint=Qt.point(mouse.x,mouse.y);dragging=false}
                         onPositionChanged:function(mouse){
                             if((pressedButtons&Qt.LeftButton)&&Math.hypot(mouse.x-startPoint.x,mouse.y-startPoint.y)>8){dragging=true;root.dragActive=true}
                             if(dragging&&!root.dragCancelled&&root.viewport){let p=mapToItem(root.viewport,mouse.x,mouse.y);root.viewport.previewAsset(card.modelData.id,p.x,p.y)}
@@ -77,15 +93,15 @@ Rectangle {
                             if(shouldDrop){if(p.x>=0&&p.x<root.viewport.width&&p.y>=0&&p.y<root.viewport.height){root.viewport.forceActiveFocus();root.viewport.dropAsset(assetId,p.x,p.y)}else root.viewport.clearAssetPreview()}
                         }
                         onCanceled:{dragging=false;root.dragActive=false;if(root.viewport)root.viewport.clearAssetPreview()}
-                        onDoubleClicked:{editor.beginPlacement(card.modelData.id);root.viewport.forceActiveFocus()}
+                        onDoubleClicked:root.editorRequested(card.modelData.id)
                     }
-                    ToolTip.visible:drag.containsMouse&&!drag.pressed;ToolTip.delay:700;ToolTip.text:card.modelData.name+" · 拖入地表放置，或双击后点击地表"
+                    ToolTip.visible:drag.containsMouse&&!drag.pressed;ToolTip.delay:700;ToolTip.text:card.modelData.name+" · 双击编辑，拖入地表放置"
                 }
             }
             Column {
                 anchors.centerIn:parent;spacing:10;visible:grid.count===0
                 Label {anchors.horizontalCenter:parent.horizontalCenter;text:search.text?"没有匹配的资产":"将结构、树木和洞穴收纳到资产库";color:Theme.secondary}
-                WorkbenchButton {anchors.horizontalCenter:parent.horizontalCenter;visible:!search.text;text:"导入第一个资产";onClicked:root.editorRequested()}
+                WorkbenchButton {anchors.horizontalCenter:parent.horizontalCenter;visible:!search.text;text:"导入第一个资产";onClicked:root.importRequested()}
             }
         }
     }

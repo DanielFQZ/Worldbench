@@ -107,17 +107,17 @@ int main(int argc, char **argv) {
         const auto tabCamera = v->camera();
         auto *diagnostics = win->findChild<QQuickItem *>("viewportDiagnostics");
         check(diagnostics && !diagnostics->isVisible(), "technical viewport statistics start collapsed");
-        for (int page : {1, 2, 3, 0}) {
-            auto *tab = visualItem(win->contentItem(), "workspaceTab" + QString::number(page));
-            check(tab, "workspace tab is accessible");
-            QTest::mouseClick(win, Qt::LeftButton, Qt::NoModifier,
-                              tab->mapToScene({tab->width() / 2, tab->height() / 2}).toPoint());
-            QTest::qWait(80);
-            check(win->property("workspacePage").toInt() == page &&
-                      win->findChild<Viewport *>("voxelViewport") == v && v->camera() == tabCamera,
-                  "workspace tabs retain scene identity and camera");
-            check(v->isVisible() == (page == 0), "only active workspace is visible");
-        }
+        check(win->property("openAssetCount").toInt() == 0, "scene is the only initial tab");
+        QMetaObject::invokeMethod(win, "openAsset", Q_ARG(QVariant, QString("@road")));
+        QTest::qWait(80);
+        check(!v->isVisible() && win->property("activeId") == "@road", "road editor opens on demand");
+        auto *closeRoad = visualItem(win->contentItem(), "closeTab-@road");
+        check(closeRoad, "road editor tab has a close button");
+        QTest::mouseClick(win, Qt::LeftButton, Qt::NoModifier, closeRoad->mapToScene({10, 12}).toPoint());
+        QTest::qWait(80);
+        check(win->property("openAssetCount").toInt() == 0 && v->isVisible() &&
+                  win->findChild<Viewport *>("voxelViewport") == v && v->camera() == tabCamera,
+              "closing the editor returns to the original scene camera");
         check(win->findChild<QQuickItem *>("sceneOutliner")->isVisible(),
               "returning to scene restores the docked outliner");
         auto *library = win->findChild<QQuickItem *>("assetShelf");

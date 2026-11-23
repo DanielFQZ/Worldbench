@@ -614,6 +614,7 @@ std::shared_ptr<const BlockModel> AssetLibrary::model(const BlockState &state) c
         fallback->thumbnail = m->thumbnail;
         return fallback;
     }
+    m->leafCube = m->full && state.name.endsWith("_leaves");
     // Alpha-cutout textures (leaves, plants, glass panes) cannot occlude adjacent blocks.
     if (state.name.contains("leaves") || state.name.contains("glass") || m->translucent)
         m->full = false;

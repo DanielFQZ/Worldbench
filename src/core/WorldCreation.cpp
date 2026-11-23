@@ -73,7 +73,7 @@ QJsonObject PcgGraph::toJson() const {
     for (const auto &c : connections)
         cs.append(QJsonObject{
             {"fromNode", c.fromNode}, {"fromPort", c.fromPort}, {"toNode", c.toNode}, {"toPort", c.toPort}});
-    return {{"id", id},           {"name", name}, {"version", version},
+    return {{"id", id},           {"name", name}, {"version", version}, {"surfaceMaterial", surfaceMaterial},
             {"enabled", enabled}, {"nodes", ns},  {"connections", cs}};
 }
 bool PcgGraph::fromJson(const QJsonObject &o, PcgGraph &out, QString &error) {
@@ -84,6 +84,7 @@ bool PcgGraph::fromJson(const QJsonObject &o, PcgGraph &out, QString &error) {
     }
     out.version = o["version"].toInt(1);
     out.enabled = o["enabled"].toBool(true);
+    out.surfaceMaterial = o["surfaceMaterial"].toBool();
     out.nodes.clear();
     out.connections.clear();
     for (const auto &v : o["nodes"].toArray()) {
@@ -158,6 +159,7 @@ QJsonObject StructureAsset::toJson(bool includeBlocks) const {
             {"depth", depth},
             {"pivot", vec3(pivot)},
             {"groundBlend", groundBlend},
+            {"category", category},
             {"placement", placement},
             {"markers", m},
             {"blocks", b},
@@ -196,6 +198,11 @@ bool StructureAsset::fromJson(const QJsonObject &o, StructureAsset &out, QString
         entity.nbt = QByteArray::fromBase64(e.toObject()["nbt"].toString().toLatin1());
         out.entities.push_back(entity);
     }
+    out.category = o["category"].toString();
+    if (!o.contains("category") && std::any_of(out.blocks.begin(), out.blocks.end(), [](const auto &b) {
+            return b.state.section('[', 0, 0).endsWith("_leaves");
+        }))
+        out.category = "plant";
     out.diagnostic = o["diagnostic"].toString();
     if (o.contains("defaultRotation") && !readVec3(o["defaultRotation"], out.defaultRotation)) {
         error = "资产默认旋转无效";

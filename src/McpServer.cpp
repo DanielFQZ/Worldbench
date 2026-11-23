@@ -43,6 +43,7 @@ QJsonArray toolList() {
         {{"action", str},
          {"name", str},
          {"graph_id", str},
+         {"surface_material", boolean},
          {"path", str},
          {"asset_id", str},
          {"kind", str},

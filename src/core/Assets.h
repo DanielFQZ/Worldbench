@@ -26,6 +26,11 @@ struct ModelFace {
 struct BlockModel {
     std::vector<ModelFace> faces;
     bool full = false, translucent = false, fallback = false;
+    bool leafCube = false;
+    bool hidesFace(const BlockModel &neighbor, bool sameState) const {
+        return (neighbor.full && !neighbor.translucent) || (leafCube && neighbor.leafCube) ||
+               (sameState && translucent);
+    }
     QString thumbnail, diagnostic;
 };
 struct CatalogBlock {

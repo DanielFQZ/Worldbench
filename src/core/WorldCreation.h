@@ -36,6 +36,7 @@ struct PcgGraph {
     std::vector<PcgNode> nodes;
     std::vector<PcgConnection> connections;
     QStringList diagnostics;
+    bool surfaceMaterial = false;
     bool validate(QString &error) const;
     double evaluate(double x, double z, double height, double slope, uint32_t seed,
                     QString *error = nullptr) const;
@@ -106,6 +107,7 @@ struct StructureAsset {
     QStringList markers;
     SharedValues<StructureBlock> blocks;
     SharedValues<StructureEntity> entities;
+    QString category; // plant, building or cave. Empty legacy values follow placement.
     QString diagnostic;
     QVector3D defaultRotation, defaultScale{1, 1, 1};
     bool operator==(const StructureAsset &) const = default;

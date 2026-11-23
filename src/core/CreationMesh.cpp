@@ -22,8 +22,7 @@ void bounds(ChunkMesh &mesh) {
     mesh.center = (mesh.lower + mesh.upper) * .5f;
 }
 template <class Sample>
-void cellMesh(const World &w, ChunkMesh &mesh, int x, int y, int z, Block b, Sample sample,
-              bool solidCutouts = false) {
+void cellMesh(const World &w, ChunkMesh &mesh, int x, int y, int z, Block b, Sample sample) {
     if (w.isAir(b))
         return;
     const auto &model = *w.models[b];
@@ -35,8 +34,7 @@ void cellMesh(const World &w, ChunkMesh &mesh, int x, int y, int z, Block b, Sam
             const auto &n = normals[face.cull];
             Block nb = sample(x + n[0], y + n[1], z + n[2]);
             const auto &other = *w.models[nb];
-            if ((nb == b && (model.translucent || solidCutouts)) ||
-                (nb != Air && other.full && !other.translucent))
+            if (nb != Air && model.hidesFace(other, nb == b))
                 continue;
         }
         for (int t : triangles) {
@@ -185,9 +183,7 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
         if (keys[i].empty())
             continue;
         auto mesh = std::make_shared<ChunkMesh>();
-        auto lodSource = std::make_shared<ChunkMesh>();
         mesh->revision = revision;
-        lodSource->revision = revision;
         std::sort(keys[i].begin(), keys[i].end());
         for (auto key : keys[i]) {
             int x, y, z;
@@ -206,17 +202,13 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
             // moves away from terrain or another object. Depth testing hides
             // the contact faces in the committed scene.
             cellMesh(w, *mesh, x, y, z, sample(x, y, z), ownNeighbor);
-            // Once foliage is represented by its average opaque color, inner
-            // faces between identical cutout blocks are redundant.
-            cellMesh(w, *lodSource, x, y, z, sample(x, y, z), ownNeighbor, true);
         }
         bounds(*mesh);
-        bounds(*lodSource);
         account(mesh);
-        const auto medium = simplify(w, lodSource, .35f, .035f);
+        const auto medium = simplify(w, mesh, .35f, .035f);
         if (medium != mesh)
             account(medium);
-        const auto distant = simplify(w, lodSource, .10f, .09f);
+        const auto distant = simplify(w, mesh, .10f, .09f);
         if (distant != mesh && distant != medium)
             account(distant);
         const auto &object = w.generated->objects[i];

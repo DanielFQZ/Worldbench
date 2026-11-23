@@ -802,18 +802,26 @@ void Viewport::previewAsset(const QString &id, double x, double y) {
         return;
     }
     auto &state = m_editor->world().creation;
+    const QVector3D at(m_hit.x, m_hit.y + 1, m_hit.z);
+    auto showBox = [&](const QVector3D &low, const QVector3D &high, const QString &name) {
+        m_ghostVisible = false;
+        m_ghostVolume = true;
+        m_ghostName = name;
+        m_ghostMin = low + at;
+        m_ghostMax = high + at;
+        update();
+        emit cameraChanged();
+    };
     for (const auto &a : state.pcgAssets)
-        if (a.id == id) {
-            m_ghostVisible = false;
-            m_ghostVolume = true;
-            m_ghostName = "PCG 放置预览";
-            const QVector3D at(m_hit.x, m_hit.y + 1, m_hit.z);
-            m_ghostMin = a.volume.min + at;
-            m_ghostMax = a.volume.max + at;
-            update();
-            emit cameraChanged();
-            return;
-        }
+        if (a.id == id)
+            return showBox(a.volume.min, a.volume.max, "PCG 范围预览");
+    for (const auto &g : state.graphs)
+        if (g.id == id)
+            return showBox({-32, -32, -32}, {32, 32, 32}, "PCG 范围预览");
+    for (const auto &t : m_editor->world().heights.instances)
+        if (t.id == id)
+            return showBox({-t.width * .5f, 0, -t.depth * .5f},
+                           {t.width * .5f, float(t.high - t.low), t.depth * .5f}, "地貌覆盖范围");
     m_ghostVolume = false;
     auto a = std::find_if(state.assets.begin(), state.assets.end(), [&](auto &a) { return a.id == id; });
     if (a == state.assets.end())

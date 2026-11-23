@@ -641,7 +641,7 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         if (action == "edit")
             ok = creationEdit(args["operation"].toString(), args["data"].toObject().toVariantMap());
         else if (action == "new_graph")
-            ok = createPcgGraph(args["name"].toString());
+            ok = createPcgGraph(args["name"].toString(), args["surface_material"].toBool());
         else if (action == "store_pcg_asset")
             ok = storePcgAsset(args["id"].toString());
         else if (action == "new_volume")

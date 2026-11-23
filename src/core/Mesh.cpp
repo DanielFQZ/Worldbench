@@ -115,8 +115,7 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                             !w.overrides.contains(neighborKey))
                             nb = Air;
                         const auto &neighbor = *w.models[nb];
-                        if ((nb == b && m.translucent) ||
-                            (neighbor.full && !neighbor.translucent && nb != Air))
+                        if (nb != Air && m.hidesFace(neighbor, nb == b))
                             continue;
                     }
                     for (int t : tri) {

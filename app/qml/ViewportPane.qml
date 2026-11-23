@@ -9,7 +9,9 @@ Rectangle {
     anchors.fill: parent
     color: Theme.window
     property var controller: editor
-    signal assetsRequested()
+    signal assetRequested(string id)
+    signal importRequested()
+    signal graphRequested(bool material)
     function focusViewport(){viewport.forceActiveFocus()}
     ColumnLayout {
         anchors.fill:parent;spacing:1
@@ -51,6 +53,6 @@ Rectangle {
                 }
             }
         }
-        AssetShelf {id:assetShelf;objectName:"assetShelf";Layout.fillWidth:true;Layout.preferredHeight:expanded?196:30;viewport:viewport;onEditorRequested:root.assetsRequested()}
+        AssetShelf {id:assetShelf;objectName:"assetShelf";Layout.fillWidth:true;Layout.preferredHeight:expanded?196:30;viewport:viewport;onEditorRequested:id=>root.assetRequested(id);onImportRequested:root.importRequested();onGraphRequested:material=>root.graphRequested(material)}
     }
 }

@@ -1,67 +1,42 @@
 import "Theme.js" as Theme
 import QtQuick
-import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
+
 Pane {
  id:panel;objectName:"creationPanel";padding:0
+ property var asset:({})
+ readonly property string kind:asset.kind || ""
+ readonly property bool graph:["graph","material","range"].includes(kind)
  signal placeRequested()
- property string graphId:""
- property string assetId:""
- property var availableGraphs:editor.pcgGraphs
- property var availableAssets:editor.structureAssets
- onAvailableGraphsChanged:if(!availableGraphs.some(g=>g.id===graphId))graphId=availableGraphs.length?availableGraphs[0].id:""
- onAvailableAssetsChanged:if(!availableAssets.some(a=>a.id===assetId))assetId=availableAssets.length?availableAssets[0].id:""
- property bool embedded:false
- property alias page:tabs.currentIndex
- function editingText(){let w=panel.Window.window,item=w?w.activeFocusItem:null;return item&&(typeof item.selectAll==="function"||typeof item.inputMethodComposing==="boolean")}
- Shortcut{sequence:editor.shortcut("undo");enabled:!panel.embedded&&panel.visible&&!panel.editingText()&&!editor.commandBusy;onActivated:editor.undo()}
- Shortcut{sequences:[editor.shortcut("redo"),"Ctrl+Shift+Z"];enabled:!panel.embedded&&panel.visible&&!panel.editingText()&&!editor.commandBusy;onActivated:editor.redo()}
+ signal assetRequested(string id)
  background:Rectangle{color:Theme.panel}
  ColumnLayout {
   anchors.fill:parent;spacing:0
-  TabBar {id:tabs;objectName:"creationTabs";Layout.fillWidth:true;visible:!panel.embedded
-   WorkbenchTabButton {text:"PCG 节点图"}WorkbenchTabButton {text:"资产库 / 编辑"}WorkbenchTabButton {text:"道路网络"}
+  Label{Layout.fillWidth:true;Layout.margins:8;visible:(editor.creationState.diagnostics||[]).length>0;text:(editor.creationState.diagnostics||[]).join("\n");color:Theme.warning;wrapMode:Text.WordWrap}
+  Loader {
+   Layout.fillWidth:true;Layout.fillHeight:true
+   sourceComponent:panel.graph?graphPage:panel.kind==="terrain"?terrainPage:panel.kind==="road"?roadPage:
+                   ["plant","building","cave"].includes(panel.kind)?structurePage:null
   }
-  Label{Layout.fillWidth:true;Layout.margins:8;visible:(editor.creationState.diagnostics||[]).length>0;text:(editor.creationState.diagnostics||[]).join("\n");color:"#edbe82";wrapMode:Text.WordWrap}
-  StackLayout {
-   Layout.fillWidth:true;Layout.fillHeight:true;currentIndex:panel.page
-   ColumnLayout {
-    RowLayout {Layout.fillWidth:true;Layout.margins:8
-     WorkbenchComboBox {id:graphs;visible:false;Layout.preferredWidth:250;model:editor.pcgGraphs;textRole:"name";valueRole:"id";onActivated:panel.graphId=currentValue;onCurrentValueChanged:if(!panel.graphId)panel.graphId=currentValue||""}
-     TabBar {Layout.fillWidth:true;clip:true;currentIndex:editor.pcgGraphs.findIndex(g=>g.id===panel.graphId);background:Rectangle{color:Theme.window} Repeater{model:editor.pcgGraphs;WorkbenchTabButton {required property var modelData;width:180;text:modelData.name;onClicked:panel.graphId=modelData.id}}}
-     WorkbenchButton {text:"新建节点图";primary:true;onClicked:{if(editor.createPcgGraph()){panel.graphId=editor.pcgGraphs[editor.pcgGraphs.length-1].id;graphs.currentIndex=editor.pcgGraphs.length-1}}}
-     WorkbenchButton {text:"创建范围实例";enabled:!!panel.graphId;onClicked:editor.addPcgVolume(panel.graphId)}
+ }
+ Component {
+  id:graphPage
+  ColumnLayout {
+   RowLayout {Layout.fillWidth:true;Layout.margins:8
+    Label{text:panel.kind==="material"?"地表材质":panel.kind==="range"?"PCG 范围预设":"PCG 节点图";color:Theme.secondary}
+    WorkbenchTextField {Layout.fillWidth:true;text:panel.asset.name||"";maximumLength:128
+     onEditingFinished:if(text.trim() && text!==panel.asset.name)editor.creationEdit("patch",{kind:panel.asset.collection,id:panel.asset.id,changes:{name:text.trim()}})
     }
-
-    PcgGraphEditor {Layout.fillWidth:true;Layout.fillHeight:true;graphId:panel.graphId}
+    WorkbenchButton {text:"在地表放置范围";onClicked:{editor.beginPlacement(panel.asset.id);panel.placeRequested()}}
    }
-   SplitView {
-    ColumnLayout {
-     SplitView.preferredWidth:240;SplitView.minimumWidth:190
-     RowLayout {Layout.fillWidth:true;Layout.margins:8
-      WorkbenchButton {text:"导入…";onClicked:{assetFile.currentFolder=editor.dialogFolder("structureImport");assetFile.open()}}
-      WorkbenchButton {text:"保存预设…";enabled:!!panel.assetId;onClicked:{presetFile.currentFolder=editor.dialogFolder("assetPresetSave");presetFile.open()}}
-     }
-     WorkbenchTextField {id:assetSearch;Layout.fillWidth:true;Layout.margins:8;placeholderText:"搜索资产…"}
-     ListView {
-      Layout.fillWidth:true;Layout.fillHeight:true;clip:true;model:editor.structureAssets.filter(a=>!assetSearch.text||a.name.indexOf(assetSearch.text)>=0)
-      delegate:Rectangle {
-       id:tile;required property var modelData;width:ListView.view.width;height:74;color:panel.assetId===modelData.id?Theme.selection:Theme.panel;border.color:Theme.panel
-       Text {x:12;y:10;text:tile.modelData.name;color:Theme.text;width:parent.width-24;elide:Text.ElideRight}
-       Text {x:12;y:36;text:tile.modelData.width+" × "+tile.modelData.height+" × "+tile.modelData.depth+"  ·  "+tile.modelData.blockCount+" 块";color:Theme.secondary;font.pixelSize:11}
-       MouseArea {anchors.fill:parent;onClicked:panel.assetId=tile.modelData.id;onDoubleClicked:{editor.beginPlacement(tile.modelData.id);panel.placeRequested()}}
-      }
-      ScrollBar.vertical:ScrollBar{}
-     }
-     Label {text:"双击资产后在地表点击放置；\n场景底部资产库支持拖动放置。";Layout.margins:10;color:Theme.secondary}
-    }
-    ColumnLayout {SplitView.fillWidth:true
-     TabBar {Layout.fillWidth:true;clip:true;background:Rectangle{color:Theme.window} currentIndex:editor.structureAssets.findIndex(a=>a.id===panel.assetId);Repeater{model:editor.structureAssets;WorkbenchTabButton {required property var modelData;width:180;text:modelData.name;onClicked:panel.assetId=modelData.id}}}
-     AssetEditor {Layout.fillWidth:true;Layout.fillHeight:true;assetId:panel.assetId;onPlaceRequested:panel.placeRequested()}
-    }
-   }
+   PcgGraphEditor {Layout.fillWidth:true;Layout.fillHeight:true;graphId:panel.asset.id||"";rangePreset:panel.kind==="range";onGraphImported:id=>panel.assetRequested(id)}
+  }
+ }
+ Component {id:structurePage;AssetEditor {assetId:panel.asset.id||"";kind:panel.kind;onPlaceRequested:panel.placeRequested()}}
+ Component {id:terrainPage;ScrollView {clip:true;contentWidth:availableWidth;TerrainPanel {width:parent.width;enabled:editor.selectedNode===panel.asset.id&&!editor.assetBusy}}}
+ Component {
+  id:roadPage
    ColumnLayout {
     RowLayout {Layout.fillWidth:true;Layout.margins:12
      WorkbenchButton {text:"在地表添加节点";onClicked:{editor.beginPlacement("@road");panel.placeRequested()}}
@@ -94,8 +69,5 @@ Pane {
     }
     Label{Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;text:"贴地道路在地表采样并按节点高程调整坡度；桥梁保持节点高程，隧道按可调净高挖空路面上方。路口由连接覆盖区域合并。节点高程和位置可在大纲详情修改。";color:Theme.secondary}
    }
-  }
  }
- FileDialog{id:assetFile;title:"导入结构资产";nameFilters:["结构资产 (*.schem *.schematic *.nbt *.json *.wbasset)"];onRejected:editor.rememberDialogFolder("structureImport",currentFolder,true);onAccepted:{editor.rememberDialogFolder("structureImport",selectedFile);if(editor.importStructureAsset(selectedFile))panel.assetId=editor.structureAssets[editor.structureAssets.length-1].id}}
- FileDialog{id:presetFile;title:"保存便携资产预设";fileMode:FileDialog.SaveFile;nameFilters:["Worldbench 资产 (*.wbasset)"];onRejected:editor.rememberDialogFolder("assetPresetSave",currentFolder,true);onAccepted:{editor.rememberDialogFolder("assetPresetSave",selectedFile);editor.saveAssetPreset(panel.assetId,selectedFile)}}
 }

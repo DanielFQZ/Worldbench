@@ -91,6 +91,14 @@ QVariantMap Editor::creationDetails() const {
         }
     return {{"valid", false}};
 }
+QVariantList Editor::rangeDependencies(const QString &id) const {
+    QVariantList rows;
+    for (const auto &preset : m_world.creation.pcgAssets)
+        if (preset.id == id)
+            for (const auto &asset : preset.assets)
+                rows.append(QVariantMap{{"id", asset.id}, {"name", asset.name}});
+    return rows;
+}
 QVariantList Editor::pcgGraphs() const {
     return creationState()["graphs"].toList();
 }
@@ -101,16 +109,31 @@ QVariantList Editor::structureAssets() const {
     return creationState()["assets"].toList();
 }
 QVariantList Editor::libraryAssets() const {
-    auto rows = structureAssets();
+    QVariantList rows;
+    auto add = [&](const QString &id, const QString &name, const QString &kind, const QString &collection,
+                   int width, int height, int depth) {
+        rows.append(QVariantMap{{"id", id},
+                                {"name", name},
+                                {"kind", kind},
+                                {"collection", collection},
+                                {"width", width},
+                                {"height", height},
+                                {"depth", depth}});
+    };
+    for (const auto &a : m_world.creation.assets) {
+        const auto kind = a.placement == "cave"  ? QStringLiteral("cave")
+                          : a.category.isEmpty() ? QStringLiteral("building")
+                                                 : a.category;
+        add(a.id, a.name, kind, "assets", a.width, a.height, a.depth);
+    }
     for (const auto &a : m_world.creation.pcgAssets) {
         const auto size = a.volume.max - a.volume.min;
-        rows.append(QVariantMap{{"id", a.id},
-                                {"name", a.name},
-                                {"kind", "pcg"},
-                                {"width", size.x()},
-                                {"height", size.y()},
-                                {"depth", size.z()}});
+        add(a.id, a.name, "range", "pcgAssets", size.x(), size.y(), size.z());
     }
+    for (const auto &g : m_world.creation.graphs)
+        add(g.id, g.name, g.surfaceMaterial ? "material" : "graph", "graphs", 64, 64, 64);
+    for (const auto &t : m_world.heights.instances)
+        add(t.id, t.name, "terrain", "terrains", t.width, t.high - t.low, t.depth);
     return rows;
 }
 bool Editor::storePcgAsset(const QString &id) {
@@ -164,6 +187,12 @@ QVariantMap Editor::graphData(const QString &id) const {
     for (auto &g : m_world.creation.graphs)
         if (g.id == id)
             return g.toJson().toVariantMap();
+    for (const auto &a : m_world.creation.pcgAssets)
+        if (a.id == id) {
+            auto graph = a.graph.toJson().toVariantMap();
+            graph["id"] = id; // Edit the portable copy, even if its source graph is still present.
+            return graph;
+        }
     return {};
 }
 QVariantMap Editor::assetData(const QString &id) const {
@@ -218,18 +247,23 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
             return false;
         }
     } else if (action == "graph") {
-        auto it = std::find_if(next.graphs.begin(), next.graphs.end(),
-                               [&](auto &g) { return g.id == d["id"].toString(); });
-        if (it == next.graphs.end()) {
+        const auto id = d["id"].toString();
+        wb::PcgGraph *target = nullptr;
+        for (auto &graph : next.graphs)
+            if (graph.id == id)
+                target = &graph;
+        for (auto &asset : next.pcgAssets)
+            if (asset.id == id)
+                target = &asset.graph;
+        if (!target) {
             emit failure("图不存在");
             return false;
         }
-        wb::PcgGraph g;
-        if (!wb::PcgGraph::fromJson(d, g, error)) {
+        d["id"] = target->id;
+        if (!wb::PcgGraph::fromJson(d, *target, error)) {
             emit failure(error);
             return false;
         }
-        *it = std::move(g);
     } else if (action == "add" || action == "patch" || action == "remove") {
         const QString kind = d["kind"].toString(), id = d["id"].toString();
         const auto changes = d["changes"].toObject();
@@ -308,11 +342,12 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
     }
     return commitCreation(std::move(next), "编辑创作对象");
 }
-bool Editor::createPcgGraph(const QString &name) {
+bool Editor::createPcgGraph(const QString &name, bool surfaceMaterial) {
     auto next = m_world.creation;
     wb::PcgGraph graph;
     graph.id = fresh("pcg");
-    graph.name = name.isEmpty() ? "地表 PCG 图" : name.left(128);
+    graph.surfaceMaterial = surfaceMaterial;
+    graph.name = name.isEmpty() ? (surfaceMaterial ? "地表材质" : "地表 PCG 图") : name.left(128);
     graph.nodes = {{"constant", "constant", {{"value", 1}, {"uiX", 40}, {"uiY", 80}}},
                    {"surface",
                     "output_surface",
@@ -326,16 +361,20 @@ bool Editor::createPcgGraph(const QString &name) {
     return commitCreation(std::move(next), "新增PCG图");
 }
 bool Editor::addPcgVolume(const QString &graphId) {
+    const auto id =
+        graphId.isEmpty() && !m_world.creation.graphs.empty() ? m_world.creation.graphs.front().id : graphId;
+    return placeGraphVolume(id, {0, float(m_world.height(0, 0)), 0});
+}
+bool Editor::placeGraphVolume(const QString &graphId, QVector3D center) {
     auto next = m_world.creation;
-    if (next.graphs.empty())
+    if (std::none_of(next.graphs.begin(), next.graphs.end(), [&](const auto &g) { return g.id == graphId; }))
         return false;
     wb::PcgVolume v;
     v.id = fresh("pcg-volume");
-    v.graphId = graphId.isEmpty() ? next.graphs.front().id : graphId;
+    v.graphId = graphId;
     v.name = "PCG范围 " + QString::number(next.volumes.size() + 1);
-    const int h = m_world.height(0, 0);
-    v.min = {-32, float(h - 32), -32};
-    v.max = {32, float(h + 32), 32};
+    v.min = center - QVector3D(32, 32, 32);
+    v.max = center + QVector3D(32, 32, 32);
     next.volumes.push_back(v);
     if (!commitCreation(std::move(next), "新增PCG范围"))
         return false;
@@ -384,7 +423,10 @@ bool Editor::importStructureAsset(const QUrl &url) {
         emit failure(error);
         return false;
     }
-    const QString oldId = asset.id;
+    if (asset.category.isEmpty() && std::any_of(asset.blocks.begin(), asset.blocks.end(), [](const auto &b) {
+            return b.state.section('[', 0, 0).endsWith("_leaves");
+        }))
+        asset.category = "plant";
     asset.id = fresh("asset");
     auto next = m_world.creation;
     if (QFileInfo(url.toLocalFile()).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
@@ -420,6 +462,24 @@ bool Editor::saveAssetPreset(const QString &id, const QUrl &url) {
     return creationFile("save_asset", id, url);
 }
 bool Editor::placeAssetInstance(const QString &id, int x, int y, int z) {
+    if (commandBusy() || exportBusy())
+        return false;
+    for (const auto &g : m_world.creation.graphs)
+        if (g.id == id)
+            return placeGraphVolume(id, QVector3D(x, y, z));
+    for (auto t : m_world.heights.instances)
+        if (t.id == id) {
+            t.id = fresh("heightmap");
+            t.x = x - (t.width - 1) / 2;
+            t.z = z - (t.depth - 1) / 2;
+            auto instances = m_world.heights.instances;
+            instances.push_back(t);
+            commitTerrain(std::move(instances), "放置地貌副本");
+            if (m_world.heights.instances.back().id != t.id)
+                return false;
+            setSelectedNode(t.id);
+            return true;
+        }
     auto next = m_world.creation;
     for (const auto &asset : m_world.creation.pcgAssets)
         if (asset.id == id) {
@@ -758,6 +818,9 @@ QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const 
     for (auto &g : m_world.creation.graphs)
         if (g.id == graphId)
             graph = &g;
+    for (const auto &asset : m_world.creation.pcgAssets)
+        if (asset.id == graphId)
+            graph = &asset.graph;
     if (!graph)
         return {};
     wb::PcgPlan plan;

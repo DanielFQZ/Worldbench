@@ -310,19 +310,54 @@ int main(int argc, char **argv) {
               "distant assets actually select simplified GPU meshes");
         std::cout << "Asset triangles near/far " << nearTriangles << " / " << farTriangles << std::endl;
         call("camera", {{"position", QJsonArray{105, 100, 140}}, {"yaw", -36}, {"pitch", -27}});
-        auto *workspace = window->findChild<QObject *>("creationWorkspace");
-        auto *panel = window->findChild<QObject *>("creationPanel");
-        check(workspace && panel, "creation workspace and tabs exist");
-        panel->setProperty("graphId", graph.id);
-        QMetaObject::invokeMethod(workspace, "open");
+        auto *panel = window->findChild<QQuickItem *>("creationPanel");
+        auto *shelf = window->findChild<QQuickItem *>("assetShelf");
+        auto *shelfGrid = window->findChild<QQuickItem *>("assetShelfGrid");
+        check(panel && shelf && shelfGrid, "asset workspace and scene library exist");
+        auto scene = [&] { QMetaObject::invokeMethod(window, "activate", Q_ARG(QVariant, QString{})); };
+        auto cardPoint = [&](const QString &id) {
+            scene();
+            shelf->setProperty("expanded", true);
+            check(QTest::qWaitFor([&] {
+                      return shelfGrid->isVisible() && shelf->height() > 150 && shelfGrid->height() > 100;
+                  }),
+                  "asset drawer laid out");
+            QTest::qWait(100);
+            const auto rows = editor.libraryAssets();
+            auto entry =
+                std::find_if(rows.begin(), rows.end(), [&](const auto &v) { return v.toMap()["id"] == id; });
+            check(entry != rows.end(), "requested asset exists in shelf");
+            const int index = int(entry - rows.begin());
+            QMetaObject::invokeMethod(shelfGrid, "positionViewAtIndex", Q_ARG(int, index), Q_ARG(int, 0));
+            QQuickItem *card = nullptr;
+            check(QTest::qWaitFor(
+                      [&] {
+                          QMetaObject::invokeMethod(shelfGrid, "itemAtIndex",
+                                                    Q_RETURN_ARG(QQuickItem *, card), Q_ARG(int, index));
+                          return card && card->objectName() == "libraryCard-" + id;
+                      },
+                      4000),
+                  "asset card delegate for stable id");
+            return card->mapToScene({30, 30}).toPoint();
+        };
+        auto openCard = [&](const QString &id) {
+            const auto point = cardPoint(id);
+            std::cout << "Open card " << id.toStdString() << " at " << point.x() << "," << point.y()
+                      << std::endl;
+            QTest::mouseDClick(window, Qt::LeftButton, Qt::NoModifier, point);
+            check(QTest::qWaitFor([&] { return window->property("activeId").toString() == id; }, 3000),
+                  "double-click opens correct asset editor");
+        };
+        openCard(graph.id);
+        openCard(graph.id);
+        check(window->property("openAssetCount").toInt() == 1, "same graph reuses its tab");
         QTest::qWait(350);
         auto *graphUi = window->findChild<QObject *>("pcgGraphEditor");
         check(graphUi, "node editor exists");
         graphUi->setProperty("selected", "noise");
         const auto graphBaseline = editor.world().generated->cells;
         patch("volumes", volume.id, {{"overrides", QJsonObject{{"density", 0}}}});
-        // The generation popup restores focus when its close transition ends.
-        // Wait for it before assigning keyboard focus to the node canvas.
+        // Activate the node canvas before exercising the workspace shortcut.
         QTest::qWait(200);
         window->requestActivate();
         check(QTest::qWaitForWindowActive(window), "graph workspace active before shortcut input");
@@ -333,9 +368,9 @@ int main(int argc, char **argv) {
 
         QTest::qWait(250);
         check(window->grabWindow().save(out + "/02-node-graph.png"), "node editor reference capture");
-        panel->setProperty("assetId", treeId);
-        auto *tabs = window->findChild<QObject *>("creationTabs");
-        tabs->setProperty("currentIndex", 1);
+        openCard(treeId);
+        check(panel->property("kind") == "plant", "tree opens root-pivot editor");
+        check(window->property("openAssetCount").toInt() == 2, "tree opens alongside graph");
         auto *inspector = editor.assetInspector();
         check(QTest::qWaitFor([&] { return !inspector->meshBusy() && inspector->scene()->vertices > 0; },
                               30000),
@@ -349,15 +384,16 @@ int main(int argc, char **argv) {
 
         QTest::qWait(350);
         check(window->grabWindow().save(out + "/03-asset-editor.png"), "asset tab reference capture");
-        QMetaObject::invokeMethod(workspace, "close");
-        auto *shelf = window->findChild<QQuickItem *>("assetShelf");
-        auto *shelfGrid = window->findChild<QQuickItem *>("assetShelfGrid");
-        check(shelf && shelfGrid, "bottom asset library available");
+        QMetaObject::invokeMethod(window, "closeTab", Q_ARG(QVariant, treeId));
+        check(window->property("inScene").toBool() && window->property("openAssetCount").toInt() == 1,
+              "closing active tab restores scene and leaves the graph open");
+        openCard(treeId);
+        scene();
         shelf->setProperty("expanded", true);
         call("camera", {{"position", QJsonArray{0, 70, 80}}, {"yaw", 0}, {"pitch", -40}});
         settle();
         check(shelfGrid->property("count").toInt() > 0, "asset library shows imported assets");
-        const auto dragStart = shelfGrid->mapToScene({30, 30}).toPoint();
+        const auto dragStart = cardPoint(treeId);
         const auto dragEnd =
             viewport->mapToScene({viewport->width() * .5, viewport->height() * .5}).toPoint();
         const auto beforeDrag = editor.world().creation.presets.size();
@@ -377,7 +413,28 @@ int main(int argc, char **argv) {
         check(editor.world().creation.presets.size() == beforeDrag, "asset library drop is undoable");
         write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
         settle();
-        const auto rangeStart = shelfGrid->mapToScene({180, 30}).toPoint();
+        const auto savedRange = editor.world().creation.pcgAssets.back().id;
+        openCard(savedRange);
+        auto embeddedGraph = editor.graphData(savedRange);
+        embeddedGraph["name"] = QString("edited preset graph");
+        check(editor.creationEdit("graph", embeddedGraph) &&
+                  editor.world().creation.pcgAssets.back().graph.name == "edited preset graph" &&
+                  editor.world().creation.graphs.front().name == graph.name,
+              "range tab edits embedded graph only");
+        write("undo", {});
+        scene();
+        const auto sharedStart = cardPoint(graph.id);
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, sharedStart);
+        QTest::mouseMove(window, sharedStart + QPoint(16, -16), 30);
+        QTest::mouseMove(window, dragEnd, 80);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
+        check(QTest::qWaitFor([&] { return editor.world().creation.volumes.size() == 2; }, 10000) &&
+                  editor.world().creation.volumes.back().graphId == graph.id &&
+                  editor.world().creation.graphs.size() == 1,
+              "dragging a graph creates a linked range");
+        write("undo", {});
+        settle();
+        const auto rangeStart = cardPoint(editor.world().creation.pcgAssets.back().id);
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, rangeStart);
         QTest::mouseMove(window, rangeStart + QPoint(15, -15), 30);
         QTest::mouseMove(window, dragEnd, 80);
@@ -393,6 +450,17 @@ int main(int argc, char **argv) {
         shelf->setProperty("expanded", false);
         write("creation", {{"action", "place_asset"}, {"asset_id", treeId}, {"x", 52}, {"y", 25}, {"z", 0}});
         QString placedId = editor.world().creation.presets.back().id;
+        settle();
+        // Keep the enlarged canopy inside the world for the mesh budget regression.
+        patch("presets", placedId, {{"position", QJsonArray{0, 25, 0}}, {"scale", QJsonArray{8, 8, 8}}});
+        settle();
+        const auto &largeTree = editor.scene()->objects.back().mesh;
+        check(largeTree->upper.y() - largeTree->lower.y() == 80, "8x tree retains exact height");
+        std::cout << "8x tree exact mesh bytes " << largeTree->opaque.size() * sizeof(wb::Vertex)
+                  << std::endl;
+        call("camera", {{"position", QJsonArray{65, 85, 105}}, {"yaw", -32}, {"pitch", -15}});
+        capture("tree-scale-eight");
+        write("undo", {});
         settle();
         const auto beforeCarveMesh = editor.scene()->objects.back().mesh;
         write("set_blocks", {{"blocks", QJsonArray{QJsonObject{{"position", QJsonArray{52, 26, 0}},
@@ -464,8 +532,8 @@ int main(int argc, char **argv) {
         write("creation", {{"action", "place_asset"}, {"asset_id", caveId}, {"x", 0}, {"y", 12}, {"z", 45}});
         check(editor.world().block(0, 15, 50) == wb::Air && editor.world().block(0, 15, 44) == wb::Stone,
               "cave carves interior preserves exterior");
-        panel->setProperty("assetId", caveId);
-        QMetaObject::invokeMethod(workspace, "open");
+        openCard(caveId);
+        check(panel->property("kind") == "cave", "cave opens marker editor");
         QTest::qWait(250);
         auto *assetEditor = window->findChild<QObject *>("assetEditor");
         auto *sliceY = window->findChild<QObject *>("assetSliceY");
@@ -478,7 +546,7 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !inspector->meshBusy(); }, 30000), "cave asset preview settles");
         QTest::qWait(250);
         check(window->grabWindow().save(out + "/05-cave-markers.png"), "cave asset reference capture");
-        QMetaObject::invokeMethod(workspace, "close");
+        scene();
         call("camera", {{"position", QJsonArray{0, 16, 47}}, {"yaw", 180}, {"pitch", 0}});
         capture("06-cave-interior");
         // Every creation object uses the exact same projected gizmo and native
@@ -812,17 +880,38 @@ int main(int argc, char **argv) {
             capture("09-hdr-sky");
         }
         window->resize(1100, 680);
-        check(!editor.graphData(panel->property("graphId").toString()).isEmpty() &&
-                  !editor.assetData(panel->property("assetId").toString()).isEmpty(),
-              "persistent creation tabs select valid graph and asset after project replacement");
-        window->setProperty("workspacePage", 0);
+        check(window->property("inScene").toBool() && window->property("openAssetCount").toInt() == 0,
+              "project replacement clears prior asset tabs");
+        write("creation", {{"action", "new_graph"}, {"name", "苔石地表"}, {"surface_material", true}});
+        const QString material = editor.world().creation.graphs.back().id;
+        openCard(material);
+        check(panel->property("kind") == "material" && window->findChild<QQuickItem *>("pcgGraphEditor"),
+              "new surface material is a directly editable library asset");
+        write("undo", {});
+        check(window->property("inScene").toBool() && window->property("openAssetCount").toInt() == 0,
+              "undoing creation closes a deleted asset tab");
+        write("redo", {});
+        openCard(material);
+        QMetaObject::invokeMethod(window, "closeTab", Q_ARG(QVariant, material));
+        if (!editor.world().heights.instances.empty()) {
+            const auto terrain = editor.world().heights.instances.front().id;
+            openCard(terrain);
+            check(panel->property("kind") == "terrain" && editor.selectedNode() == terrain &&
+                      editor.terrainDetails()["id"] == terrain,
+                  "terrain tab targets the chosen heightmap");
+            QMetaObject::invokeMethod(window, "closeTab", Q_ARG(QVariant, terrain));
+        }
+        shelf->setProperty("expanded", false);
         editor.setTool(0);
         QTest::qWait(150);
         check(viewport->width() >= 400 && viewport->height() >= 250,
               "minimum window leaves a usable scene viewport with brush and inspector");
         check(window->grabWindow().save(out + "/10-compact-scene.png"), "compact scene capture");
-        for (int page : {1, 2, 3}) {
-            window->setProperty("workspacePage", page);
+        int page = 0;
+        for (const auto &id : {editor.world().creation.graphs.front().id,
+                               editor.world().creation.assets.front().id, QString("@road")}) {
+            ++page;
+            QMetaObject::invokeMethod(window, "openAsset", Q_ARG(QVariant, id));
             QTest::qWait(100);
             auto *creationItem = qobject_cast<QQuickItem *>(panel);
             check(creationItem->width() >= 1000 && creationItem->height() >= 450,
@@ -830,7 +919,7 @@ int main(int argc, char **argv) {
             check(window->grabWindow().save(out + "/10-compact-" + QString::number(page) + ".png"),
                   "compact creation workspace capture");
         }
-        window->setProperty("workspacePage", 0);
+        scene();
         QFile transcriptFile(out + "/mcp-transcript.json");
         check(transcriptFile.open(QIODevice::WriteOnly), "transcript writable");
         transcriptFile.write(QJsonDocument(transcript).toJson());
