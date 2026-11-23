@@ -35,6 +35,9 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     setAcceptHoverEvents(true);
     setFlag(ItemIsFocusScope);
     setKeepMouseGrab(true);
+    // Screen-space markers must follow layout changes even with a static camera.
+    connect(this, &QQuickItem::widthChanged, this, &Viewport::cameraChanged);
+    connect(this, &QQuickItem::heightChanged, this, &Viewport::cameraChanged);
     m_timer.setInterval(16);
     connect(&m_timer, &QTimer::timeout, this, &Viewport::tick);
     m_elapsed.start();
@@ -185,8 +188,8 @@ void Viewport::changedCamera() {
         m_editor->setExactPreviewEnabled(distance < range);
         m_editor->setPreviewCenter(int(m_camera.x()), int(m_camera.z()));
     }
+    // pick() already publishes camera/overlay changes once.
     pick(m_pointer);
-    emit cameraChanged();
     update();
 }
 void Viewport::resetCamera() {
@@ -274,7 +277,7 @@ void Viewport::focusTarget() {
 void Viewport::mousePressEvent(QMouseEvent *e) {
     m_toolCycleActive = false;
     forceActiveFocus();
-    if (e->buttons() == Qt::LeftButton && e->modifiers() == Qt::NoModifier && pressGizmo(e->position())) {
+    if (e->buttons() == Qt::LeftButton && !(e->modifiers() & ~Qt::ControlModifier) && pressGizmo(e->position())) {
         e->accept();
         return;
     }
@@ -747,20 +750,11 @@ QVariantList Viewport::creationOverlay() const {
             float t = std::min({transition, size.x() * .95f, size.z() * .95f});
             box(lo + QVector3D(t, 0, t), hi - QVector3D(t, 0, t), true);
         }
-        QVariantList axes;
-        float length = std::max(1.f, (center - m_camera).length() * .13f);
-        for (int i = 0; i < 3; ++i) {
-            QVector3D v;
-            v[i] = length;
-            auto end = projectPoint(center + v);
-            axes << QVariantMap{{"x", end.x()}, {"y", end.y()}, {"length", length}};
-        }
         objects << QVariantMap{{"id", id},
                                {"name", name},
                                {"x", c.x()},
                                {"y", c.y()},
                                {"edges", edges},
-                               {"axes", axes},
                                {"selected", id == m_editor->selectedNode()},
                                {"kind", kind}};
     };

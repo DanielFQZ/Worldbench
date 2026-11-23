@@ -326,15 +326,16 @@ int main(int argc, char **argv) {
         settle();
         check(shelfGrid->property("count").toInt() > 0, "asset library shows imported assets");
         const auto dragStart = shelfGrid->mapToScene({30, 30}).toPoint();
-        const auto dragEnd = viewport->mapToScene({viewport->width() * .5, viewport->height() * .5}).toPoint();
+        const auto dragEnd =
+            viewport->mapToScene({viewport->width() * .5, viewport->height() * .5}).toPoint();
         const auto beforeDrag = editor.world().creation.presets.size();
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, dragStart);
         QTest::mouseMove(window, dragStart + QPoint(15, -15), 30);
         QTest::mouseMove(window, dragEnd, 80);
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
-        check(QTest::qWaitFor([&] { return editor.world().creation.presets.size() == beforeDrag + 1; },
-                              15000),
-              "pointer drag from bottom library places a real structure on the terrain");
+        check(
+            QTest::qWaitFor([&] { return editor.world().creation.presets.size() == beforeDrag + 1; }, 15000),
+            "pointer drag from bottom library places a real structure on the terrain");
         capture("03b-asset-library");
         write("undo", {});
         check(editor.world().creation.presets.size() == beforeDrag, "asset library drop is undoable");
@@ -421,6 +422,140 @@ int main(int argc, char **argv) {
         QMetaObject::invokeMethod(workspace, "close");
         call("camera", {{"position", QJsonArray{0, 16, 47}}, {"yaw", 180}, {"pitch", 0}});
         capture("06-cave-interior");
+        // Every creation object uses the exact same projected gizmo and native
+        // gesture path as terrain instances, including cancellation/history.
+        call("camera", {{"position", QJsonArray{105, 100, 140}}, {"yaw", -36}, {"pitch", -27}});
+        editor.setTool(-1);
+        window->requestActivate();
+        check(QTest::qWaitForWindowActive(window), "gizmo window active");
+        viewport->forceActiveFocus();
+        auto direction = [](const QVariantMap &o, int axis) {
+            for (auto a : o["axes"].toList()) {
+                auto item = a.toMap();
+                if (item["axis"].toInt() != axis)
+                    continue;
+                const auto pts = item["points"].toList();
+                auto p = pts.front().toMap(), q = pts.back().toMap();
+                return QPointF(q["x"].toDouble() - p["x"].toDouble(), q["y"].toDouble() - p["y"].toDouble());
+            }
+            return QPointF{};
+        };
+        auto gesture = [&](int mode, int axis, bool cancel, double amount = .65) {
+            std::cout << "Gesture " << editor.selectedNode().toStdString() << " mode=" << mode
+                      << " axis=" << axis << " cancel=" << cancel << std::endl;
+            viewport->setGizmoMode(mode);
+            const auto o = viewport->gizmoOverlay();
+            check(o["active"].toBool(), "creation gizmo active");
+            const QPointF center(o["cx"].toDouble(), o["cy"].toDouble());
+            QPointF from, to;
+            if (axis == 3) {
+                from = center;
+                to = center + QPointF(35, 0);
+            } else if (axis == 5) {
+                const auto plane = o["planes"].toList()[1].toMap()["points"].toList();
+                for (auto p : plane)
+                    from += QPointF(p.toMap()["x"].toDouble(), p.toMap()["y"].toDouble()) / 4;
+                to = from + (direction(o, 0) + direction(o, 2)) * amount;
+            } else {
+                auto d = direction(o, axis);
+                from = center + d * .8;
+                to = from + d * amount;
+            }
+            const auto a = viewport->mapToScene(from).toPoint(), b = viewport->mapToScene(to).toPoint();
+            QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, a);
+            check(viewport->gizmoDragging() && viewport->gizmoOverlay()["axis"].toInt() == axis,
+                  "creation handle hit test uses shared geometry");
+            QTest::mouseMove(window, b, 40);
+            check(!viewport->gizmoOverlay()["readout"].toString().isEmpty(),
+                  "creation drag reports actual change");
+            if (cancel)
+                QTest::keyClick(window, Qt::Key_Escape);
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, b);
+        };
+        editor.setSelectedNode(volume.id);
+        const auto baseline = editor.world().creation;
+        gesture(0, 0, false);
+        check(editor.world().creation.volumes.front().min.x() != baseline.volumes.front().min.x(),
+              "PCG arrow translates bounds");
+        write("undo", {});
+        check(editor.world().creation == baseline, "PCG gesture is one undo");
+        gesture(0, 3, true);
+        check(editor.world().creation == baseline, "PCG center Esc restores bounds and generated data");
+        gesture(2, 5, false, .25);
+        auto size = editor.world().creation.volumes.front().max - editor.world().creation.volumes.front().min;
+        check(size.x() > 96 && std::abs(size.x() - size.z()) < .01 && std::abs(size.y() - 60) < .01,
+              "PCG plane scale is proportional and preserves other axis");
+        capture("08-pcg-unified-gizmo");
+        write("undo", {});
+        viewport->setGizmoMode(1);
+        check(!viewport->gizmoOverlay()["active"].toBool(),
+              "axis-aligned volume does not advertise rotation");
+        editor.setSelectedNode(placedId);
+        viewport->setGizmoMode(0);
+        const auto worldX = direction(viewport->gizmoOverlay(), 0);
+        viewport->setGizmoMode(2);
+        const auto localZ = direction(viewport->gizmoOverlay(), 2);
+        check(QPointF::dotProduct(worldX, localZ) < 0,
+              "structure local scale follows clockwise quarter-turn yaw");
+        gesture(2, 2, false);
+        check(editor.world().creation.presets.front().scale.z() == 2 &&
+                  editor.world().creation.presets.front().scale.x() == 1,
+              "structure local Z handle changes integer Z scale only");
+        write("undo", {});
+        viewport->setGizmoMode(1);
+        const auto rotation = viewport->gizmoOverlay()["axes"].toList();
+        check(rotation.size() == 1 && rotation.front().toMap()["axis"].toInt() == 1 &&
+                  rotation.front().toMap()["points"].toList().size() == 25,
+              "structure exposes Y quarter arc only");
+        const auto arc = rotation.front().toMap()["points"].toList();
+        const auto arcStart = arc[2].toMap();
+        auto arcPoint = viewport->mapToScene({arcStart["x"].toDouble(), arcStart["y"].toDouble()}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, arcPoint);
+        check(viewport->gizmoDragging(), "structure rotation arc captures pointer");
+        for (int n = 4; n <= 22; n += 2) {
+            auto point = arc[n].toMap();
+            arcPoint = viewport->mapToScene({point["x"].toDouble(), point["y"].toDouble()}).toPoint();
+            QTest::mouseMove(window, arcPoint, 12);
+        }
+        check(std::abs(editor.world().creation.presets.front().rotation.y() -
+                       baseline.presets.front().rotation.y()) == 90,
+              "shared rotation arc commits a supported structure quarter turn");
+        const int actualYawDelta =
+            int(editor.world().creation.presets.front().rotation.y() - baseline.presets.front().rotation.y());
+        check(viewport->gizmoOverlay()["readout"].toString().contains(actualYawDelta < 0 ? "-90" : "+90"),
+              "structure rotation readout agrees with actual clockwise yaw parameter");
+        check(!viewport->gizmoOverlay()["sector"].toList().empty(),
+              "structure shows shared rotation protractor");
+        check(window->grabWindow().save(out + "/09-asset-unified-gizmo.png"),
+              "capture structure rotation protractor");
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, arcPoint);
+        write("undo", {});
+        patch("presets", placedId, {{"scale", QJsonArray{-1, 1, 1}}});
+        // The generation dialog returns focus after its close transition.
+        QTest::qWait(200);
+        window->requestActivate();
+        check(QTest::qWaitForWindowActive(window), "mirror fixture ready for pointer input");
+        viewport->forceActiveFocus();
+        // The fixture root is x=52 in [-64,63]; move inward, not beyond the world.
+        gesture(0, 0, false, -.35);
+        check(editor.world().creation.presets.front().scale.x() == -1,
+              "moving mirrored structure preserves mirror");
+        write("undo", {});
+        gesture(2, 0, false);
+        check(editor.world().creation.presets.front().scale.x() == -2,
+              "scaling mirrored local axis preserves sign");
+        write("undo", {});
+        write("undo", {});
+        editor.setSelectedNode("road-a");
+        gesture(0, 0, false);
+        check(editor.world().creation.roadNodes.front().position.x() !=
+                  baseline.roadNodes.front().position.x(),
+              "road arrow moves real node");
+        write("undo", {});
+        check(editor.world().creation == baseline, "creation gizmo regressions leave scene intact");
+        viewport->setGizmoMode(2);
+        check(!viewport->gizmoOverlay()["active"].toBool(), "road node does not advertise scaling");
+        viewport->setGizmoMode(0);
         auto project = out + "/creation-demo.wbench";
         check(editor.save(QUrl::fromLocalFile(project)), "save creation project");
         auto beforeOpen = editor.world().generated->cells;
@@ -441,8 +576,9 @@ int main(int argc, char **argv) {
         QTest::qWait(30);
         qreal contentY = list->property("contentY").toReal();
         int row = -1;
-        check(QMetaObject::invokeMethod(list, "indexAt", Q_RETURN_ARG(int, row),
-                                        Q_ARG(qreal, 60), Q_ARG(qreal, contentY + 17)) && row >= 0,
+        check(QMetaObject::invokeMethod(list, "indexAt", Q_RETURN_ARG(int, row), Q_ARG(qreal, 60),
+                                        Q_ARG(qreal, contentY + 17)) &&
+                  row >= 0,
               "outliner click target comes from actual row geometry");
         QString expected = editor.sceneNodes().at(row).toMap()["id"].toString();
         auto point = list->mapToScene(QPointF(60, 17));

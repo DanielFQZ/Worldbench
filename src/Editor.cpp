@@ -211,7 +211,10 @@ void Editor::setExactRadiusChunks(int value) {
         return;
     m_exactRadiusChunks = value;
     QSettings().setValue("performance/exactRadiusChunks", value);
-    dirtyAll();
+    // Camera coverage changes do not invalidate terrain heights or material pages.
+    m_farDirty = true;
+    if (!m_meshTimer.isActive())
+        m_meshTimer.start();
     emit changed();
 }
 
@@ -219,7 +222,10 @@ void Editor::setExactPreviewEnabled(bool value) {
     if (m_exactPreviewEnabled == value)
         return;
     m_exactPreviewEnabled = value;
-    dirtyAll();
+    // Camera coverage changes do not invalidate terrain heights or material pages.
+    m_farDirty = true;
+    if (!m_meshTimer.isActive())
+        m_meshTimer.start();
     emit changed();
 }
 

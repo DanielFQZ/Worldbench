@@ -11,15 +11,15 @@ double distanceToLine(QPointF p, QPointF a, QPointF b) {
     double l = QPointF::dotProduct(d, d);
     return QLineF(p, a + d * std::clamp(l > 0 ? QPointF::dotProduct(p - a, d) / l : 0., 0., 1.)).length();
 }
-std::array<QVector3D, 3> gizmoBasis(const wb::TerrainInstance &i, int mode) {
+std::array<QVector3D, 3> gizmoBasis(const wb::TerrainInstance &i, int mode, QVector3D signs) {
     std::array<QVector3D, 3> basis{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
     if (mode == 2) {
         QMatrix4x4 rotation;
         rotation.rotate(i.rotationY, 0, 1, 0);
         rotation.rotate(i.rotationX, 1, 0, 0);
         rotation.rotate(i.rotationZ, 0, 0, 1);
-        for (auto &axis : basis)
-            axis = rotation.mapVector(axis);
+        for (int k = 0; k < 3; ++k)
+            basis[k] = rotation.mapVector(basis[k]) * signs[k];
     }
     return basis;
 }
@@ -48,6 +48,52 @@ void Viewport::setGizmoMode(int mode) {
         finishGizmo();
     m_gizmoMode = std::clamp(mode, 0, 2);
     emit cameraChanged();
+}
+QVector3D Viewport::gizmoScaleSigns(const QString &id) const {
+    if (m_editor)
+        for (const auto &p : m_editor->world().creation.presets)
+            if (p.id == id)
+                return {p.scale.x() < 0 ? -1.f : 1.f, 1.f, p.scale.z() < 0 ? -1.f : 1.f};
+    return {1, 1, 1};
+}
+// Adapt object semantics to the one gizmo geometry/input path. The adapter is
+// transient; project data, integer structure scale and AABB volumes are unchanged.
+bool Viewport::creationGizmo(wb::TerrainInstance &t, QVector3D &anchor, QString &kind) const {
+    if (!m_editor)
+        return false;
+    const auto &state = m_editor->world().creation;
+    const auto id = m_editor->selectedNode();
+    t = wb::TerrainInstance{};
+    t.id = id;
+    for (const auto &v : state.volumes)
+        if (v.id == id && v.visible) {
+            kind = "volume";
+            t.name = v.name;
+            anchor = (v.min + v.max) * .5f;
+        }
+    for (const auto &p : state.presets)
+        if (p.id == id && p.enabled) {
+            kind = "asset";
+            t.name = p.name;
+            anchor = p.position;
+            // Structure yaw uses clockwise integer quarter turns.
+            t.rotationY = -int(p.rotation.y());
+            t.scaleX = int(std::abs(p.scale.x()) * 100);
+            t.scaleY = int(std::abs(p.scale.y()) * 100);
+            t.scaleZ = int(std::abs(p.scale.z()) * 100);
+        }
+    for (const auto &n : state.roadNodes)
+        if (n.id == id && n.enabled) {
+            kind = "road";
+            t.name = n.name;
+            anchor = n.position + QVector3D(0, 1, 0);
+        }
+    if (kind.isEmpty())
+        return false;
+    t.x = int(std::lround(anchor.x()));
+    t.y = int(std::lround(anchor.y()));
+    t.z = int(std::lround(anchor.z()));
+    return true;
 }
 QVariantMap Viewport::gizmoOverlay() const {
     QVariantList markers, axes;
@@ -78,7 +124,31 @@ QVariantMap Viewport::gizmoOverlay() const {
             center = position;
         }
     }
+    // Badges share the same size, hit target and center handle for every object.
+    for (auto entry : creationOverlay()) {
+        const auto o = entry.toMap();
+        markers.append(QVariantMap{{"id", o["id"]},
+                                   {"name", o["name"]},
+                                   {"x", o["x"]},
+                                   {"y", o["y"]},
+                                   {"enabled", true},
+                                   {"selected", o["selected"]},
+                                   {"kind", o["kind"]}});
+    }
+    wb::TerrainInstance creation;
+    QString kind;
+    QVector3D anchor;
+    if (creationGizmo(creation, anchor, kind)) {
+        bool visible;
+        projectPoint(anchor, &visible);
+        if (visible || m_gizmoDragging) {
+            selected = &creation;
+            center = anchor;
+        }
+    }
     QVariantMap result{{"markers", markers}, {"axes", axes}, {"mode", m_gizmoMode}};
+    if ((kind == "road" && m_gizmoMode != 0) || (kind == "volume" && m_gizmoMode == 1))
+        return result;
     if (!selected || m_editor->tool() != -1)
         return result;
     if (m_gizmoDragging) {
@@ -106,7 +176,7 @@ QVariantMap Viewport::gizmoOverlay() const {
     result["hover"] = m_gizmoHover;
     result["axis"] = m_gizmoAxis;
     result["angle"] = m_gizmoAngle;
-    const auto basis = gizmoBasis(*selected, m_gizmoMode);
+    const auto basis = gizmoBasis(*selected, m_gizmoMode, gizmoScaleSigns(selected->id));
     QVariantList planes;
     if (m_gizmoMode != 1) {
         for (int n = 0; n < 3; ++n) {
@@ -124,6 +194,8 @@ QVariantMap Viewport::gizmoOverlay() const {
     result["planes"] = planes;
     const QString colors[3] = {"#ef6666", "#76d789", "#70a9ff"};
     for (int k = 0; k < 3; ++k) {
+        if (kind == "asset" && m_gizmoMode == 1 && k != 1)
+            continue;
         QVariantList points;
         if (m_gizmoMode == 1) {
             const auto view = m_camera - center;
@@ -149,7 +221,8 @@ QVariantMap Viewport::gizmoOverlay() const {
     result["axes"] = axes;
     if (m_gizmoDragging && m_gizmoMode == 1) {
         const bool snap = m_snapEnabled || QGuiApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
-        const double delta = std::round(m_gizmoAngle / (snap ? 15 : 1)) * (snap ? 15 : 1);
+        const double step = kind == "asset" ? 90 : snap ? 15 : 1;
+        const double delta = std::round(m_gizmoAngle / step) * step;
         const auto u = m_rotationStart, v = QVector3D::crossProduct(basis[m_gizmoAxis], u);
         QVariantList sector, ticks;
         sector.append(QVariantMap{{"x", origin.x()}, {"y", origin.y()}});
@@ -222,17 +295,24 @@ bool Viewport::pressGizmo(QPointF p) {
     }
     if (axis < 0)
         return false;
-    for (const auto &i : m_editor->world().heights.instances)
-        if (i.id == m_editor->selectedNode())
-            m_gizmoInitial = i;
-    m_gizmoCenter = gizmoAnchor(m_gizmoInitial);
+    m_gizmoKind.clear();
+    if (!creationGizmo(m_gizmoInitial, m_gizmoCenter, m_gizmoKind)) {
+        for (const auto &i : m_editor->world().heights.instances)
+            if (i.id == m_editor->selectedNode())
+                m_gizmoInitial = i;
+        m_gizmoCenter = gizmoAnchor(m_gizmoInitial);
+    }
+    if (m_gizmoKind == "volume")
+        for (const auto &v : m_editor->world().creation.volumes)
+            if (v.id == m_gizmoInitial.id)
+                m_gizmoVolumeSize = v.max - v.min;
     m_gizmoAxis = axis;
     m_gizmoStart = m_gizmoLast = p;
     m_gizmoScreenCenter = {overlay["cx"].toDouble(), overlay["cy"].toDouble()};
     m_gizmoWorldLength = overlay["length"].toDouble();
     m_gizmoAngle = 0;
     m_gizmoReadout.clear();
-    const auto basis = gizmoBasis(m_gizmoInitial, m_gizmoMode);
+    const auto basis = gizmoBasis(m_gizmoInitial, m_gizmoMode, gizmoScaleSigns(m_gizmoInitial.id));
     if (axis < 3 && m_gizmoMode != 1)
         m_gizmoScreenAxis =
             projectPoint(m_gizmoCenter + basis[axis] * m_gizmoWorldLength) - m_gizmoScreenCenter;
@@ -249,7 +329,10 @@ bool Viewport::pressGizmo(QPointF p) {
             m_rotationStart = basis[(axis + 1) % 3];
         m_rotationLast = m_rotationStart;
     }
-    m_editor->beginTerrainEdit();
+    if (m_gizmoKind.isEmpty())
+        m_editor->beginTerrainEdit();
+    else
+        m_editor->beginCreationTransform();
     m_gizmoDragging = true;
     moveGizmo(p);
     emit cameraChanged();
@@ -265,7 +348,7 @@ bool Viewport::rotationVector(QPointF p, QVector3D &vector) const {
     if (std::abs(near.w()) < 1e-8 || std::abs(far.w()) < 1e-8)
         return false;
     const auto origin = near.toVector3DAffine(), direction = (far.toVector3DAffine() - origin).normalized();
-    const auto axis = gizmoBasis(m_gizmoInitial, 1)[m_gizmoAxis];
+    const auto axis = gizmoBasis(m_gizmoInitial, 1, gizmoScaleSigns(m_gizmoInitial.id))[m_gizmoAxis];
     const double denominator = QVector3D::dotProduct(direction, axis);
     if (std::abs(denominator) < .025)
         return false;
@@ -319,7 +402,7 @@ void Viewport::moveGizmo(QPointF p) {
     } else if (m_gizmoMode == 1) {
         const int start[3] = {i.rotationX, i.rotationY, i.rotationZ};
         const QString keys[3] = {"rotationX", "rotationY", "rotationZ"};
-        const auto axis = gizmoBasis(i, 1)[m_gizmoAxis];
+        const auto axis = gizmoBasis(i, 1, gizmoScaleSigns(i.id))[m_gizmoAxis];
         if (m_rotationRay) {
             QVector3D current;
             if (!rotationVector(p, current))
@@ -367,13 +450,43 @@ void Viewport::moveGizmo(QPointF p) {
         } else
             changes[keys[m_gizmoAxis]] = std::clamp(quantize(start[m_gizmoAxis] * (1 + t), 10), 1, 1600);
     }
-    m_editor->setTerrainOptions(changes);
+    QVariantMap now;
+    if (m_gizmoKind.isEmpty()) {
+        m_editor->setTerrainOptions(changes);
+        now = m_editor->terrainDetails();
+    } else {
+        QVariantMap delta;
+        const QStringList positionKeys{"x", "y", "z"}, scaleKeys{"scaleX", "scaleY", "scaleZ"};
+        const int positions[3] = {i.x, i.y, i.z}, scales[3] = {i.scaleX, i.scaleY, i.scaleZ};
+        for (int k = 0; k < 3; ++k) {
+            if (changes.contains(positionKeys[k]))
+                delta[positionKeys[k]] = changes[positionKeys[k]].toInt() - positions[k];
+            if (changes.contains(scaleKeys[k]))
+                delta[scaleKeys[k]] = changes[scaleKeys[k]].toDouble() / scales[k];
+        }
+        if (changes.contains("rotationY"))
+            delta["rotationY"] = -(changes["rotationY"].toInt() - i.rotationY);
+        m_editor->previewCreationTransform(delta);
+        wb::TerrainInstance current;
+        QVector3D anchor;
+        QString kind;
+        creationGizmo(current, anchor, kind);
+        now = {{"x", current.x},           {"y", current.y},           {"z", current.z},
+               {"scaleX", current.scaleX}, {"scaleY", current.scaleY}, {"scaleZ", current.scaleZ}};
+        // Report the accepted dimensions, including clamping or rejected generation.
+        if (m_gizmoKind == "volume" && m_gizmoMode == 2)
+            for (const auto &v : m_editor->world().creation.volumes)
+                if (v.id == i.id)
+                    for (int k = 0; k < 3; ++k)
+                        now[scaleKeys[k]] =
+                            int(std::lround((v.max[k] - v.min[k]) / m_gizmoVolumeSize[k] * 100));
+    }
     m_gizmoLast = p;
-    const auto now = m_editor->terrainDetails();
     QStringList readout;
     const QStringList labels{"X", "Y", "Z"};
     if (m_gizmoMode == 1) {
-        int delta = quantize(m_gizmoAngle, 15);
+        int delta =
+            m_gizmoKind == "asset" ? -int(std::round(m_gizmoAngle / 90) * 90) : quantize(m_gizmoAngle, 15);
         if (delta)
             readout << QString("%1  %2%3°").arg(labels[m_gizmoAxis], delta > 0 ? "+" : "").arg(delta);
     } else {
@@ -398,6 +511,10 @@ void Viewport::finishGizmo(bool cancel) {
     m_gizmoDragging = false;
     m_gizmoReadout.clear();
     m_gizmoHover = -1;
-    m_editor->endTerrainEdit(cancel);
+    if (m_gizmoKind.isEmpty())
+        m_editor->endTerrainEdit(cancel);
+    else
+        m_editor->endCreationTransform(cancel);
+    m_gizmoKind.clear();
     emit cameraChanged();
 }

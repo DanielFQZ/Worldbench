@@ -484,6 +484,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             visibleWater && m_environment.waterReflections && m_camera.y() > m_scene->seaSurface + .05f;
         std::array<ShadowView, 2> shadowViews{};
         bool updateShadow = false;
+        std::array<bool, 2> updateCascades{};
         if (shadows) {
             const auto inverse = m_matrix.inverted();
             const auto far = inverse.map(QVector3D(0, 0, 1));
@@ -498,7 +499,10 @@ class Renderer final : public QQuickRhiItemRenderer {
             updateShadow =
                 !m_shadowReady || m_shadowScene != m_scene || m_shadowSun != m_environment.sunDirection();
             for (int i = 0; i < 2; ++i) {
-                updateShadow |= m_shadowView[i] != shadowViews[i].view;
+                updateCascades[i] = !m_shadowReady || m_shadowScene != m_scene ||
+                                    m_shadowSun != m_environment.sunDirection() ||
+                                    m_shadowView[i] != shadowViews[i].view;
+                updateShadow |= updateCascades[i];
                 m_shadowView[i] = shadowViews[i].view;
                 m_shadowSample[i] = textureMatrix(m_shadowView[i]);
                 const auto lightMvp = rhi()->clipSpaceCorrMatrix() * m_shadowView[i];
@@ -542,7 +546,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             }
             if (updateShadow)
                 for (int i = 0; i < 2; ++i)
-                    if (!mesh->opaque.empty() && wb::visibleMesh(*mesh, m_shadowView[i])) {
+                    if (updateCascades[i] && !mesh->opaque.empty() && wb::visibleMesh(*mesh, m_shadowView[i])) {
                         casters[i].push_back(mesh);
                         needed = true;
                     }
@@ -569,6 +573,8 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->resourceUpdate(updates);
         if (updateShadow) {
             for (int i = 0; i < 2; ++i) {
+                if (!updateCascades[i])
+                    continue;
                 cb->beginPass(m_shadows[i].target.get(), Qt::white, {1, 0});
                 viewport(cb, m_shadows[i].target.get());
                 cb->setGraphicsPipeline(m_shadow.get());

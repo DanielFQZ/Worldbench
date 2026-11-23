@@ -94,6 +94,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void finishGizmo(bool cancel = false);
     int hitGizmo(QPointF p, const QVariantMap &overlay) const;
     bool rotationVector(QPointF p, QVector3D &vector) const;
+    QVector3D gizmoScaleSigns(const QString &id) const;
+    bool creationGizmo(wb::TerrainInstance &transform, QVector3D &anchor, QString &kind) const;
     int m_gizmoMode = 0, m_gizmoAxis = -1, m_gizmoHover = -1;
     bool m_gizmoDragging = false;
     QPointF m_gizmoStart, m_gizmoScreenCenter, m_gizmoScreenAxis;
@@ -105,6 +107,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     double m_gizmoAngle = 0;
     double m_gizmoWorldLength = 1;
     wb::TerrainInstance m_gizmoInitial;
+    QString m_gizmoKind;
+    QVector3D m_gizmoVolumeSize;
     QVector3D forward() const;
     QVector3D right() const;
     void pick(QPointF pos);

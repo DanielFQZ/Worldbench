@@ -1,0 +1,108 @@
+{
+  "version": "0.19.1",
+  "status": "implemented and verified within recorded scopes; BE user acceptance pending",
+  "source_project_sha256": "1155fb80b560fbc288d40e1023d3bf72c52cbfc97035dfcb3fe2ba2d039c2ebc",
+  "hardware": {
+    "cpu": "Intel Core i9-13900K",
+    "gpu": "NVIDIA GeForce RTX 4080",
+    "physical_memory_bytes": 102782287872
+  },
+  "flight": {
+    "logical_window": "1440x900",
+    "dpr": 1.75,
+    "world": "3072x3072; 3 heightmap instances",
+    "renderer": "D3D11; 4x MSAA; project environment enabled; isolated settings; no resource pack override",
+    "before": {
+      "frame_ms": {
+        "count": 252,
+        "max": 53.7464,
+        "p50": 19.9399,
+        "p95": 32.3657
+      },
+      "camera_call_ms": {
+        "count": 240,
+        "max": 11.9186,
+        "p50": 2.0994,
+        "p95": 7.1066
+      },
+      "cold_near_ms": [
+        1607,
+        1991,
+        1601
+      ],
+      "catchup_ms": 0
+    },
+    "after": {
+      "frame_ms": {
+        "count": 269,
+        "max": 36.1022,
+        "p50": 17.4805,
+        "p95": 25.8523
+      },
+      "camera_call_ms": {
+        "count": 240,
+        "max": 4.7891,
+        "p50": 1.1925,
+        "p95": 3.6186
+      },
+      "cold_near_ms": [
+        91,
+        90,
+        91
+      ],
+      "catchup_ms": 0
+    },
+    "limits": "240 fixed camera updates covering 480 blocks, not full-map 16K validation or GPU timestamp measurements"
+  },
+  "prior_acceptance": {
+    "BD": "three reported defects; no blanket acceptance",
+    "BC": "deferred by user"
+  },
+  "mcp_creation_checks": 6296,
+  "cleanup": "Removed live CreationOverlay axis/MouseArea path and renamed retained bounds/drop/placement content to CreationBoundsOverlay. One shared ViewportGizmo/GizmoOverlay.",
+  "verification": {
+    "initial_full_ctest": {
+      "passed": 15,
+      "failed": 0,
+      "seconds": 320.77,
+      "log": "test-output/BE-release.log",
+      "scope": "before final mirror/readout refinements"
+    },
+    "intermediate_full_ctest": {
+      "passed": 14,
+      "failed": 1,
+      "seconds": 312.41,
+      "log": "test-output/BE-release-final.log",
+      "resolution": "Mirror fixture moved x=52 outward past the [-64,63] world boundary. Corrected test path inward; final affected tests passed."
+    },
+    "final_affected_ui": {
+      "passed": true,
+      "checks": 589,
+      "seconds": 91.42,
+      "log": "test-output/BE-final-ui.log"
+    },
+    "final_affected_creation": {
+      "passed": true,
+      "checks": 6296,
+      "log": "test-output/BE-creation-verified.log",
+      "real_stdio_mcp": true
+    },
+    "last_resize_change": {
+      "verification": "Native packaged app maximize, restore and minimize/reactivate; stationary-camera markers correctly reproject. No persistent button focus border.",
+      "scope": "after the final affected automated checks"
+    },
+    "package_3k_smoke": {
+      "exit_code": 0,
+      "screenshot": "test-output/BE-package-overview.png"
+    },
+    "original_project_unchanged": true
+  },
+  "binary_sha256": "48cffb45ff03efcdba51929d08c905908dbc10ccb476c8310cd2bb4a1a499b8d",
+  "evidence_sha256": {
+    "asset-rotation.png": "91310d36d2c2ae31e6383e2a06900bd0b2450c65f1390e120eec1f15899b38a9",
+    "chrome-restored.png": "d65fdcc0146dd8793b94d9b8274316366caa1080b666243dd15e0abd409963cd",
+    "flight-after.json": "0bcaacf27a77b3abfb3977a6a75ca7d421be0ba0fd4ae49756d6d8bb38929a7e",
+    "flight-before.json": "1e959b1d9e8c729ecef4dd31862ef64ef9b93ce29f317b370a75ad1dbd0286e2",
+    "pcg-gizmo.png": "bd392fc1e4776c5c5b44f84321fe17c6108b5b6c0de9d46cea927fa50cd6d46e"
+  }
+}

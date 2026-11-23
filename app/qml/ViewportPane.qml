@@ -36,7 +36,7 @@ Rectangle {
         Item {
             Layout.fillWidth:true;Layout.fillHeight:true
             VoxelViewport {id:viewport;objectName:"voxelViewport";anchors.fill:parent;editor:root.controller;focus:true}
-            CreationOverlay {anchors.fill:parent;viewport:viewport}
+            CreationBoundsOverlay {anchors.fill:parent;viewport:viewport}
             GizmoOverlay {anchors.fill:parent;viewport:viewport}
             Rectangle {
                 id:diagnostics;objectName:"viewportDiagnostics";visible:false

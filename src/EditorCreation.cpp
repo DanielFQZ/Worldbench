@@ -518,40 +518,53 @@ void Editor::beginCreationTransform() {
     if (!m_creationStart && !commandBusy())
         m_creationStart = std::make_shared<const wb::CreationState>(m_world.creation);
 }
-void Editor::previewCreationTransform(int axis, double amount, int mode) {
-    if (!m_creationStart || axis < 0 || axis > 2 || !std::isfinite(amount))
+void Editor::previewCreationTransform(const QVariantMap &changes) {
+    if (!m_creationStart)
         return;
+    for (const auto &value : changes)
+        if (!std::isfinite(value.toDouble()))
+            return;
     auto next = *m_creationStart;
     bool found = false;
+    const QStringList positions{"x", "y", "z"}, scales{"scaleX", "scaleY", "scaleZ"};
     for (auto &v : next.volumes)
         if (v.id == m_selectedNode) {
             found = true;
-            if (mode == 0) {
-                v.min[axis] += float(std::round(amount));
-                v.max[axis] += float(std::round(amount));
-            } else if (mode == 2) {
-                auto center = (v.min + v.max) * .5f;
-                float half =
-                    std::max(.5f, (v.max[axis] - v.min[axis]) * .5f * float(std::max(.05, 1 + amount / 100)));
-                v.min[axis] = center[axis] - half;
-                v.max[axis] = center[axis] + half;
+            const auto center = (v.min + v.max) * .5f;
+            for (int axis = 0; axis < 3; ++axis) {
+                if (changes.contains(scales[axis])) {
+                    const float factor = float(std::clamp(changes[scales[axis]].toDouble(), .01, 16.));
+                    const float half = std::max(.5f, (v.max[axis] - v.min[axis]) * .5f * factor);
+                    v.min[axis] = center[axis] - half;
+                    v.max[axis] = center[axis] + half;
+                }
+                if (changes.contains(positions[axis])) {
+                    const float offset = float(std::round(changes[positions[axis]].toDouble()));
+                    v.min[axis] += offset;
+                    v.max[axis] += offset;
+                }
             }
         }
     for (auto &p : next.presets)
         if (p.id == m_selectedNode) {
             found = true;
-            if (mode == 0)
-                p.position[axis] += float(std::round(amount));
-            else if (mode == 1 && axis == 1)
-                p.rotation[axis] += float(std::round(amount / 90) * 90);
-            else if (mode == 2)
-                p.scale[axis] = float(std::clamp(int(std::round(p.scale[axis] * (1 + amount / 100))), 1, 8));
+            for (int axis = 0; axis < 3; ++axis) {
+                p.position[axis] += float(std::round(changes.value(positions[axis], 0).toDouble()));
+                if (changes.contains(scales[axis])) {
+                    const float sign = p.scale[axis] < 0 ? -1.f : 1.f;
+                    p.scale[axis] = sign * float(std::clamp(int(std::round(std::abs(p.scale[axis]) *
+                                                                           changes[scales[axis]].toDouble())),
+                                                            1, 8));
+                }
+            }
+            p.rotation.setY(p.rotation.y() +
+                            float(std::round(changes.value("rotationY", 0).toDouble() / 90) * 90));
         }
     for (auto &n : next.roadNodes)
         if (n.id == m_selectedNode) {
             found = true;
-            if (mode == 0)
-                n.position[axis] += float(std::round(amount));
+            for (int axis = 0; axis < 3; ++axis)
+                n.position[axis] += float(std::round(changes.value(positions[axis], 0).toDouble()));
         }
     if (!found || next == m_world.creation)
         return;

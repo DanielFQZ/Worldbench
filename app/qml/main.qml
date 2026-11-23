@@ -9,7 +9,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.0"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.1"
     flags: Qt.platform.os === "windows" ? Qt.FramelessWindowHint | Qt.Window : Qt.Window
     color: Theme.window
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
@@ -100,18 +100,15 @@ ApplicationWindow {
                 Text { anchors.centerIn: parent; text: "W"; color: Theme.text; font.bold: true; font.pixelSize: 15 }
             }
             Text {
-                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.0"
+                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.1"
                 color: Theme.text
                 font.pixelSize: 13
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
-            WorkbenchButton { id: minimizeButton; objectName: "windowMinimize";flat:true; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; text: "—"; ToolTip.text: "最小化"; ToolTip.visible: hovered; onClicked: win.showMinimized() }
-            WorkbenchButton { objectName: "windowMaximize";flat:true; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; text: win.visibility === Window.Maximized ? "❐" : "□"; ToolTip.text: "最大化 / 还原"; ToolTip.visible: hovered; onClicked: win.visibility === Window.Maximized ? win.showNormal() : win.showMaximized() }
-            WorkbenchButton { objectName: "windowClose"; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; text: "×"; ToolTip.text: "关闭"; ToolTip.visible: hovered; onClicked: win.requestAction("close")
-                contentItem: Text { text: parent.text; color: parent.hovered ? "#ffffff" : Theme.text; font.pixelSize: 21; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { color: parent.hovered ? "#b33b4a" : "transparent"; radius: 3 }
-            }
+            WindowButton { id: minimizeButton; objectName: "windowMinimize"; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; symbol: "minimize"; ToolTip.text: "最小化"; ToolTip.visible: hovered; onClicked: win.showMinimized() }
+            WindowButton { objectName: "windowMaximize"; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; symbol: win.visibility === Window.Maximized ? "restore" : "maximize"; ToolTip.text: "最大化 / 还原"; ToolTip.visible: hovered; onClicked: win.visibility === Window.Maximized ? win.showNormal() : win.showMaximized() }
+            WindowButton { objectName: "windowClose"; Layout.minimumWidth: 42; Layout.maximumWidth: 42; Layout.preferredHeight: 30; symbol: "close"; ToolTip.text: "关闭"; ToolTip.visible: hovered; onClicked: win.requestAction("close") }
         }
         MouseArea {
             objectName: "windowTitleDrag"
@@ -194,7 +191,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.19.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.19.1 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
       Rectangle {

@@ -197,7 +197,7 @@ class Editor : public QObject {
     }
     Q_INVOKABLE bool placeAt(int x, int y, int z);
     Q_INVOKABLE void beginCreationTransform();
-    Q_INVOKABLE void previewCreationTransform(int axis, double amount, int mode);
+    void previewCreationTransform(const QVariantMap &changes);
     Q_INVOKABLE void endCreationTransform(bool cancel = false);
     QVariantList pcgGraphs() const;
     QVariantList pcgVolumes() const;

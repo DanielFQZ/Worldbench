@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.19.0 LANGUAGES CXX)
+project(Worldbench VERSION 0.19.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -103,3 +103,7 @@ target_link_libraries(worldbench_creation_ui_tests PRIVATE worldbench_core Qt6::
 qt_add_shaders(worldbench_creation_ui_tests creation_ui_shaders PREFIX /shaders BASE shaders FILES shaders/voxel.vert shaders/voxel.frag shaders/sky.vert shaders/sky.frag shaders/shadow.vert shaders/shadow.frag shaders/water.frag)
 add_test(NAME worldbench_creation_ui COMMAND worldbench_creation_ui_tests)
 set_tests_properties(worldbench_creation_ui PROPERTIES TIMEOUT 300 LABELS "desktop")
+
+qt_add_executable(worldbench_flight_benchmark tests/FlightBenchmark.cpp src/Editor.cpp src/EditorTools.cpp src/EditorCreation.cpp src/EditorTerrain.cpp src/EditorTheme.cpp src/EditorEnvironment.cpp src/McpServer.cpp src/Viewport.cpp src/ViewportRenderer.cpp src/ViewportGizmo.cpp app/resources.qrc)
+target_link_libraries(worldbench_flight_benchmark PRIVATE worldbench_core Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent Qt6::Network Qt6::GuiPrivate Qt6::Test KDAB::kddockwidgets)
+qt_add_shaders(worldbench_flight_benchmark flight_shaders PREFIX /shaders BASE shaders FILES shaders/voxel.vert shaders/voxel.frag shaders/sky.vert shaders/sky.frag shaders/shadow.vert shaders/shadow.frag shaders/water.frag)

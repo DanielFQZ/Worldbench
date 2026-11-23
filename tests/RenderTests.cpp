@@ -77,6 +77,24 @@ int main(int argc, char **argv) {
         check(editor.createWorld(8192, 42, 24, 0, -60, true), "create flat 8K");
         nearCamera();
         groundVisible("render-plain");
+        // Coverage transitions must keep unrelated accurate tiles resident.
+        v->applyCamera({{"position", QJsonArray{348.5, 800, 3392.3}}, {"yaw", 0}, {"pitch", -65}});
+        settle();
+        const auto overviewTiles = editor.scene()->farTiles;
+        v->applyCamera({{"position", QJsonArray{348.5, editor.world().height(348, 3392) + 35, 3392.3}},
+                        {"yaw", 0},
+                        {"pitch", -65}});
+        settle();
+        size_t retained = 0;
+        for (size_t i = 0; i < overviewTiles.size(); ++i)
+            retained += overviewTiles[i].mesh == editor.scene()->farTiles[i].mesh;
+        check(!editor.scene()->exactArea.isEmpty() && retained + 16 >= overviewTiles.size(),
+              "approaching ground restores detail without invalidating the entire map");
+        editor.setExactRadiusChunks(3);
+        settle();
+        check(editor.scene()->updatedFarTiles <= 16, "exact range preference only changes local coverage");
+        editor.setExactRadiusChunks(4);
+        settle();
         check(editor.setEnvironment({{"enabled", true}}), "enable sky before changing atlas");
         groundVisible("render-lit");
         // Self-contained texture fixture: this catches the D3D11 sky/voxel SRB
