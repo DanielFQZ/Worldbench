@@ -1,23 +1,24 @@
+import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 Pane {
  padding:0
- background:Rectangle { color:"#23262d" }
- palette.window:"#23262d"; palette.windowText:"#dce4ee"
- palette.base:"#191e26"; palette.text:"#dce4ee"
- palette.button:"#303741"; palette.buttonText:"#dce4ee"
- palette.highlight:"#344957"; palette.highlightedText:"#dce4ee"
- palette.placeholderText:"#7e8da1"
+ background:Rectangle { color:Theme.panel }
+ palette.window:Theme.panel; palette.windowText:Theme.text
+ palette.base:Theme.field; palette.text:Theme.text
+ palette.button:Theme.raised; palette.buttonText:Theme.text
+ palette.highlight:Theme.selection; palette.highlightedText:Theme.text
+ palette.placeholderText:Theme.muted
  property size kddockwidgets_min_size:Qt.size(280,400)
  SplitView {
   anchors.fill:parent;orientation:Qt.Vertical
   ColumnLayout {
    objectName:"sceneOutliner"
-   SplitView.preferredHeight:220;SplitView.minimumHeight:120;spacing:2
+   SplitView.preferredHeight:250;SplitView.minimumHeight:120;spacing:2
    RowLayout{Layout.fillWidth:true;Layout.margins:8
-    Label{text:"场景大纲";font.bold:true;color:"#c9d2df";Layout.fillWidth:true}
-    Button{text:"+ 地形层";onClicked:editor.addSculptLayer();enabled:!editor.assetBusy}
+    Label{text:"场景大纲";font.bold:true;color:Theme.text;Layout.fillWidth:true}
+    WorkbenchButton {text:"+ 地形层";onClicked:editor.addSculptLayer();enabled:!editor.assetBusy}
    }
    ListView {
     id:sceneList;objectName:"sceneNodeList"
@@ -62,20 +63,28 @@ Pane {
      required property bool nodeActive
      id:node
      enabled:!editor.regionBusy
-     width:ListView.view.width;implicitHeight:34;text:(nodeActive?"✎  ":"▧  ")+nodeName;rightPadding:38;highlighted:editor.selectedNode===nodeId
-     background:Rectangle { color:parent.highlighted?"#344957":parent.hovered?"#2d343e":"transparent" }
+     width:ListView.view.width;implicitHeight:30;text:nodeName;rightPadding:38;highlighted:editor.selectedNode===nodeId
+     background:Rectangle { color:parent.highlighted?Theme.selection:parent.hovered?Theme.hover:"transparent" }
+     contentItem:RowLayout {
+      spacing:8
+      Canvas {
+       Layout.preferredWidth:16;Layout.preferredHeight:16
+       onPaint:{let c=getContext("2d");c.reset();c.strokeStyle=node.nodeKind==="environment"?Theme.warning:node.nodeActive?Theme.accent:Theme.secondary;c.lineWidth=1.2;c.beginPath();if(node.nodeKind==="environment"){c.arc(8,8,4,0,Math.PI*2);c.moveTo(8,0);c.lineTo(8,2);c.moveTo(8,14);c.lineTo(8,16)}else if(node.nodeKind==="heightmap"||node.nodeKind==="layer"){c.moveTo(1,13);c.lineTo(6,3);c.lineTo(10,10);c.lineTo(13,7);c.lineTo(16,13);c.closePath()}else{c.rect(2,2,12,12);c.moveTo(2,6);c.lineTo(14,6)}c.stroke()}
+      }
+      Text{text:node.nodeName;Layout.fillWidth:true;elide:Text.ElideRight;color:node.nodeVisible?Theme.text:Theme.muted;font.pixelSize:12}
+     }
      onPressed: { if (sceneList.moving) sceneList.cancelFlick() }
      onClicked:editor.selectedNode=nodeId
-     Button {
+     WorkbenchButton {
       id:eyeButton
       objectName:"eye_"+node.nodeId
-      anchors.right:parent.right;anchors.verticalCenter:parent.verticalCenter;width:32;height:30
-      flat:true;enabled:!editor.assetBusy
+      anchors.right:parent.right;anchors.verticalCenter:parent.verticalCenter;width:30;height:28
+      flat:true;leftPadding:0;rightPadding:0;topPadding:0;bottomPadding:0;enabled:!editor.assetBusy
       property bool shown:node.nodeVisible
       onShownChanged:eyeDrawing.requestPaint()
       contentItem:Canvas {
        id:eyeDrawing
-       onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=eyeButton.shown?"#b5d8e8":"#6e7c8e";c.lineWidth=1.5;var x=width/2,y=height/2;c.beginPath();c.moveTo(x-9,y);c.quadraticCurveTo(x,y-10,x+9,y);c.quadraticCurveTo(x,y+10,x-9,y);c.stroke();c.beginPath();c.arc(x,y,3,0,Math.PI*2);c.stroke();if(!eyeButton.shown){c.beginPath();c.moveTo(x-10,y+9);c.lineTo(x+10,y-9);c.stroke()}}
+       onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=eyeButton.shown?Theme.text:Theme.muted;c.lineWidth=1.5;var x=width/2,y=height/2;c.beginPath();c.moveTo(x-9,y);c.quadraticCurveTo(x,y-10,x+9,y);c.quadraticCurveTo(x,y+10,x-9,y);c.stroke();c.beginPath();c.arc(x,y,3,0,Math.PI*2);c.stroke();if(!eyeButton.shown){c.beginPath();c.moveTo(x-10,y+9);c.lineTo(x+10,y-9);c.stroke()}}
       }
       ToolTip.visible:hovered;ToolTip.text:node.nodeKind==="environment"?(node.nodeVisible?"关闭此预览效果":"开启此预览效果"):(node.nodeVisible?"隐藏（同时停用生成）":"显示并启用")
       onClicked:editor.setNodeVisible(node.nodeId,!node.nodeVisible)
@@ -95,18 +104,18 @@ Pane {
     ColumnLayout {
     Layout.fillWidth:true;visible:!editor.creationDetails.valid && !editor.terrainDetails.valid && editor.selectedNode.indexOf("environment")!==0;spacing:12
     property var selectedLayer:editor.layerDetails
-    Label{text:"详细信息";font.bold:true;Layout.margins:12;color:"#c9d2df"}
-    TextField{text:parent.selectedLayer.name;Layout.fillWidth:true;Layout.margins:12;onEditingFinished:editor.renameSculptLayer(text)}
-    Label{text:"类型   相对高度雕刻层";color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"尺寸   "+parent.selectedLayer.width+" × "+parent.selectedLayer.depth+" 方块";color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"原点   X "+parent.selectedLayer.originX+" / Z "+parent.selectedLayer.originZ;color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"高度   Y "+parent.selectedLayer.minY+" … "+parent.selectedLayer.maxY;color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"海平面   "+parent.selectedLayer.seaLevel; color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"种子   "+parent.selectedLayer.seed; color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"雕刻列   "+parent.selectedLayer.editedColumns;color:"#a6b4c5";Layout.leftMargin:12}
-    Button{text:"移除此雕刻层";visible:parent.selectedLayer.removable;Layout.fillWidth:true;Layout.margins:12;onClicked:editor.removeSculptLayer()}
-    Label{text:"体素修改   "+parent.selectedLayer.overrideCells+" 格";color:"#a6b4c5";Layout.leftMargin:12}
-    Label{text:"当前雕刻层记录高度增量，实例隐藏后仍以相同增量叠加；隐藏的层不能雕刻。独立体素建筑/洞穴不随高度移动。";color:"#8997a9";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap}
+    Label{text:"详细信息";font.bold:true;Layout.margins:12;color:Theme.text}
+    WorkbenchTextField {text:parent.selectedLayer.name;Layout.fillWidth:true;Layout.margins:12;onEditingFinished:editor.renameSculptLayer(text)}
+    Label{text:"类型   相对高度雕刻层";color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"尺寸   "+parent.selectedLayer.width+" × "+parent.selectedLayer.depth+" 方块";color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"原点   X "+parent.selectedLayer.originX+" / Z "+parent.selectedLayer.originZ;color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"高度   Y "+parent.selectedLayer.minY+" … "+parent.selectedLayer.maxY;color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"海平面   "+parent.selectedLayer.seaLevel; color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"种子   "+parent.selectedLayer.seed; color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"雕刻列   "+parent.selectedLayer.editedColumns;color:Theme.secondary;Layout.leftMargin:12}
+    WorkbenchButton {text:"移除此雕刻层";visible:parent.selectedLayer.removable;Layout.fillWidth:true;Layout.margins:12;onClicked:editor.removeSculptLayer()}
+    Label{text:"体素修改   "+parent.selectedLayer.overrideCells+" 格";color:Theme.secondary;Layout.leftMargin:12}
+    Label{text:"当前雕刻层记录高度增量，实例隐藏后仍以相同增量叠加；隐藏的层不能雕刻。独立体素建筑/洞穴不随高度移动。";color:Theme.muted;Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap}
     }
    }
   }

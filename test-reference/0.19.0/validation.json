@@ -1,0 +1,53 @@
+{
+  "version": "0.19.0",
+  "date": "2026-11-23",
+  "ctest": {
+    "passed": 15,
+    "total": 15,
+    "seconds": 282.31,
+    "log": "test-output/ui-a-final-release.log"
+  },
+  "extra_creation_capture": {
+    "checks": 6190,
+    "result": "passed",
+    "log": "test-output/ui-a-evidence.log",
+    "mcp": "real stdio, including generation cancellation"
+  },
+  "packaged_smoke": {
+    "exit_code": 0,
+    "project_dimensions": [
+      3072,
+      3072
+    ],
+    "source": "test-output/ui-a-user-project.wbench"
+  },
+  "original_project_sha256": "1155fb80b560fbc288d40e1023d3bf72c52cbfc97035dfcb3fe2ba2d039c2ebc",
+  "binary_sha256": "2ea1f407d0250eb46f204adc37d77232b2a3e1d654bb3a773a1ae6b732d05d25",
+  "source_commit_reference": "dist/Worldbench-0.19.0/build-info.json",
+  "manual_native_ui": [
+    "float scene dock",
+    "switch to PCG hides floating scene dock",
+    "return to scene restores floating dock",
+    "redock scene panel"
+  ],
+  "window_sizes_logical": [
+    [
+      1440,
+      900
+    ],
+    [
+      1100,
+      680
+    ]
+  ],
+  "observed_windows_scale": 1.75,
+  "user_acceptance": "BD pending; BC deferred",
+  "screenshots": {
+    "01-scene.png": "476e86bf7f038bd63d9a149a794eab336f02c458d995e62cd8c15fe7a40069f1",
+    "02-pcg.png": "1a053904332441d0b3e2becb0a96237aafbf0087742b46077550348d00ab17b4",
+    "03-assets.png": "9fd884be3ec75009bc4be9e7138247a91a455b4e0dfa6b39d1bd7d740ab90f71",
+    "04-library.png": "ad28b758800e73a1b395e01bffd11da9874e3200a2b7bbace96f7022651a93ac",
+    "05-compact.png": "b88a9b2ca519e52170fdef9b344541a583455ed8d6065465f890a47e604ad694",
+    "06-preferences.png": "d572fde7d11e31e2653de5b402912527887f4e4a19894aef312a912f886eb54a"
+  }
+}

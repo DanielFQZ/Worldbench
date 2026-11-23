@@ -22,4 +22,11 @@
 <file alias="AssetEditor.qml">qml/AssetEditor.qml</file>
 <file alias="CreationDetails.qml">qml/CreationDetails.qml</file>
 <file alias="CreationOverlay.qml">qml/CreationOverlay.qml</file>
+<file alias="Theme.js">qml/Theme.js</file>
+<file alias="WorkbenchButton.qml">qml/WorkbenchButton.qml</file>
+<file alias="WorkbenchTextField.qml">qml/WorkbenchTextField.qml</file>
+<file alias="WorkbenchCheckBox.qml">qml/WorkbenchCheckBox.qml</file>
+<file alias="WorkbenchSlider.qml">qml/WorkbenchSlider.qml</file>
+<file alias="WorkbenchTabButton.qml">qml/WorkbenchTabButton.qml</file>
+<file alias="AssetShelf.qml">qml/AssetShelf.qml</file>
 </qresource></RCC>

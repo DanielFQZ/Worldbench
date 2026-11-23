@@ -1,24 +1,25 @@
+import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 Rectangle {
- color: "#191c22"
+ color: Theme.window
  Column {
-  anchors.top: parent.top; anchors.topMargin:12; anchors.horizontalCenter:parent.horizontalCenter; spacing:6
+  anchors.top: parent.top; anchors.topMargin:8; anchors.horizontalCenter:parent.horizontalCenter; spacing:4
   Repeater {
    model:[{name:"选择 / 导航",tool:-1},{name:"抬升 / 降低",tool:0},{name:"整平地表",tool:1},{name:"体积挖除",tool:2},{name:"体积填充",tool:3},{name:"材质涂绘",tool:4},{name:"平滑地形",tool:5},{name:"矩形选区",tool:6}]
-   delegate:Button {
+   delegate:WorkbenchButton {
     required property var modelData
-    width:40; height:42; checkable:true; checked:editor.tool===modelData.tool
+    width:36; height:36;leftPadding:4;rightPadding:4;topPadding:4;bottomPadding:4;checkable:true; checked:editor.tool===modelData.tool
     readonly property string toolKey: ["toolNavigate","toolCycle","toolFlatten","toolCarve","toolFill","toolPaint","toolSmooth","toolSelect"][modelData.tool+1]
     property int shortcutRevision: 0
     Connections {target:editor;function onShortcutsChanged(){shortcutRevision++}}
     ToolTip.visible:hovered; ToolTip.delay:500; ToolTip.text:modelData.name+" · "+(shortcutRevision>=0?editor.shortcut(toolKey):"")+(modelData.tool===0?"（连续按循环工具）":""); Accessible.name:modelData.name
     onClicked:editor.tool=modelData.tool
-    background:Rectangle {color:parent.checked?"#344957":parent.hovered?"#30353d":"transparent"; radius:5; border.width:parent.checked?1:0; border.color:"#6fbac5"}
+    background:Rectangle {color:parent.checked?Theme.selection:parent.hovered?Theme.hover:"transparent"; radius:3; border.width:parent.checked?1:0; border.color:Theme.muted}
     contentItem:Canvas {
      onPaint:{
-      const c=getContext("2d");c.reset();c.strokeStyle="#dbe4ee";c.lineWidth=1.6;c.lineCap="round";c.lineJoin="round";c.translate(width/2-12,height/2-12);const t=modelData.tool;c.beginPath();
+      const c=getContext("2d");c.reset();c.strokeStyle=Theme.text;c.lineWidth=1.6;c.lineCap="round";c.lineJoin="round";c.translate(width/2-12,height/2-12);const t=modelData.tool;c.beginPath();
       if(t===-1){c.moveTo(5,2);c.lineTo(20,13);c.lineTo(13,14);c.lineTo(10,22);c.closePath();c.stroke()}
       else if(t===0){c.moveTo(1,20);c.lineTo(9,6);c.lineTo(15,16);c.lineTo(19,11);c.lineTo(24,20);c.stroke();c.beginPath();c.moveTo(18,2);c.lineTo(18,9);c.moveTo(15,5);c.lineTo(18,2);c.lineTo(21,5);c.stroke()}
       else if(t===1){c.moveTo(2,17);c.lineTo(7,10);c.lineTo(17,10);c.lineTo(23,17);c.moveTo(2,21);c.lineTo(23,21);c.stroke()}
@@ -30,7 +31,7 @@ Rectangle {
     }
    }
   }
-  Rectangle{width:28;height:1;color:"#3a4049";anchors.horizontalCenter:parent.horizontalCenter}
-  ToolButton{width:40;height:40;text:"F";ToolTip.visible:hovered;ToolTip.text:"聚焦命中位置";onClicked:if(editor.cameraController)editor.cameraController.focusTarget()}
+  Rectangle{width:28;height:1;color:Theme.border;anchors.horizontalCenter:parent.horizontalCenter}
+  WorkbenchButton{width:36;height:30;text:"F";ToolTip.visible:hovered;ToolTip.text:"聚焦命中位置";onClicked:if(editor.cameraController)editor.cameraController.focusTarget()}
  }
 }

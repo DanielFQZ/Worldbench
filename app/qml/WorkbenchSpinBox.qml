@@ -1,3 +1,4 @@
+import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
 import "Arithmetic.js" as Arithmetic
@@ -15,12 +16,21 @@ SpinBox {
  textFromValue:function(value,locale){return String(value)}
  valueFromText:function(text,locale){var n=Arithmetic.calculate(text);return isFinite(n)?Math.max(from,Math.min(to,Math.round(n))):value}
  validator:RegularExpressionValidator{regularExpression:/[0-9+*/().\s-]{0,128}/}
- up.indicator.visible:!compact
- down.indicator.visible:!compact
  leftPadding:compact?0:down.indicator.width
  rightPadding:compact?0:up.indicator.width
  implicitWidth:compact?80:140
- background:Rectangle{color:"#191e26";border.color:control.axisColor!=="transparent"?control.axisColor:control.activeFocus?"#58b8ce":"#34404e";border.width:1}
+ implicitHeight:Theme.controlHeight
+ up.indicator:Rectangle {
+  x:control.width-width;width:22;height:control.height;visible:!control.compact
+  color:control.up.pressed?Theme.selection:control.up.hovered?Theme.hover:"transparent"
+  Text{anchors.centerIn:parent;text:"+";font.pixelSize:15;color:control.up.enabled?Theme.secondary:Theme.disabled}
+ }
+ down.indicator:Rectangle {
+  width:22;height:control.height;visible:!control.compact
+  color:control.down.pressed?Theme.selection:control.down.hovered?Theme.hover:"transparent"
+  Text{anchors.centerIn:parent;text:"−";font.pixelSize:15;color:control.down.enabled?Theme.secondary:Theme.disabled}
+ }
+ background:Rectangle{color:Theme.field;border.color:control.axisColor!=="transparent"?control.axisColor:control.activeFocus?Theme.accent:Theme.border;border.width:1}
  contentItem:TextInput {
   id:input
   z:2;padding:6;clip:width<implicitWidth
@@ -72,6 +82,6 @@ SpinBox {
    onDoubleClicked:{doubleTap=true;input.selectAll()}
    onCanceled:finish(true)
   }
-  Text{text:"⋮";x:3;anchors.verticalCenter:parent.verticalCenter;color:"#718399";font.pixelSize:10}
+  Text{text:"⋮";x:3;anchors.verticalCenter:parent.verticalCenter;color:Theme.muted;font.pixelSize:10}
  }
 }

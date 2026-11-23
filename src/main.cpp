@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QMutex>
 #include <QPainter>
+#include <QPalette>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -36,7 +37,27 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.18.0");
+    app.setApplicationVersion("0.19.0");
+    // KDDockWidgets floating frames use the application palette rather than
+    // inheriting the QML window palette. Keep both surfaces on the same theme.
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor("#282828"));
+    palette.setColor(QPalette::WindowText, QColor("#e2e2e2"));
+    palette.setColor(QPalette::Base, QColor("#1d1d1d"));
+    palette.setColor(QPalette::AlternateBase, QColor("#303030"));
+    palette.setColor(QPalette::Text, QColor("#e2e2e2"));
+    palette.setColor(QPalette::Button, QColor("#303030"));
+    palette.setColor(QPalette::ButtonText, QColor("#e2e2e2"));
+    palette.setColor(QPalette::Highlight, QColor("#354c6c"));
+    palette.setColor(QPalette::HighlightedText, QColor("#e2e2e2"));
+    palette.setColor(QPalette::Light, QColor("#424242"));
+    palette.setColor(QPalette::Midlight, QColor("#303030"));
+    palette.setColor(QPalette::Mid, QColor("#424242"));
+    palette.setColor(QPalette::Dark, QColor("#1d1d1d"));
+    palette.setColor(QPalette::Shadow, QColor("#191919"));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor("#707070"));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor("#707070"));
+    app.setPalette(palette);
     QPixmap logo(64, 64);
     logo.fill(Qt::transparent);
     {
@@ -58,7 +79,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.18.0 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.19.0 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);

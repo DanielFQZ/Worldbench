@@ -1,3 +1,4 @@
+import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -7,7 +8,7 @@ Dialog {
  standardButtons:Dialog.Ok|Dialog.Cancel
  contentItem:ColumnLayout {
   spacing:12
-  Label{text:"Minecraft Java 1.20.1 · Y −64…319";color:"#99bccb"}
+  Label{text:"Minecraft Java 1.20.1 · Y −64…319";color:Theme.secondary}
   GridLayout {
    columns:2;columnSpacing:16;rowSpacing:10;Layout.fillWidth:true
    Label{text:"尺寸预设"}
@@ -27,7 +28,7 @@ Dialog {
    Label{text:"海平面 Y"}
    WorkbenchSpinBox{id:seaLevel;from:-64;to:319;value:12;editable:true;Layout.fillWidth:true}
   }
-  Label{text:"自动使用默认 Minecraft 资源。相同种子和参数生成相同地形。长宽可独立填写 32–16384 格。大图默认显示全貌，远景采用简化体素轮廓。双击远处地表或通过“视图 → 跳转至坐标”进入附近的精确编辑；点击地图图标返回全图。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:"#9aafbf"}
+  Label{text:"自动使用默认 Minecraft 资源。相同种子和参数生成相同地形。长宽可独立填写 32–16384 格。大图默认显示全貌，远景采用简化体素轮廓。双击远处地表或通过“视图 → 跳转至坐标”进入附近的精确编辑；点击地图图标返回全图。";wrapMode:Text.WordWrap;Layout.fillWidth:true;color:Theme.secondary}
  }
  onAccepted:editor.createWorld(mapWidth.value,seed.value,baseHeight.value,variation.value,seaLevel.value,terrainType.currentIndex===1,mapDepth.value)
 }

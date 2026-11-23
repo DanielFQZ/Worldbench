@@ -66,6 +66,8 @@ int main(int argc, char **argv) {
         check(!engine.rootObjects().isEmpty(), "real editor UI loads");
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         check(window && QTest::qWaitForWindowExposed(window), "D3D11 window exposed");
+        window->requestActivate();
+        check(QTest::qWaitForWindowActive(window), "creation test window active for keyboard shortcuts");
         auto *viewport = window->findChild<Viewport *>("voxelViewport");
         check(viewport, "actual viewport available");
         viewport->setRawInput(false);
@@ -287,10 +289,15 @@ int main(int argc, char **argv) {
         graphUi->setProperty("selected", "noise");
         const auto graphBaseline = editor.world().generated->cells;
         patch("volumes", volume.id, {{"overrides", QJsonObject{{"density", 0}}}});
+        // The generation popup restores focus when its close transition ends.
+        // Wait for it before assigning keyboard focus to the node canvas.
+        QTest::qWait(200);
+        window->requestActivate();
+        check(QTest::qWaitForWindowActive(window), "graph workspace active before shortcut input");
         qobject_cast<QQuickItem *>(graphUi)->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Z, Qt::ControlModifier);
         check(QTest::qWaitFor([&] { return editor.world().generated->cells == graphBaseline; }, 15000),
-              "Ctrl+Z works inside modal graph workspace");
+              "Ctrl+Z works once inside embedded graph workspace");
 
         QTest::qWait(250);
         check(window->grabWindow().save(out + "/02-node-graph.png"), "node editor reference capture");
@@ -311,6 +318,27 @@ int main(int argc, char **argv) {
         QTest::qWait(350);
         check(window->grabWindow().save(out + "/03-asset-editor.png"), "asset tab reference capture");
         QMetaObject::invokeMethod(workspace, "close");
+        auto *shelf = window->findChild<QQuickItem *>("assetShelf");
+        auto *shelfGrid = window->findChild<QQuickItem *>("assetShelfGrid");
+        check(shelf && shelfGrid, "bottom asset library available");
+        shelf->setProperty("expanded", true);
+        call("camera", {{"position", QJsonArray{0, 70, 80}}, {"yaw", 0}, {"pitch", -40}});
+        settle();
+        check(shelfGrid->property("count").toInt() > 0, "asset library shows imported assets");
+        const auto dragStart = shelfGrid->mapToScene({30, 30}).toPoint();
+        const auto dragEnd = viewport->mapToScene({viewport->width() * .5, viewport->height() * .5}).toPoint();
+        const auto beforeDrag = editor.world().creation.presets.size();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, dragStart);
+        QTest::mouseMove(window, dragStart + QPoint(15, -15), 30);
+        QTest::mouseMove(window, dragEnd, 80);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
+        check(QTest::qWaitFor([&] { return editor.world().creation.presets.size() == beforeDrag + 1; },
+                              15000),
+              "pointer drag from bottom library places a real structure on the terrain");
+        capture("03b-asset-library");
+        write("undo", {});
+        check(editor.world().creation.presets.size() == beforeDrag, "asset library drop is undoable");
+        shelf->setProperty("expanded", false);
         write("creation", {{"action", "place_asset"}, {"asset_id", treeId}, {"x", 52}, {"y", 25}, {"z", 0}});
         QString placedId = editor.world().creation.presets.back().id;
         patch("presets", placedId, {{"rotation", QJsonArray{0, 90, 0}}});
@@ -412,7 +440,10 @@ int main(int argc, char **argv) {
         QMetaObject::invokeMethod(list, "flick", Q_ARG(qreal, 0), Q_ARG(qreal, -300));
         QTest::qWait(30);
         qreal contentY = list->property("contentY").toReal();
-        int row = int((contentY + 17) / 34);
+        int row = -1;
+        check(QMetaObject::invokeMethod(list, "indexAt", Q_RETURN_ARG(int, row),
+                                        Q_ARG(qreal, 60), Q_ARG(qreal, contentY + 17)) && row >= 0,
+              "outliner click target comes from actual row geometry");
         QString expected = editor.sceneNodes().at(row).toMap()["id"].toString();
         auto point = list->mapToScene(QPointF(60, 17));
         QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point.toPoint());
@@ -571,6 +602,26 @@ int main(int argc, char **argv) {
             call("camera", {{"position", QJsonArray{90, 70, 115}}, {"yaw", -35}, {"pitch", -15}});
             capture("09-hdr-sky");
         }
+        window->resize(1100, 680);
+        check(!editor.graphData(panel->property("graphId").toString()).isEmpty() &&
+                  !editor.assetData(panel->property("assetId").toString()).isEmpty(),
+              "persistent creation tabs select valid graph and asset after project replacement");
+        window->setProperty("workspacePage", 0);
+        editor.setTool(0);
+        QTest::qWait(150);
+        check(viewport->width() >= 400 && viewport->height() >= 250,
+              "minimum window leaves a usable scene viewport with brush and inspector");
+        check(window->grabWindow().save(out + "/10-compact-scene.png"), "compact scene capture");
+        for (int page : {1, 2, 3}) {
+            window->setProperty("workspacePage", page);
+            QTest::qWait(100);
+            auto *creationItem = qobject_cast<QQuickItem *>(panel);
+            check(creationItem->width() >= 1000 && creationItem->height() >= 450,
+                  "creation tabs use full available workspace at minimum window size");
+            check(window->grabWindow().save(out + "/10-compact-" + QString::number(page) + ".png"),
+                  "compact creation workspace capture");
+        }
+        window->setProperty("workspacePage", 0);
         QFile transcriptFile(out + "/mcp-transcript.json");
         check(transcriptFile.open(QIODevice::WriteOnly), "transcript writable");
         transcriptFile.write(QJsonDocument(transcript).toJson());

@@ -437,10 +437,13 @@ int main(int argc, char **argv) {
         check(!publications.empty(), "continuous gesture publishes visible updates before mouse-up");
         check(window->grabWindow().save(out + "/editing-active.png"),
               "capture actual UI during open brush gesture");
-        auto *statusItem = qobject_cast<QQuickItem *>(window->findChild<QObject *>("terrainUpdateStatus"));
+        auto *statusItem = qobject_cast<QQuickItem *>(window->findChild<QObject *>("backgroundBuildStatus"));
         check(statusItem && statusItem->isVisible() &&
-                  statusItem->mapToItem(viewport, {0, 0}).y() > viewport->height() * .5,
-              "background build feedback stays at bottom during sculpting");
+                  !statusItem->property("text").toString().isEmpty() &&
+                  statusItem->mapToItem(viewport, {0, 0}).y() >= viewport->height(),
+              "background build feedback stays in the footer during sculpting");
+        auto *diagnostics = window->findChild<QQuickItem *>("viewportDiagnostics");
+        check(diagnostics && !diagnostics->isVisible(), "sculpting does not force technical statistics open");
         check(!editor.property("surfacePreview").isValid(), "retired prototype switch is not exposed");
         for (auto *item : window->findChildren<QQuickItem *>())
             check(!item->property("text").toString().contains("正在构建初始体素网格"),

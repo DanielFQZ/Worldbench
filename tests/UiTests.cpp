@@ -102,6 +102,33 @@ int main(int argc, char **argv) {
         editor.setTool(-1);
         QTest::qWait(40);
         check(!brushPanel->isVisible(), "navigation collapses brush settings");
+        // Tab changes must reuse the scene viewport and its camera. A modal
+        // creation dialog or a Loader here used to obscure/reset the workspace.
+        const auto tabCamera = v->camera();
+        auto *diagnostics = win->findChild<QQuickItem *>("viewportDiagnostics");
+        check(diagnostics && !diagnostics->isVisible(), "technical viewport statistics start collapsed");
+        for (int page : {1, 2, 3, 0}) {
+            auto *tab = visualItem(win->contentItem(), "workspaceTab" + QString::number(page));
+            check(tab, "workspace tab is accessible");
+            QTest::mouseClick(win, Qt::LeftButton, Qt::NoModifier,
+                              tab->mapToScene({tab->width() / 2, tab->height() / 2}).toPoint());
+            QTest::qWait(80);
+            check(win->property("workspacePage").toInt() == page &&
+                      win->findChild<Viewport *>("voxelViewport") == v && v->camera() == tabCamera,
+                  "workspace tabs retain scene identity and camera");
+            check(v->isVisible() == (page == 0), "only active workspace is visible");
+        }
+        check(win->findChild<QQuickItem *>("sceneOutliner")->isVisible(),
+              "returning to scene restores the docked outliner");
+        auto *library = win->findChild<QQuickItem *>("assetShelf");
+        check(library && !library->property("expanded").toBool(), "asset library starts collapsed");
+        const auto fullHeight = v->height();
+        library->setProperty("expanded", true);
+        QTest::qWait(80);
+        check(v->height() < fullHeight && v->height() > 250 && v->camera() == tabCamera,
+              "opening asset library reallocates viewport without changing camera");
+        library->setProperty("expanded", false);
+        QTest::qWait(80);
         v->forceActiveFocus();
         QTest::keyClick(win, Qt::Key_1);
         check(editor.tool() == 0, "first 1 selects raise");

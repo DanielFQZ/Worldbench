@@ -1,4 +1,4 @@
-Worldbench 0.13.0 - third-party component notices
+Worldbench 0.19.0 - third-party component notices
 Private development testing build. Final public project licensing is recorded in DEVELOPMENT.md.
 
 pypinyin 0.55.0: Copyright (c) 2016 mozillazg, hotoo.
@@ -1571,3 +1571,13 @@ TinyEXR: syoyo/tinyexr v1.0.9, including OpenEXR portions; see TinyEXR.txt.
 Minecraft gameplay block-property values: PrismarineJS/minecraft-data 68c9e840e127858e9548b0d477b992202120dfaa (MIT, declared in upstream README).
 Source data/pc/1.20/blocks.json, dataPaths maps Java 1.20.1 to pc/1.20.
 Only property names and allowed values derived; attribution in minecraft-data.txt.
+
+UI design reference (Worldbench 0.19.0)
+Blender - UI Redesign (Concept), by GabrielDja
+https://www.figma.com/community/file/1568606578530940776/blender-ui-redesign-concept
+The Community page identifies the design as CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/
+Worldbench adapts the compact workspace organization and neutral dark visual
+direction in its own QML implementation. No Figma components, source assets,
+or Blender branding are included. The Worldbench controls and icons were
+implemented for this application. This reference does not imply endorsement.
