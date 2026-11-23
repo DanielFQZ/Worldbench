@@ -159,7 +159,7 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
         return result;
     std::vector<std::vector<uint64_t>> keys(w.generated->objects.size());
     for (auto [key, owner] : w.generated->objectCells)
-        if (owner < keys.size() && !w.overrides.contains(key))
+        if (owner < keys.size() && !w.explicitOverride(key))
             keys[owner].push_back(key);
     std::unordered_map<int, int> heights;
     size_t meshBytes = 0;
@@ -194,7 +194,7 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
                 const auto neighborKey = w.key(nx, ny, nz);
                 const auto owner = w.generated->objectCells.find(neighborKey);
                 return owner != w.generated->objectCells.end() && owner->second == i &&
-                               !w.overrides.contains(neighborKey)
+                               !w.explicitOverride(neighborKey)
                            ? sample(nx, ny, nz)
                            : Air;
             };
@@ -215,6 +215,41 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
         result.push_back({object.id, object.ownerId, object.placement, mesh, {medium, distant}});
     }
     return result;
+}
+MeshPtr buildTerrainAssetPreview(const TerrainInstance &terrain, int maxSamples) {
+    auto mesh = std::make_shared<ChunkMesh>();
+    const auto &image = *terrain.image;
+    const int nx = std::clamp(image.width, 2, maxSamples), nz = std::clamp(image.depth, 2, maxSamples);
+    const float sx = std::max(1, terrain.width - 1) * terrain.scaleX * .01f;
+    const float sy = (terrain.high - terrain.low) * terrain.scaleY * .01f;
+    const float sz = std::max(1, terrain.depth - 1) * terrain.scaleZ * .01f;
+    QMatrix4x4 pose;
+    pose.scale(64.f / std::max({sx, sy, sz}));
+    pose.rotate(terrain.rotationY, 0, 1, 0);
+    pose.rotate(terrain.rotationX, 1, 0, 0);
+    pose.rotate(terrain.rotationZ, 0, 0, 1);
+    std::vector<QVector3D> points;
+    for (int z = 0; z < nz; ++z)
+        for (int x = 0; x < nx; ++x) {
+            float u = float(x) / (nx - 1), v = float(z) / (nz - 1);
+            points.push_back(
+                pose.map(QVector3D((u - .5f) * sx, float(image.sample(u, v) - .5) * sy, (v - .5f) * sz)));
+        }
+    for (int z = 0; z < nz; ++z)
+        for (int x = 0; x < nx; ++x) {
+            int i = z * nx + x;
+            auto dx = points[z * nx + std::min(nx - 1, x + 1)] - points[z * nx + std::max(0, x - 1)];
+            auto dz = points[std::min(nz - 1, z + 1) * nx + x] - points[std::max(0, z - 1) * nx + x];
+            auto n = QVector3D::crossProduct(dz, dx).normalized(), p = points[i];
+            mesh->opaque.push_back(
+                {p.x(), p.y(), p.z(), n.x(), n.y(), n.z(), .62f, .71f, .53f, 1.f, -1.f, -1.f});
+            if (x + 1 < nx && z + 1 < nz) {
+                uint32_t a = i, b = i + nx;
+                mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, b, a + 1, a + 1, b, b + 1});
+            }
+        }
+    bounds(*mesh);
+    return mesh;
 }
 MeshPtr buildAssetGhost(World w, const StructureAsset &asset) {
     auto key = [](int x, int y, int z) {

@@ -32,6 +32,6 @@ Rectangle {
    }
   }
   Rectangle{width:28;height:1;color:Theme.border;anchors.horizontalCenter:parent.horizontalCenter}
-  WorkbenchButton{width:36;height:30;text:"F";ToolTip.visible:hovered;ToolTip.text:"聚焦命中位置";onClicked:if(editor.cameraController)editor.cameraController.focusTarget()}
+  WorkbenchButton{width:36;height:30;text:"F";ToolTip.visible:hovered;ToolTip.text:"聚焦选中实例或地形落点";onClicked:if(editor.cameraController)editor.cameraController.focusTarget()}
  }
 }

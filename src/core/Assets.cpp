@@ -266,7 +266,7 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
         return fail("贴图数量超过 6000");
     report(70, QString("构建纹理图集：%1 张纹理").arg(images.size()));
     int side = 1, grid = int(std::ceil(std::sqrt(images.size() + 2.0)));
-    while (side < grid * 34)
+    while (side < grid * 32)
         side *= 2;
     lib->atlas = QImage(side, side, QImage::Format_RGBA8888);
     lib->atlas.fill(Qt::white);
@@ -274,13 +274,11 @@ std::shared_ptr<AssetLibrary> AssetLibrary::load(const QStringList &paths, QStri
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     int tile = 1;
     for (auto it = images.begin(); it != images.end(); ++it, ++tile) {
-        int x = (tile % grid) * 34 + 1, y = (tile / grid) * 34 + 1;
+        int x = (tile % grid) * 32, y = (tile / grid) * 32;
         painter.drawImage(x, y, it.value());
-        painter.drawImage(QRect(x - 1, y, 1, 32), it.value(), QRect(0, 0, 1, 32));
-        painter.drawImage(QRect(x + 32, y, 1, 32), it.value(), QRect(31, 0, 1, 32));
-        painter.drawImage(QRect(x, y - 1, 32, 1), it.value(), QRect(0, 0, 32, 1));
-        painter.drawImage(QRect(x, y + 32, 32, 1), it.value(), QRect(0, 31, 32, 1));
-        lib->m_uv[it.key()] = QRectF(double(x) / side, double(y) / side, 32.0 / side, 32.0 / side);
+        // Each 32px tile remains independent down to a single texel at mip 5.
+        // The inset keeps UVs exactly on a model edge inside that tile.
+        lib->m_uv[it.key()] = QRectF((x + .01) / side, (y + .01) / side, 31.98 / side, 31.98 / side);
     }
     painter.end();
     lib->thumbnails = images;

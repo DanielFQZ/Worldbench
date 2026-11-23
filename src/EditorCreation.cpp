@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
 #include <QUuid>
@@ -109,32 +110,187 @@ QVariantList Editor::structureAssets() const {
     return creationState()["assets"].toList();
 }
 QVariantList Editor::libraryAssets() const {
+    if (m_libraryRevision == m_revision)
+        return m_libraryRows;
     QVariantList rows;
     auto add = [&](const QString &id, const QString &name, const QString &kind, const QString &collection,
-                   int width, int height, int depth) {
-        rows.append(QVariantMap{{"id", id},
-                                {"name", name},
-                                {"kind", kind},
-                                {"collection", collection},
-                                {"width", width},
-                                {"height", height},
-                                {"depth", depth}});
+                   int width, int height, int depth, size_t previewKey) {
+        rows.append(QVariantMap{
+            {"id", id},
+            {"name", name},
+            {"kind", kind},
+            {"previewKey",
+             QString::number(qHashMulti(0, previewKey, quintptr(m_world.assets.get()), m_resourceRevision))},
+            {"collection", collection},
+            {"folder", m_world.creation.assetFolders.value(id)},
+            {"width", width},
+            {"height", height},
+            {"depth", depth}});
     };
     for (const auto &a : m_world.creation.assets) {
         const auto kind = a.placement == "cave"  ? QStringLiteral("cave")
                           : a.category.isEmpty() ? QStringLiteral("building")
                                                  : a.category;
-        add(a.id, a.name, kind, "assets", a.width, a.height, a.depth);
+        add(a.id, a.name, kind, "assets", a.width, a.height, a.depth,
+            qHashMulti(0, quintptr(a.blocks.identity()), a.width, a.height, a.depth));
     }
     for (const auto &a : m_world.creation.pcgAssets) {
         const auto size = a.volume.max - a.volume.min;
-        add(a.id, a.name, "range", "pcgAssets", size.x(), size.y(), size.z());
+        add(a.id, a.name, "range", "pcgAssets", size.x(), size.y(), size.z(),
+            qHashMulti(0, a.graph.toJson(), a.volume.toJson()));
     }
     for (const auto &g : m_world.creation.graphs)
-        add(g.id, g.name, g.surfaceMaterial ? "material" : "graph", "graphs", 64, 64, 64);
+        add(g.id, g.name, g.surfaceMaterial ? "material" : "graph", "graphs", 64, 64, 64, qHash(g.toJson()));
     for (const auto &t : m_world.heights.instances)
-        add(t.id, t.name, "terrain", "terrains", t.width, t.high - t.low, t.depth);
+        add(t.id, t.name, "terrain", "terrains", t.width, t.high - t.low, t.depth,
+            qHashMulti(0, quintptr(t.image.get()), t.width, t.depth, t.high - t.low, t.scaleX, t.scaleY,
+                       t.scaleZ, t.rotationX, t.rotationY, t.rotationZ));
+    m_libraryRevision = m_revision;
+    m_libraryRows = rows;
     return rows;
+}
+namespace {
+QString numberedName(QString base, const QSet<QString> &used, bool alwaysNumber) {
+    if (base.isEmpty())
+        base = "未命名资产";
+    if (!alwaysNumber && !used.contains(base.toCaseFolded()))
+        return base;
+    for (int i = 1;; ++i) {
+        const auto suffix = QString::number(i);
+        QString candidate = base.left(128 - suffix.size()) + suffix;
+        if (!used.contains(candidate.toCaseFolded()))
+            return candidate;
+    }
+}
+QString instanceName(const QString &base, const wb::CreationState &state) {
+    QSet<QString> used;
+    for (const auto &p : state.presets)
+        used.insert(p.name.toCaseFolded());
+    for (const auto &v : state.volumes)
+        used.insert(v.name.toCaseFolded());
+    return numberedName(base, used, true);
+}
+} // namespace
+bool Editor::prepareLibraryNames(wb::CreationState &creation, std::vector<wb::TerrainInstance> &terrains,
+                                 bool migrate, QString &error) const {
+    QHash<QString, QString> existing;
+    if (!migrate)
+        for (const auto &v : libraryAssets()) {
+            const auto row = v.toMap();
+            existing.insert(row["id"].toString(), row["name"].toString());
+        }
+    QSet<QString> used;
+    QList<QString *> additions, renames;
+    auto collect = [&](auto &items) {
+        for (auto &a : items) {
+            if (!existing.contains(a.id))
+                additions.append(&a.name);
+            else if (existing[a.id] != a.name)
+                renames.append(&a.name);
+            else
+                used.insert(a.name.toCaseFolded());
+        }
+    };
+    collect(creation.assets);
+    collect(creation.graphs);
+    collect(creation.pcgAssets);
+    collect(terrains);
+    for (auto *name : renames) {
+        *name = name->trimmed();
+        if (name->isEmpty() || name->size() > 128 || used.contains(name->toCaseFolded())) {
+            error = "资产名为空、超过128字或与已有资产重名";
+            return false;
+        }
+        used.insert(name->toCaseFolded());
+    }
+    for (auto *name : additions) {
+        *name = numberedName(name->trimmed().left(128), used, false);
+        used.insert(name->toCaseFolded());
+    }
+    if (migrate)
+        for (auto &p : creation.presets) {
+            static const QRegularExpression legacy("^资产实例 [0-9]+$");
+            if (legacy.match(p.name).hasMatch())
+                for (const auto &a : creation.assets)
+                    if (a.id == p.assetId) {
+                        p.name = instanceName(a.name, creation);
+                        break;
+                    }
+        }
+    return true;
+}
+bool Editor::createAssetFolder(const QString &path) {
+    auto next = m_world.creation;
+    const auto parts = path.split('/');
+    if (path.size() > 256 || next.folders.contains(path, Qt::CaseInsensitive) ||
+        std::any_of(parts.begin(), parts.end(),
+                    [](const auto &p) {
+                        return p.isEmpty() || p != p.trimmed() || p == "." || p == ".." || p.contains('\\');
+                    }) ||
+        (parts.size() > 1 && !next.folders.contains(path.section('/', 0, -2)))) {
+        emit failure("文件夹名称无效、已存在或父目录不存在");
+        return false;
+    }
+    next.folders.append(path);
+    next.folders.sort(Qt::CaseInsensitive);
+    return commitCreation(std::move(next), "新建资产文件夹");
+}
+bool Editor::removeAssetFolder(const QString &path) {
+    auto next = m_world.creation;
+    if (!next.folders.contains(path))
+        return false;
+    for (const auto &v : libraryAssets())
+        if (v.toMap()["folder"] == path) {
+            emit failure("请先移出文件夹内的资产");
+            return false;
+        }
+    for (const auto &f : next.folders)
+        if (f.startsWith(path + "/")) {
+            emit failure("请先移出子文件夹");
+            return false;
+        }
+    next.folders.removeAll(path);
+    for (auto it = next.assetFolders.begin(); it != next.assetFolders.end();) {
+        if (it.value() == path)
+            it = next.assetFolders.erase(it);
+        else
+            ++it;
+    }
+    return commitCreation(std::move(next), "删除空文件夹");
+}
+bool Editor::moveLibraryAsset(const QString &id, const QString &folder) {
+    auto next = m_world.creation;
+    if (!folder.isEmpty() && !next.folders.contains(folder))
+        return false;
+    for (const auto &v : libraryAssets())
+        if (v.toMap()["id"] == id) {
+            if (folder.isEmpty())
+                next.assetFolders.remove(id);
+            else
+                next.assetFolders[id] = folder;
+            return commitCreation(std::move(next), "移动库资产");
+        }
+    return false;
+}
+bool Editor::renameLibraryAsset(const QString &id, const QString &name) {
+    for (const auto &v : libraryAssets()) {
+        const auto row = v.toMap();
+        if (row["id"] != id)
+            continue;
+        if (row["collection"] == "terrains") {
+            auto next = m_world.heights.instances;
+            for (auto &t : next)
+                if (t.id == id)
+                    t.name = name;
+            commitTerrain(std::move(next), "重命名地貌");
+            for (const auto &t : m_world.heights.instances)
+                if (t.id == id)
+                    return t.name == name.trimmed();
+        }
+        return creationEdit(
+            "patch", {{"kind", row["collection"]}, {"id", id}, {"changes", QVariantMap{{"name", name}}}});
+    }
+    return false;
 }
 bool Editor::storePcgAsset(const QString &id) {
     wb::PcgAsset asset;
@@ -327,6 +483,7 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
             return false;
         }
         if (action == "remove") {
+            next.assetFolders.remove(id);
             if (kind == "graphs")
                 std::erase_if(next.volumes, [&](auto &v) { return v.graphId == id; });
             if (kind == "roadNodes")
@@ -372,7 +529,9 @@ bool Editor::placeGraphVolume(const QString &graphId, QVector3D center) {
     wb::PcgVolume v;
     v.id = fresh("pcg-volume");
     v.graphId = graphId;
-    v.name = "PCG范围 " + QString::number(next.volumes.size() + 1);
+    for (const auto &g : next.graphs)
+        if (g.id == graphId)
+            v.name = instanceName(g.name, next);
     v.min = center - QVector3D(32, 32, 32);
     v.max = center + QVector3D(32, 32, 32);
     next.volumes.push_back(v);
@@ -502,6 +661,7 @@ bool Editor::placeAssetInstance(const QString &id, int x, int y, int z) {
             next.graphs.push_back(graph);
             auto volume = asset.volume;
             volume.id = fresh("pcg-volume");
+            volume.name = instanceName(asset.name, next);
             volume.graphId = graph.id;
             volume.min += QVector3D(x, y, z);
             volume.max += QVector3D(x, y, z);
@@ -514,10 +674,10 @@ bool Editor::placeAssetInstance(const QString &id, int x, int y, int z) {
     wb::AssetPreset p;
     p.id = fresh("asset-instance");
     p.assetId = id;
-    p.name = "资产实例 " + QString::number(next.presets.size() + 1);
     p.position = {float(x), float(y), float(z)};
     for (auto &a : next.assets)
         if (a.id == id) {
+            p.name = instanceName(a.name, next);
             p.rotation = a.defaultRotation;
             p.scale = a.defaultScale;
         }
@@ -929,9 +1089,34 @@ Editor *Editor::assetInspector() {
 bool Editor::showAssetPreview(const QString &id) {
     auto found = std::find_if(m_world.creation.assets.begin(), m_world.creation.assets.end(),
                               [&](auto &a) { return a.id == id; });
-    if (found == m_world.creation.assets.end())
-        return false;
     auto *inspector = assetInspector();
+    if (found == m_world.creation.assets.end()) {
+        const auto &terrains = m_world.heights.instances;
+        auto terrain =
+            std::find_if(terrains.begin(), terrains.end(), [&](const auto &t) { return t.id == id; });
+        if (terrain == terrains.end())
+            return false;
+        if (inspector->m_inspectionId == id && !inspector->m_world.heights.instances.empty() &&
+            inspector->m_world.heights.instances.front() == *terrain)
+            return true;
+        wb::WorldOptions options;
+        options.width = options.depth = 32;
+        options.flat = true;
+        options.seaLevel = -64;
+        auto world = wb::World::create(options);
+        world.heights.instances.push_back(*terrain);
+        world.environment = inspector->m_world.environment;
+        const bool reframe = inspector->m_inspectionId != id;
+        inspector->m_world = std::move(world);
+        inspector->m_inspectionId = id;
+        ++inspector->m_revision;
+        ++inspector->m_epoch;
+        inspector->dirtyAll();
+        emit inspector->changed();
+        if (reframe)
+            emit inspector->worldReset();
+        return true;
+    }
     if (inspector->m_world.assets == m_world.assets && !inspector->m_world.creation.assets.empty() &&
         inspector->m_world.creation.assets.front().blocks == found->blocks && inspector->m_inspectionId == id)
         return true;
@@ -959,6 +1144,7 @@ bool Editor::showAssetPreview(const QString &id) {
         emit failure(error);
         return false;
     }
+    world.environment = inspector->m_world.environment;
     inspector->m_world = std::move(world);
     inspector->m_inspectionId = id;
     ++inspector->m_revision;

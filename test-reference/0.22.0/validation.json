@@ -1,0 +1,14 @@
+{
+  "version": "0.22.0",
+  "baseline": "8be6689",
+  "ctest": {
+    "passed": 15,
+    "failed": 0
+  },
+  "creation_core_checks": 422,
+  "client_jar_and_resource_pack_checks": 1317,
+  "desktop_stdio_checks_with_3072_project_copy": 2215,
+  "original_project_sha256": "6eddcd95d11d07817fc43c6e3b4e03fcf7c79bbe669c10b21b2c15db4226f81c",
+  "package_smoke": "opened modified 3072 project copy and rendered a screenshot",
+  "acceptance": "awaiting user BH01-BH09"
+}

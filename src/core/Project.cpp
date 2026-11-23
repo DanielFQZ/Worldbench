@@ -20,7 +20,8 @@ QJsonObject projectMetadata(const World &w, bool inlinePayload) {
         std::vector<std::pair<uint64_t, Block>> ordered(w.overrides.begin(), w.overrides.end());
         std::sort(ordered.begin(), ordered.end());
         for (auto [k, v] : ordered)
-            cells.append(QJsonArray{double(k), int(v)});
+            cells.append(w.terrainOverrideKeys.contains(k) ? QJsonArray{double(k), int(v), true}
+                                                           : QJsonArray{double(k), int(v)});
     }
     QJsonArray palette, paths;
     for (const auto &state : w.palette) {
@@ -253,7 +254,7 @@ bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, P
         return fail("缺少体素差量");
     for (auto v : o["overrides"].toArray()) {
         auto a = v.toArray();
-        if (a.size() != 2 ||
+        if ((a.size() != 2 && !(a.size() == 3 && a[2].isBool())) ||
             (!a[0].isDouble() || !std::isfinite(a[0].toDouble()) || a[0].toDouble() < 0 ||
              a[0].toDouble() != std::floor(a[0].toDouble()) ||
              a[0].toDouble() >= double(w.width) * w.depth * (World::MaxY - World::MinY)) ||
@@ -263,6 +264,8 @@ bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, P
             return fail("基岩保护层不允许包含体素差量");
         if (!w.overrides.emplace(uint64_t(a[0].toDouble()), Block(a[1].toInt())).second)
             return fail("重复的体素键");
+        if (a.size() == 3 && a[2].toBool())
+            w.terrainOverrideKeys.insert(uint64_t(a[0].toDouble()));
     }
     if (payload) {
         if (!o["overrides"].toArray().isEmpty())
@@ -272,6 +275,7 @@ bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, P
                 block >= w.palette.size())
                 return fail("分块体素差量越界");
         w.overrides = std::move(payload->overrides);
+        w.terrainOverrideKeys = std::move(payload->terrainOverrideKeys);
     }
     if (format >= 8 && !loadEnvironment(o["environment"].toObject(), w.environment, error))
         return false;

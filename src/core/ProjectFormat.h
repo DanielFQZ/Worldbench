@@ -10,6 +10,7 @@ struct ProjectPayload {
     std::shared_ptr<const std::vector<int16_t>> dense;
     std::vector<std::shared_ptr<HeightDeltas>> deltas;
     std::unordered_map<uint64_t, Block> overrides;
+    std::unordered_set<uint64_t> terrainOverrideKeys;
 };
 QJsonObject projectMetadata(const World &world, bool inlinePayload);
 bool decodeProjectMetadata(const QJsonObject &object, World &world, QString &error,

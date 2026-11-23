@@ -38,7 +38,12 @@ float shadowVisibility(vec3 position, vec3 normal) {
 
 void main(){
     if(u.effects.z>.5 && worldPos.y<u.water.w-.02)discard;
-    vec4 sampled=(textureUV.x<0.0 ? vec4(1.0) : texture(atlas,textureUV))*baseColor;
+    vec2 size = vec2(textureSize(atlas, 0));
+    vec2 dx = dFdx(textureUV) * size, dy = dFdy(textureUV) * size;
+    float lod = .5 * log2(max(1., max(dot(dx, dx), dot(dy, dy))));
+    // Block atlas has 32px aligned tiles. Terrain color pages have their own mip chain.
+    if (all(equal(size, vec2(u.renderData.z)))) lod = min(lod, 5.);
+    vec4 sampled=(textureUV.x<0.0 ? vec4(1.0) : textureLod(atlas,textureUV,lod))*baseColor;
     if(sampled.a<0.05)discard;
     float light=0.52+0.48*max(0.0,dot(faceNormal,normalize(vec3(-0.45,0.85,0.3))));
     vec3 col=sampled.rgb*light;

@@ -154,23 +154,25 @@ bool saveProject(const QString &path, const World &world, QString &error) {
         }
         if (world.overrides.size() > 4 * 1024 * 1024)
             return fail("独立体素修改超过当前4M格存储预算");
-        QByteArray cells;
-        auto flush = [&] {
+        QByteArray explicitCells, terrainCells;
+        auto flush = [&](QByteArray &cells, bool terrain) {
             if (cells.isEmpty())
                 return true;
-            const bool ok = write({{"kind", "cells"}}, cells);
+            const bool ok = write({{"kind", terrain ? "terrainCells" : "cells"}}, cells);
             cells.clear();
             return ok;
         };
         for (auto [key, block] : world.overrides) {
+            const bool terrain = world.terrainOverrideKeys.contains(key);
+            auto &cells = terrain ? terrainCells : explicitCells;
             const auto pos = cells.size();
             cells.resize(pos + 12);
             qToLittleEndian<uint64_t>(key, cells.data() + pos);
             qToLittleEndian<uint32_t>(block, cells.data() + pos + 8);
-            if (cells.size() >= 8192 * 12 && !flush())
+            if (cells.size() >= 8192 * 12 && !flush(cells, terrain))
                 return false;
         }
-        if (!flush())
+        if (!flush(explicitCells, false) || !flush(terrainCells, true))
             return false;
         auto metadata = projectMetadata(world, false);
         const auto creationBytes =
@@ -379,15 +381,19 @@ bool loadProject(const QString &path, World &world, QString &error) {
                     return fail("创作数据分块顺序或大小无效");
                 ++creationParts;
                 creationBytes.append(bytes);
-            } else if (kind == "cells") {
+            } else if (kind == "cells" || kind == "terrainCells") {
                 if (rawSize % 12 || payload.overrides.size() + rawSize / 12 > 4 * 1024 * 1024)
                     return fail("体素分块数量无效");
-                for (int pos = 0; pos < rawSize; pos += 12)
+                for (int pos = 0; pos < rawSize; pos += 12) {
+                    if (kind == "terrainCells")
+                        payload.terrainOverrideKeys.insert(
+                            qFromLittleEndian<uint64_t>(bytes.constData() + pos));
                     if (!payload.overrides
                              .emplace(qFromLittleEndian<uint64_t>(bytes.constData() + pos),
                                       qFromLittleEndian<uint32_t>(bytes.constData() + pos + 8))
                              .second)
                         return fail("重复体素键");
+                }
             } else
                 return fail("不支持的工程分块类型");
         }

@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     try {
         QString error;
+        QTemporaryDir dir;
         auto graph = surface();
         check(graph.validate(error), "graph validation");
         check(graph.evaluate(0, 0, 24, 0, 1) == 1, "output evaluation");
@@ -99,6 +100,20 @@ int main(int argc, char **argv) {
             check(placed.rebuildCreation(error), "tree ground blend fixture");
             check(placed.block(1, 28, 0) == Air && placed.block(1, 27, 0) == Air,
                   "canopy must not create floating stone foundation");
+            const auto ground = placed.raycast({.5f, 55, .5f}, {0, -1, 0}, 100, true);
+            check(ground.valid && ground.y == 24 && placed.raycast({.5f, 55, .5f}, {0, -1, 0}).y == 29,
+                  "terrain pick passes through the canopy and trunk");
+            for (int tool = 0; tool < 6; ++tool) {
+                auto working = placed;
+                Stroke stroke(working);
+                stroke.stamp(ground, tool, 4, 4, Planks, false);
+                for (const auto &[key, block] : placed.generated->cells) {
+                    int x, y, z;
+                    placed.decode(key, x, y, z);
+                    check(working.block(x, y, z) == block && !working.explicitOverride(key),
+                          "brush preserves placed asset cells");
+                }
+            }
             auto original = placed.generated->cells;
             auto meshes = buildCreationMeshes(placed, 1);
             check(meshes.size() == 1 && !meshes[0].mesh->opaque.empty(), "asset has independent mesh");
@@ -120,6 +135,32 @@ int main(int argc, char **argv) {
         check(world.block(0, 24, 0) == Stone && world.block(0, 23, 0) == Sand,
               "PCG writes real surface and subsurface blocks");
         check(world.block(22, 24, 22) == Grass, "volume bounds leave exterior intact");
+        {
+            auto painted = world;
+            auto hit = painted.raycast({.5f, 40, .5f}, {0, -1, 0}, 100, true);
+            check(hit.y == 24 && hit.block == Grass, "brush target sees terrain under PCG surface");
+            Stroke stroke(painted);
+            stroke.stamp(hit, 4, 2, 4, Planks, false);
+            check(painted.block(0, 24, 0) == Stone && painted.terrainBlock(0, 24, 0, 24) == Planks,
+                  "paint remains underneath procedural output");
+            painted.creation.volumes.front().enabled = false;
+            check(painted.rebuildCreation(error) && painted.block(0, 24, 0) == Planks,
+                  "hiding PCG reveals terrain paint");
+            wb::World savedPaint;
+            check(saveProject(dir.filePath("layer-paint.wbench"), painted, error) &&
+                      loadProject(dir.filePath("layer-paint.wbench"), savedPaint, error) &&
+                      savedPaint.terrainOverrideKeys == painted.terrainOverrideKeys,
+                  "paint ownership survives save/load");
+            savedPaint.creation.volumes.front().enabled = true;
+            check(savedPaint.rebuildCreation(error) && savedPaint.block(0, 24, 0) == Stone,
+                  "restored PCG covers saved paint");
+            auto cmd = stroke.finish("paint");
+            painted.apply(cmd, false);
+            check(painted.block(0, 24, 0) == Grass, "terrain paint undoes");
+            painted.apply(cmd, true);
+            check(painted.terrainOverrideKeys.contains(painted.key(0, 24, 0)),
+                  "redo restores layer ownership");
+        }
         world.setBlock(0, 24, 0, Planks);
         check(world.rebuildCreation(error) && world.block(0, 24, 0) == Planks,
               "manual edits remain above procedural material");
@@ -177,7 +218,7 @@ int main(int argc, char **argv) {
         auto mesh = buildChunkMesh(world, floorDiv(int(first.x()), 16), floorDiv(int(first.z()), 16), 1);
         check(mesh->upper.y() > 29 && mesh->opaque.size() > 0,
               "generated structures have actual mesh geometry");
-        QTemporaryDir dir;
+
         check(dir.isValid(), "temp directory");
         check(saveProject(dir.filePath("generated.wbench"), world, error), "save generated project");
         World loaded;
@@ -257,6 +298,17 @@ int main(int argc, char **argv) {
         check(caveWorld.block(2, 10, 2) == Air && caveWorld.block(0, 10, 2) == Air,
               "internal and entrance air carved");
         check(caveWorld.block(-1, 10, 2) == Stone, "external terrain preserved");
+        {
+            auto working = caveWorld;
+            auto hit = working.raycast({2.5f, 40, 2.5f}, {0, -1, 0}, 100, true);
+            Stroke stroke(working);
+            stroke.stamp(hit, 2, 16, 4, Stone, false);
+            for (const auto &[key, block] : working.generated->cells) {
+                int x, y, z;
+                working.decode(key, x, y, z);
+                check(working.block(x, y, z) == block, "subsurface cave shell and carved air are protected");
+            }
+        }
         // Minimal real Minecraft NBT asset (one block, palette, size, no JSON shortcut).
         QByteArray nbt;
         tag(nbt, 10, "");

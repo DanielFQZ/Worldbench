@@ -47,6 +47,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void setShadowQuality(int value);
     Q_INVOKABLE void previewAsset(const QString &id, double x, double y);
     Q_INVOKABLE void clearAssetPreview();
+    wb::MeshPtr selectionProxy() const { return m_selectionProxy; }
+    void refreshSelectionProxy();
     wb::MeshPtr ghostMesh() const { return m_ghostVisible ? m_ghostMesh : wb::MeshPtr{}; }
     QMatrix4x4 ghostTransform() const { return m_ghostTransform; }
     double sensitivity() const { return m_sensitivity; }
@@ -102,6 +104,10 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     int m_renderScale = 100, m_shadowQuality = 2;
     void updateRenderSize();
     QString m_ghostId, m_ghostName;
+    QFutureWatcher<wb::MeshPtr> m_proxyWatcher;
+    wb::MeshPtr m_selectionProxy;
+    const void *m_proxyBlocks = nullptr;
+    std::shared_ptr<const wb::AssetLibrary> m_proxyLibrary;
     wb::MeshPtr m_ghostMesh;
     QMatrix4x4 m_ghostTransform;
     bool m_ghostVisible = false;

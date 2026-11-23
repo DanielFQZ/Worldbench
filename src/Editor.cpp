@@ -230,6 +230,12 @@ void Editor::setExactPreviewEnabled(bool value) {
 }
 
 bool Editor::commitCreation(wb::CreationState next, const QString &label) {
+    auto terrainNames = m_world.heights.instances;
+    QString nameError;
+    if (!prepareLibraryNames(next, terrainNames, false, nameError)) {
+        emit failure(nameError);
+        return false;
+    }
     if (next == m_world.creation)
         return true;
     if (regionBusy() || assetBusy()) {
@@ -248,6 +254,8 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label) {
     QString error;
     auto metadataOnly = m_world.creation;
     metadataOnly.pcgAssets = candidate.creation.pcgAssets;
+    metadataOnly.folders = candidate.creation.folders;
+    metadataOnly.assetFolders = candidate.creation.assetFolders;
     const bool prepared = metadataOnly == candidate.creation ? wb::validateCreation(candidate.creation, error)
                                                              : prepareCreation(candidate, error);
     if (!prepared) {
@@ -567,6 +575,7 @@ void Editor::redo() {
     emit changed();
 }
 void Editor::resetHistory() {
+    m_thumbnailCache.clear();
     m_regionControl.reset();
     m_regionId.clear();
     m_regionState = "idle";
@@ -655,6 +664,10 @@ bool Editor::open(const QUrl &url) {
     wb::World next;
     QString error;
     if (!wb::loadProject(url.toLocalFile(), next, error)) {
+        emit failure(error);
+        return false;
+    }
+    if (!prepareLibraryNames(next.creation, next.heights.instances, true, error)) {
         emit failure(error);
         return false;
     }
@@ -975,6 +988,15 @@ void Editor::startMesh() {
         next->worldArea = QRect(snapshot.originX, snapshot.originZ, snapshot.width, snapshot.depth);
         next->seaSurface = float(snapshot.seaLevel + 1);
         try {
+            if (inspection && !snapshot.heights.instances.empty()) {
+                auto mesh = wb::buildTerrainAssetPreview(snapshot.heights.instances.front());
+                next->chunks = {mesh};
+                next->chunkIds = {0};
+                next->vertices = mesh->opaque.size();
+                next->bufferBytes = next->vertices * sizeof(wb::Vertex) + mesh->opaqueIndices.size() * 4;
+                next->buildMilliseconds = timer.elapsed();
+                return next;
+            }
             std::map<int, wb::MeshPtr> exactCache;
             if (old->assets == snapshot.assets)
                 for (size_t i = 0; i < old->chunkIds.size(); ++i)

@@ -24,7 +24,7 @@ Item {
  ColumnLayout {
   anchors.fill:parent;spacing:8
   RowLayout {Layout.fillWidth:true;Layout.margins:8
-   WorkbenchTextField {Layout.fillWidth:true;text:root.asset.name||"";placeholderText:"选择资产";onEditingFinished:root.patch("name",text)}
+   WorkbenchTextField {Layout.fillWidth:true;text:root.asset.name||"";placeholderText:"选择资产";onEditingFinished:{if (!editor.renameLibraryAsset(root.assetId,text)) text=root.asset.name}}
    WorkbenchButton {text:"在地表放置";enabled:!!root.assetId;onClicked:{editor.beginPlacement(root.assetId);root.placeRequested()}}
   }
   SplitView {
@@ -39,6 +39,11 @@ Item {
       x:12;y:12;glyph:"move";hint:"在场景地表放置此资产"
       enabled:!!root.assetId
       onClicked:{editor.beginPlacement(root.assetId);root.placeRequested()}
+     }
+     ViewportIconButton {
+      objectName:"assetLighting";x:48;y:12;glyph:"sun";hint:"资产光照预览";checkable:true
+      checked:root.controller.assetInspector.environmentDetails.enabled
+      onClicked:root.controller.assetInspector.setEnvironment({enabled:!root.controller.assetInspector.environmentDetails.enabled})
      }
      Label{anchors.bottom:parent.bottom;anchors.left:parent.left;anchors.right:parent.right;anchors.margins:8;text:"真实方块 / 模型预览 · 右键转向，Alt+左键环绕；下方剖面精确标记";color:Theme.secondary;elide:Text.ElideRight;font.pixelSize:11}
     }

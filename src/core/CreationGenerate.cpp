@@ -429,7 +429,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                     int x = int(v.x()), y = int(v.y()), z = int(v.z());
                     if (!w.contains(x, y, z) || y == World::MinY ||
                         out->geometryCells.contains(w.key(x, y, z)) ||
-                        out->heights.contains(w.column(x, z)) || w.overrides.contains(w.key(x, y, z)) ||
+                        out->heights.contains(w.column(x, z)) || w.explicitOverride(w.key(x, y, z)) ||
                         (y <= height(x, z) - embed && !w.isAir(b)))
                         return false;
                     for (const auto &box : reserved)
@@ -732,7 +732,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
         const auto changedHeight = out->heights.find(w.column(x, z));
         const int surface =
             changedHeight == out->heights.end() ? int(w.heights[w.column(x, z)]) : changedHeight->second;
-        if (b == Air && (!w.overrides.contains(key) || w.isAir(w.overrides.at(key))) && y == surface)
+        if (b == Air && (!w.explicitOverride(key) || w.isAir(w.overrides.at(key))) && y == surface)
             holes[z].insert(x);
     }
     for (auto &[z, xs] : holes) {

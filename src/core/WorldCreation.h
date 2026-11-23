@@ -2,6 +2,8 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
+#include <QMatrix4x4>
 #include <QRect>
 #include <QString>
 #include <QVector3D>
@@ -124,6 +126,8 @@ struct AssetPreset {
     static bool fromJson(const QJsonObject &, AssetPreset &, QString &error);
 };
 
+QMatrix4x4 placementMatrix(const AssetPreset &placement);
+
 struct RoadNode {
     QString id, name;
     QVector3D position;
@@ -165,6 +169,8 @@ struct PcgAsset {
     bool operator==(const PcgAsset &) const = default;
 };
 struct CreationState {
+    QStringList folders;
+    QMap<QString, QString> assetFolders;
     std::vector<PcgAsset> pcgAssets;
     std::vector<PcgGraph> graphs;
     std::vector<PcgVolume> volumes;

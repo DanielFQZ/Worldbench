@@ -75,7 +75,8 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     if (assetBusy())
         return;
     QString error;
-    if (!wb::validateTerrain(next, error)) {
+    auto creationNames = m_world.creation;
+    if (!prepareLibraryNames(creationNames, next, false, error) || !wb::validateTerrain(next, error)) {
         emit failure(error);
         return;
     }
@@ -87,6 +88,15 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     command.terrainBefore =
         std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
     command.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(std::move(next));
+    for (const auto &old : *command.terrainBefore)
+        if (creationNames.assetFolders.contains(old.id) &&
+            std::none_of(command.terrainAfter->begin(), command.terrainAfter->end(),
+                         [&](const auto &t) { return t.id == old.id; }))
+            creationNames.assetFolders.remove(old.id);
+    if (creationNames.assetFolders != m_world.creation.assetFolders) {
+        command.creationBefore = std::make_shared<const wb::CreationState>(m_world.creation);
+        command.creationAfter = std::make_shared<const wb::CreationState>(std::move(creationNames));
+    }
     m_world.apply(command, true);
     ++m_revision;
     if (!dirtyCommand(command))

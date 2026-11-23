@@ -10,6 +10,16 @@
 #include <cmath>
 
 namespace wb {
+QMatrix4x4 placementMatrix(const AssetPreset &p) {
+    QMatrix4x4 m;
+    m.translate(p.position + QVector3D(.5, .5, .5));
+    m.rotate(-p.rotation.y(), 0, 1, 0);
+    m.scale(p.scale.x() < 0 ? -1 : 1, 1, p.scale.z() < 0 ? -1 : 1);
+    m.translate(-.5, -.5, -.5);
+    m.scale(std::abs(p.scale.x()), p.scale.y(), std::abs(p.scale.z()));
+    return m;
+}
+
 namespace {
 QJsonArray vec3(const QVector3D &v) {
     return {v.x(), v.y(), v.z()};
@@ -311,8 +321,20 @@ QJsonObject saveCreation(const CreationState &s) {
     QJsonArray library;
     for (const auto &asset : s.pcgAssets)
         library.append(asset.toJson());
-    return {{"pcgAssets", library}, {"version", 1},   {"graphs", g},    {"volumes", v},    {"assets", a},
-            {"presets", p},         {"roadNodes", n}, {"roadEdges", e}, {"caveMarkers", c}};
+    QJsonObject foldersByAsset;
+    for (auto it = s.assetFolders.cbegin(); it != s.assetFolders.cend(); ++it)
+        foldersByAsset[it.key()] = it.value();
+    return {{"folders", QJsonArray::fromStringList(s.folders)},
+            {"assetFolders", foldersByAsset},
+            {"pcgAssets", library},
+            {"version", 1},
+            {"graphs", g},
+            {"volumes", v},
+            {"assets", a},
+            {"presets", p},
+            {"roadNodes", n},
+            {"roadEdges", e},
+            {"caveMarkers", c}};
 }
 bool loadCreation(const QJsonObject &o, CreationState &s, QString &error) {
     if (o.isEmpty()) {
@@ -326,6 +348,11 @@ bool loadCreation(const QJsonObject &o, CreationState &s, QString &error) {
             return false;
         }
     s = {};
+    for (auto f : o["folders"].toArray())
+        s.folders.append(f.toString());
+    const auto locations = o["assetFolders"].toObject();
+    for (auto it = locations.begin(); it != locations.end(); ++it)
+        s.assetFolders.insert(it.key(), it.value().toString());
     if (o.contains("pcgAssets")) {
         if (!arr("pcgAssets")) {
             error = "PCG资产库无效";

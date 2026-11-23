@@ -358,6 +358,16 @@ bool validateCreation(const CreationState &s, QString &error) {
         }
         return true;
     };
+    QSet<QString> paths;
+    for (const auto &path : s.folders) {
+        if (path.trimmed().isEmpty() || path.size() > 256 || paths.contains(path.toCaseFolded()) ||
+            s.folders.size() > 4096)
+            return fail("资产文件夹名称无效或重复");
+        paths.insert(path.toCaseFolded());
+    }
+    for (const auto &path : s.assetFolders)
+        if (!s.folders.contains(path))
+            return fail("资产引用了不存在的文件夹");
     if (!unique(s.graphs) || !unique(s.volumes) || !unique(s.assets) || !unique(s.presets) ||
         !unique(s.roadNodes) || !unique(s.roadEdges) || !unique(s.caveMarkers) || !unique(s.pcgAssets))
         return fail("创作对象ID必须唯一，单类最多4096项");

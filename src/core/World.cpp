@@ -183,33 +183,47 @@ Block World::baseBlock(int x, int y, int z) const {
             return it->second;
     }
     const int h = height(x, z);
-    if (y > h)
-        return y <= seaLevel ? Water : Air;
-    if (theme.enabled)
-        return theme.block(x, y, z, h, seaLevel);
-    if (y == h)
-        return h <= seaLevel + 1 ? Sand : Grass;
-    return y >= h - 3 ? (h <= seaLevel + 1 ? Sand : Dirt) : Stone;
+    return naturalBlock(x, y, z, h);
 }
 Block World::block(int x, int y, int z) const {
     if (!contains(x, y, z))
         return Air;
-    const auto it = overrides.find(key(x, y, z));
-    return it == overrides.end() ? baseBlock(x, y, z) : it->second;
+    if (y == MinY)
+        return Bedrock;
+    const auto k = key(x, y, z);
+    auto edit = overrides.find(k);
+    if (edit != overrides.end() && (!generated || !terrainOverrideKeys.contains(k)))
+        return edit->second;
+    if (generated) {
+        auto cell = generated->cells.find(k);
+        if (cell != generated->cells.end())
+            return cell->second;
+    }
+    return edit != overrides.end() ? edit->second : naturalBlock(x, y, z, height(x, z));
 }
 Block World::blockAtHeight(int x, int y, int z, int h) const {
     if (!contains(x, y, z))
         return Air;
-    auto it = overrides.find(key(x, y, z));
-    if (it != overrides.end())
-        return it->second;
     if (y == MinY)
         return Bedrock;
-    if (generated) {
-        auto it = generated->cells.find(key(x, y, z));
-        if (it != generated->cells.end())
-            return it->second;
+    auto k = key(x, y, z);
+    auto edit = overrides.find(k);
+    if (generated && (edit == overrides.end() || terrainOverrideKeys.contains(k))) {
+        auto cell = generated->cells.find(k);
+        if (cell != generated->cells.end())
+            return cell->second;
     }
+    return edit == overrides.end() ? naturalBlock(x, y, z, h) : edit->second;
+}
+Block World::terrainBlock(int x, int y, int z, int h) const {
+    if (!contains(x, y, z))
+        return Air;
+    if (y == MinY)
+        return Bedrock;
+    auto edit = overrides.find(key(x, y, z));
+    return edit == overrides.end() ? naturalBlock(x, y, z, h) : edit->second;
+}
+Block World::naturalBlock(int x, int y, int z, int h) const {
     if (y > h)
         return y <= seaLevel ? Water : Air;
     if (theme.enabled)
@@ -222,6 +236,7 @@ void World::setBlock(int x, int y, int z, Block b) {
     if (!contains(x, y, z) || y == MinY || b >= palette.size())
         return;
     const auto k = key(x, y, z);
+    terrainOverrideKeys.erase(k);
     if (b == baseBlock(x, y, z))
         overrides.erase(k);
     else
@@ -257,7 +272,7 @@ static bool boxIntersect(QVector3D o, QVector3D d, QVector3D lo, QVector3D hi, f
     normal = n;
     return true;
 }
-Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
+Hit World::raycast(QVector3D o, QVector3D d, float maxDistance, bool terrainOnly) const {
     if (d.lengthSquared() < 1e-12f || !std::isfinite(d.lengthSquared()) ||
         !std::isfinite(o.lengthSquared()) || !std::isfinite(maxDistance) || maxDistance < 0)
         return {};
@@ -293,12 +308,13 @@ Hit World::raycast(QVector3D o, QVector3D d, float maxDistance) const {
         if (c[0] != lastX || c[2] != lastZ) {
             lastX = c[0];
             lastZ = c[2];
-            columnHeight = height(c[0], c[2]);
+            columnHeight = terrainOnly ? int(heights[column(c[0], c[2])]) : height(c[0], c[2]);
         }
-        const Block b = blockAtHeight(c[0], c[1], c[2], columnHeight);
+        const Block b = terrainOnly ? terrainBlock(c[0], c[1], c[2], columnHeight)
+                                    : blockAtHeight(c[0], c[1], c[2], columnHeight);
         float closest = modelMaxDistance + 1;
         QVector3D normal;
-        if (b != Air && b < models.size())
+        if (b != Air && (!terrainOnly || b != Water) && b < models.size())
             for (const auto &face : models[b]->faces) {
                 const QVector3D cell{float(c[0]), float(c[1]), float(c[2])};
                 for (int triangle = 0; triangle < 2; ++triangle) {
@@ -364,17 +380,34 @@ void World::apply(const Command &cmd, bool forward) {
             overrides.erase(c.key);
         else
             overrides[c.key] = Block(v);
+        if (forward ? c.terrainAfter : c.terrainBefore)
+            terrainOverrideKeys.insert(c.key);
+        else
+            terrainOverrideKeys.erase(c.key);
     }
 }
 void Stroke::changeCell(int x, int y, int z, Block b) {
-    if (!world.contains(x, y, z) || y == World::MinY || world.block(x, y, z) == b)
+    if (!world.contains(x, y, z) || y == World::MinY)
         return;
-    auto k = world.key(x, y, z);
+    const int h = world.heights[world.column(x, z)];
+    if (world.terrainBlock(x, y, z, h) == b)
+        return;
+    const auto k = world.key(x, y, z);
+    // Explicit edits of the structure (e.g. MCP) remain above both layers.
+    if (world.generated && world.generated->cells.contains(k) && world.explicitOverride(k))
+        return;
     if (!beforeCells.contains(k)) {
         auto it = world.overrides.find(k);
-        beforeCells[k] = it == world.overrides.end() ? -1 : int(it->second);
+        beforeCells[k] = {it == world.overrides.end() ? -1 : int(it->second),
+                          world.terrainOverrideKeys.contains(k)};
     }
-    world.setBlock(x, y, z, b);
+    if (world.naturalBlock(x, y, z, h) == b) {
+        world.overrides.erase(k);
+        world.terrainOverrideKeys.erase(k);
+    } else {
+        world.overrides[k] = b;
+        world.terrainOverrideKeys.insert(k);
+    }
     ++changes;
 }
 void Stroke::changeHeight(int i, int h) {
@@ -387,14 +420,14 @@ void Stroke::changeHeight(int i, int h) {
 }
 void Stroke::reshapeSurface(int x, int z, int target, const BrushOptions &o) {
     target = std::clamp(target, World::MinY + 1, World::MaxY - 2);
-    const int oldHeight = world.height(x, z);
+    const int oldHeight = world.heights[world.column(x, z)];
     // Snapshot the authoritative column before changing the height-derived base.
     // Air overrides are meaningful: retain them below the new cap, never erase a cave.
     std::array<Block, World::MaxY - World::MinY> original;
     std::array<bool, World::MaxY - World::MinY> pinned;
     int upper = std::max(oldHeight, target);
     for (int y = World::MinY; y < World::MaxY; ++y) {
-        const auto b = world.block(x, y, z);
+        const auto b = world.terrainBlock(x, y, z, oldHeight);
         original[y - World::MinY] = b;
         pinned[y - World::MinY] = world.overrides.contains(world.key(x, y, z));
         if (!world.isAir(b) && b != Water)
@@ -454,7 +487,7 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
         const float slope = std::atan(std::hypot(dx, dz)) * 180.f / 3.14159265f;
         if (slope < o.minSlope || slope > o.maxSlope)
             return false;
-        const bool match = world.palette[world.block(x, y, z)].name == o.filterBlock;
+        const bool match = world.palette[world.terrainBlock(x, y, z, height(x, z))].name == o.filterBlock;
         return o.materialFilter == 0 || (o.materialFilter == 1 ? match : !match);
     };
     if (tool <= 1 || tool == 5) {
@@ -532,7 +565,7 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
                             continue;
                     }
                     if (tool == 4) {
-                        if (!world.isAir(world.block(x, y, z)))
+                        if (!world.isAir(world.terrainBlock(x, y, z, height(x, z))))
                             changeCell(x, y, z, mat);
                     } else
                         changeCell(x, y, z, add ? mat : Air);
@@ -550,8 +583,9 @@ Command Stroke::finish(const QString &label) {
     for (auto [k, b] : beforeCells) {
         auto it = world.overrides.find(k);
         int a = it == world.overrides.end() ? -1 : int(it->second);
-        if (a != b)
-            c.cells.push_back({k, b, a});
+        const bool terrain = world.terrainOverrideKeys.contains(k);
+        if (a != b.first || b.second != terrain)
+            c.cells.push_back({k, b.first, a, b.second, terrain});
     }
     return c;
 }

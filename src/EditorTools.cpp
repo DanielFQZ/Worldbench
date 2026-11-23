@@ -921,7 +921,7 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
         next.setBlock(p[0], p[1], p[2], block);
         auto current = next.overrides.find(key);
         int after = current == next.overrides.end() ? -1 : int(current->second);
-        command.cells.push_back({key, before, after});
+        command.cells.push_back({key, before, after, m_world.terrainOverrideKeys.contains(key), false});
     }
     const int count = int(command.cells.size());
     if (count) {

@@ -189,7 +189,7 @@ QByteArray chunk(const World &w, int cx, int cz) {
         for (auto &[key, raw] : w.generated->blockEntities) {
             int x, y, z;
             w.decode(key, x, y, z);
-            if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz && !w.overrides.contains(key))
+            if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz && !w.explicitOverride(key))
                 blockEntities.push_back(raw);
         }
     n.list("block_entities", 10, int(blockEntities.size()));

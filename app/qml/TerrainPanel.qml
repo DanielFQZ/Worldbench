@@ -8,7 +8,7 @@ ColumnLayout {
  property var instance:editor.terrainDetails
  enabled:!editor.assetBusy
  Label{text:"高度图地貌实例";font.pixelSize:16;Layout.margins:12}
- WorkbenchTextField {objectName:"terrainName";text:panel.instance.name||"";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;maximumLength:128;selectByMouse:true;onEditingFinished:if(panel.instance.valid)editor.setTerrainOption("name",text)}
+ WorkbenchTextField {objectName:"terrainName";text:panel.instance.name||"";Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;maximumLength:128;selectByMouse:true;onEditingFinished:if(panel.instance.valid && !editor.renameLibraryAsset(panel.instance.id,text))text=panel.instance.name}
  Label{text:(panel.instance.source||"")+"\n"+(panel.instance.pixelsX||0)+" × "+(panel.instance.pixelsZ||0)+" 像素 · 已嵌入工程";wrapMode:Text.WrapAnywhere;Layout.fillWidth:true;Layout.margins:12;color:Theme.secondary}
  WorkbenchCheckBox {text:"启用此实例";checked:panel.instance.enabled||false;Layout.leftMargin:8;onToggled:editor.setTerrainOption("enabled",checked)}
  AxisTriplet{Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12;caption:"位置 · 中心 X/Z，竖直偏移 Y";keys:["centerX","y","centerZ"];values:[panel.instance.centerX,panel.instance.y,panel.instance.centerZ];minimums:[-2000000,-10000,-2000000];maximums:[2000000,10000,2000000]}

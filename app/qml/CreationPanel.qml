@@ -2,9 +2,11 @@ import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Worldbench 1.0
 
 Pane {
  id:panel;objectName:"creationPanel";padding:0
+ property var controller:editor
  property var asset:({})
  readonly property string kind:asset.kind || ""
  readonly property bool graph:["graph","material","range"].includes(kind)
@@ -26,7 +28,7 @@ Pane {
    RowLayout {Layout.fillWidth:true;Layout.margins:8
     Label{text:panel.kind==="material"?"地表材质":panel.kind==="range"?"PCG 范围预设":"PCG 节点图";color:Theme.secondary}
     WorkbenchTextField {Layout.fillWidth:true;text:panel.asset.name||"";maximumLength:128
-     onEditingFinished:if(text.trim() && text!==panel.asset.name)editor.creationEdit("patch",{kind:panel.asset.collection,id:panel.asset.id,changes:{name:text.trim()}})
+     onEditingFinished:if(text!==panel.asset.name && !editor.renameLibraryAsset(panel.asset.id,text))text=panel.asset.name
     }
     WorkbenchButton {text:"在地表放置范围";onClicked:{editor.beginPlacement(panel.asset.id);panel.placeRequested()}}
    }
@@ -34,7 +36,25 @@ Pane {
   }
  }
  Component {id:structurePage;AssetEditor {assetId:panel.asset.id||"";kind:panel.kind;onPlaceRequested:panel.placeRequested()}}
- Component {id:terrainPage;ScrollView {clip:true;contentWidth:availableWidth;TerrainPanel {width:parent.width;enabled:editor.selectedNode===panel.asset.id&&!editor.assetBusy}}}
+ Component {
+  id:terrainPage
+  SplitView {
+   Item {
+    SplitView.fillWidth:true
+    VoxelViewport {id:terrainView;objectName:"terrainAssetViewport";anchors.fill:parent;editor:panel.controller.assetInspector}
+    ViewportIconButton {
+     x:12;y:12;glyph:"sun";hint:"地貌光照预览";checkable:true;checked:panel.controller.assetInspector.environmentDetails.enabled
+     onClicked:panel.controller.assetInspector.setEnvironment({enabled:!panel.controller.assetInspector.environmentDetails.enabled})
+    }
+    property var terrain:panel.asset
+    function refresh(){if(terrain && terrain.id && visible)panel.controller.showAssetPreview(terrain.id)}
+    onTerrainChanged:refresh()
+    onVisibleChanged:refresh()
+    Component.onCompleted:refresh()
+   }
+   ScrollView {id:terrainControls;SplitView.preferredWidth:320;clip:true;contentWidth:availableWidth;TerrainPanel {width:terrainControls.availableWidth;enabled:editor.selectedNode===panel.asset.id&&!editor.assetBusy}}
+  }
+ }
  Component {
   id:roadPage
    ColumnLayout {

@@ -262,6 +262,37 @@ int main(int argc, char **argv) {
         check(editor.world().creation.pcgAssets.empty() && editor.world().creation.volumes.size() == 1,
               "PCG library operations undo atomically");
         settle();
+        {
+            const auto originalName = editor.world().creation.assets.front().name;
+            check(editor.createAssetFolder("创作") && editor.createAssetFolder("创作/植物") &&
+                      editor.moveLibraryAsset(treeId, "创作/植物"),
+                  "nested catalog folders and assignment");
+            check(editor.renameLibraryAsset(treeId, "森林树"), "rename structure asset");
+            check(!editor.renameLibraryAsset(treeId, graph.name) &&
+                      editor.world().creation.assets.front().name == "森林树",
+                  "cross-type duplicate rename rejects atomically");
+            lastFailure.clear();
+            if (auto *dialog = window->findChild<QObject *>("errorDialog"))
+                QMetaObject::invokeMethod(dialog, "close");
+            write("creation", {{"action", "import_asset"}, {"path", treePath}});
+            const auto imported = editor.world().creation.assets.back().id;
+            check(editor.renameLibraryAsset(imported, originalName), "released asset name available");
+            write("creation", {{"action", "import_asset"}, {"path", treePath}});
+            check(editor.world().creation.assets.back().name == originalName + "1",
+                  "import collision gets numeric suffix");
+            const auto stored = out + "/folders.wbench";
+            check(editor.save(QUrl::fromLocalFile(stored)), "save catalog state");
+            wb::World storedWorld;
+            QString error;
+            check(wb::loadProject(stored, storedWorld, error) &&
+                      storedWorld.creation.assetFolders.value(treeId) == "创作/植物",
+                  "folder hierarchy and renamed assets persist");
+            write("undo", {});
+            write("undo", {});
+            check(editor.world().creation.assets.size() == 1 &&
+                      editor.renameLibraryAsset(treeId, originalName),
+                  "restore library fixture");
+        }
         auto generated = editor.world().generated->cells;
         auto points = editor.world().generated->scatterPoints;
         auto stateBefore = editor.world().creation;
@@ -345,8 +376,11 @@ int main(int argc, char **argv) {
             std::cout << "Open card " << id.toStdString() << " at " << point.x() << "," << point.y()
                       << std::endl;
             QTest::mouseDClick(window, Qt::LeftButton, Qt::NoModifier, point);
-            check(QTest::qWaitFor([&] { return window->property("activeId").toString() == id; }, 3000),
-                  "double-click opens correct asset editor");
+            const bool opened =
+                QTest::qWaitFor([&] { return window->property("activeId").toString() == id; }, 3000);
+            if (!opened)
+                window->grabWindow().save(out + "/failed-open-card.png");
+            check(opened, "double-click opens correct asset editor");
         };
         openCard(graph.id);
         openCard(graph.id);
@@ -382,6 +416,14 @@ int main(int argc, char **argv) {
             for (const auto &vertex : chunk->opaque)
                 check(vertex.y >= -63.f, "asset inspector excludes surrounding bedrock");
 
+        auto *assetLight = window->findChild<QQuickItem *>("assetLighting");
+        check(assetLight && assetLight->isVisible(), "asset light button visible");
+        const auto sceneLighting = editor.world().environment.enabled;
+        const auto lightPoint =
+            assetLight->mapToScene({assetLight->width() / 2, assetLight->height() / 2}).toPoint();
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, lightPoint);
+        check(inspector->world().environment.enabled && editor.world().environment.enabled == sceneLighting,
+              "asset light changes inspector only");
         QTest::qWait(350);
         check(window->grabWindow().save(out + "/03-asset-editor.png"), "asset tab reference capture");
         QMetaObject::invokeMethod(window, "closeTab", Q_ARG(QVariant, treeId));
@@ -408,7 +450,15 @@ int main(int argc, char **argv) {
         check(
             QTest::qWaitFor([&] { return editor.world().creation.presets.size() == beforeDrag + 1; }, 15000),
             "pointer drag from bottom library places a real structure on the terrain");
+        check(editor.world().creation.presets.back().name ==
+                  editor.world().creation.assets.front().name + "1",
+              "dropped tree takes the asset name and numeric suffix");
         capture("03b-asset-library");
+        shelf->setProperty("folder", "创作/植物");
+        check(QTest::qWaitFor([&] { return shelfGrid->property("count").toInt() == 1; }),
+              "folder filter selects only assigned card");
+        check(window->grabWindow().save(out + "/BH-folder.png"), "folder screenshot");
+        shelf->setProperty("folder", QVariant::fromValue(nullptr));
         write("undo", {});
         check(editor.world().creation.presets.size() == beforeDrag, "asset library drop is undoable");
         write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
@@ -459,7 +509,21 @@ int main(int argc, char **argv) {
         std::cout << "8x tree exact mesh bytes " << largeTree->opaque.size() * sizeof(wb::Vertex)
                   << std::endl;
         call("camera", {{"position", QJsonArray{65, 85, 105}}, {"yaw", -32}, {"pitch", -15}});
+        editor.setSelectedNode(placedId);
+        viewport->focusTarget();
+        check((viewport->orbitPivot() - largeTree->center).length() < 2,
+              "focus centers transformed selected mesh");
         capture("tree-scale-eight");
+        for (int frame = 0; frame < 4; ++frame) {
+            call("camera",
+                 {{"position", QJsonArray{65 + frame * 2, 85, 105}}, {"yaw", -32 + frame}, {"pitch", -15}});
+            const int n = viewport->frameCounter()->load();
+            viewport->update();
+            check(QTest::qWaitFor([&] { return viewport->frameCounter()->load() > n; }) &&
+                      viewport->sampleCount() == 4,
+                  "moving scene renders with 4x MSAA");
+        }
+
         write("undo", {});
         settle();
         const auto beforeCarveMesh = editor.scene()->objects.back().mesh;
@@ -816,6 +880,23 @@ int main(int argc, char **argv) {
             check(QFile::copy(source, copy), "copy user project without overwriting original");
             check(editor.open(QUrl::fromLocalFile(copy)), "open user large project copy");
             settle();
+            if (!editor.world().heights.instances.empty()) {
+                const auto terrainId = editor.world().heights.instances.front().id;
+                openCard(terrainId);
+                auto *terrainView = window->findChild<Viewport *>("terrainAssetViewport");
+                check(terrainView && QTest::qWaitFor(
+                                         [&] {
+                                             return !inspector->meshBusy() &&
+                                                    inspector->scene()->vertices > 0 &&
+                                                    inspector->world().heights.instances.size() == 1;
+                                         },
+                                         30000),
+                      "legacy heightmap renders independent relief");
+                check(inspector->scene()->vertices <= 129 * 129, "heightmap inspector sampling budget");
+                QTest::qWait(250);
+                check(window->grabWindow().save(out + "/BH-heightmap.png"), "capture terrain editor");
+                scene();
+            }
             write("creation", {{"action", "import_asset"}, {"path", treePath}});
             const auto largeTree = editor.world().creation.assets.back().id;
             auto largeGraph = graph;

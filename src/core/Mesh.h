@@ -75,5 +75,6 @@ struct MeshScene {
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision,
                        bool creationOnly = false, bool isolatedAsset = false, bool omitObjects = false);
 std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision);
+MeshPtr buildTerrainAssetPreview(const TerrainInstance &terrain, int maxSamples = 129);
 MeshPtr buildAssetGhost(World world, const StructureAsset &asset);
 } // namespace wb

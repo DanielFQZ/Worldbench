@@ -45,6 +45,7 @@ struct Hit {
 struct CellChange {
     uint64_t key;
     int before, after;
+    bool terrainBefore = false, terrainAfter = false;
 };
 struct SculptLayer {
     QString id = "terrain-base-1", name = "基础地形层1";
@@ -142,6 +143,11 @@ class World {
     SurfaceTheme theme;
     Environment environment;
     std::unordered_map<uint64_t, Block> overrides;
+    // Brush voxels compose beneath generated assets. Legacy and explicit block writes retain priority.
+    std::unordered_set<uint64_t> terrainOverrideKeys;
+    bool explicitOverride(uint64_t k) const {
+        return overrides.contains(k) && !terrainOverrideKeys.contains(k);
+    }
     std::vector<BlockState> palette;
     std::vector<std::shared_ptr<const BlockModel>> models;
     std::shared_ptr<const AssetLibrary> assets;
@@ -164,9 +170,12 @@ class World {
     int chunksZ() const { return (depth + 15) / 16; }
     Block baseBlock(int x, int y, int z) const;
     Block block(int x, int y, int z) const;
+    Block naturalBlock(int x, int y, int z, int h) const;
+    Block terrainBlock(int x, int y, int z, int h) const;
     Block blockAtHeight(int x, int y, int z, int height) const;
     void setBlock(int x, int y, int z, Block value);
-    Hit raycast(QVector3D origin, QVector3D direction, float maxDistance = 1500) const;
+    Hit raycast(QVector3D origin, QVector3D direction, float maxDistance = 1500,
+                bool terrainOnly = false) const;
     void apply(const Command &command, bool forward);
 };
 
@@ -183,7 +192,7 @@ class Stroke {
     void reshapeSurface(int x, int z, int height, const BrushOptions &options);
     World &world;
     QString layer;
-    std::map<uint64_t, int> beforeCells;
+    std::map<uint64_t, std::pair<int, bool>> beforeCells;
     std::map<int, int> beforeHeights;
     std::map<int, double> m_accumulated;
     int flattenHeight = -9999;

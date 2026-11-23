@@ -3,6 +3,7 @@
 #include "core/MinecraftExport.h"
 #include "core/RegionEdit.h"
 #include "core/World.h"
+#include <QCache>
 #include <QFutureWatcher>
 #include <QJsonObject>
 #include <QObject>
@@ -81,6 +82,13 @@ class Editor : public QObject {
     Q_PROPERTY(QVariantList caveMarkers READ caveMarkers NOTIFY changed)
   public:
     QVariantList libraryAssets() const;
+    Q_INVOKABLE QString assetThumbnail(const QString &id, const QString &key) const;
+    Q_PROPERTY(QStringList libraryFolders READ libraryFolders NOTIFY changed)
+    QStringList libraryFolders() const { return m_world.creation.folders; }
+    Q_INVOKABLE bool createAssetFolder(const QString &path);
+    Q_INVOKABLE bool removeAssetFolder(const QString &path);
+    Q_INVOKABLE bool moveLibraryAsset(const QString &id, const QString &folder);
+    Q_INVOKABLE bool renameLibraryAsset(const QString &id, const QString &name);
     Q_INVOKABLE bool storePcgAsset(const QString &volumeId);
     const wb::CreationState &renderCreation() const {
         return m_creationPending ? *m_creationPending : m_world.creation;
@@ -305,12 +313,17 @@ class Editor : public QObject {
     void restoreBrushProfile();
     void initializeTerrainImporter();
     bool placeGraphVolume(const QString &graphId, QVector3D center);
+    bool prepareLibraryNames(wb::CreationState &creation, std::vector<wb::TerrainInstance> &terrains,
+                             bool migrate, QString &error) const;
     int selectedTerrainIndex() const;
     void commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label);
     void commitLayers(std::vector<wb::SculptLayer> next, const QString &label);
     std::unique_ptr<Editor> m_assetInspector;
     bool m_inspectionOnly = false;
     QString m_inspectionId;
+    mutable QCache<QString, QString> m_thumbnailCache{256};
+    mutable uint64_t m_libraryRevision = 0;
+    mutable QVariantList m_libraryRows;
     struct CreationControl {
         std::atomic_bool cancelled{false};
         std::atomic_int progress{0};

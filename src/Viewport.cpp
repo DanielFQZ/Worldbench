@@ -57,6 +57,11 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
         m_ghostMesh = m_ghostWatcher.result();
         update();
     });
+    connect(&m_proxyWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_selectionProxy = m_proxyWatcher.result();
+        refreshSelectionProxy();
+        update();
+    });
     m_timer.setInterval(16);
     connect(&m_timer, &QTimer::timeout, this, &Viewport::tick);
     m_elapsed.start();
@@ -134,6 +139,7 @@ void Viewport::setEditor(Editor *e) {
             m_ghostId.clear();
         });
         connect(e, &Editor::changed, this, [this] {
+            refreshSelectionProxy();
             update();
             emit cameraChanged();
         });
@@ -143,6 +149,31 @@ void Viewport::setEditor(Editor *e) {
     }
     emit editorChanged();
     update();
+}
+void Viewport::refreshSelectionProxy() {
+    if (!m_editor || m_proxyWatcher.isRunning())
+        return;
+    const auto &world = m_editor->world();
+    const wb::StructureAsset *source = nullptr;
+    for (const auto &p : world.creation.presets)
+        if (p.id == m_editor->selectedNode() && p.enabled)
+            for (const auto &a : world.creation.assets)
+                if (a.id == p.assetId && a.placement != "place")
+                    source = &a;
+    const auto identity = source ? source->blocks.identity() : nullptr;
+    if (identity == m_proxyBlocks && world.assets == m_proxyLibrary)
+        return;
+    m_proxyBlocks = identity;
+    m_proxyLibrary = world.assets;
+    m_selectionProxy.reset();
+    if (source)
+        m_proxyWatcher.setFuture(QtConcurrent::run([world, asset = *source] {
+            try {
+                return wb::buildAssetGhost(world, asset);
+            } catch (const std::exception &) {
+                return wb::MeshPtr{};
+            }
+        }));
 }
 QString Viewport::cameraText() const {
     return QString("X %1   Y %2   Z %3   |   速度 %4")
@@ -186,29 +217,15 @@ QMatrix4x4 Viewport::viewProjection() const {
     return p * v;
 }
 void Viewport::pick(QPointF pos) {
-    auto normalizeWaterHit = [&] {
-        if (!m_editor || !m_hit.valid || m_hit.block != wb::Water || m_editor->tool() < 0 ||
-            m_editor->tool() > 5)
-            return;
-        // Water is a render-only surface for editing purposes. Resolve a brush
-        // hit to the authoritative terrain column underneath it so painting,
-        // carving and height tools never stamp the sea-level plane itself.
-        const auto &w = m_editor->world();
-        m_hit.y = w.height(m_hit.x, m_hit.z);
-        m_hit.position = {m_hit.x + .5f, float(m_hit.y + 1), m_hit.z + .5f};
-        m_hit.block = w.block(m_hit.x, m_hit.y, m_hit.z);
-        m_hit.normal = {0, 1, 0};
-    };
     if (m_sculpting && pos == m_pointer && m_editor &&
         (m_editor->tool() == 0 || m_editor->tool() == 1 || m_editor->tool() == 5) && m_hit.valid) {
         if (m_hit.block != wb::Water) {
             const auto &w = m_editor->world();
-            m_hit.y = w.height(m_hit.x, m_hit.z);
+            m_hit.y = w.heights[w.column(m_hit.x, m_hit.z)];
             m_hit.position = {m_hit.x + .5f, float(m_hit.y + 1), m_hit.z + .5f};
-            m_hit.block = w.block(m_hit.x, m_hit.y, m_hit.z);
+            m_hit.block = w.terrainBlock(m_hit.x, m_hit.y, m_hit.z, m_hit.y);
             m_hit.normal = {0, 1, 0};
         }
-        normalizeWaterHit();
         update();
         emit cameraChanged();
         return;
@@ -226,8 +243,8 @@ void Viewport::pick(QPointF pos) {
         (m_camera - center).length() + std::hypot(float(world.width), float(world.depth)) + 1024.f;
     // Surface tools and selection query authoritative voxels over the entire
     // map. Volume/material tools still need visible exact model geometry.
-    m_hit = world.raycast(m_camera, farPoint.toVector3DAffine() - m_camera, distance);
-    normalizeWaterHit();
+    m_hit = world.raycast(m_camera, farPoint.toVector3DAffine() - m_camera, distance,
+                          m_editor->tool() >= 0 && m_editor->tool() <= 5);
     if (m_hit.valid && m_editor->tool() >= 2 && m_editor->tool() <= 4 &&
         !m_editor->previewContains(m_hit.x, m_hit.z))
         m_hit = {};
@@ -252,6 +269,16 @@ void Viewport::changedCamera() {
 void Viewport::resetCamera() {
     stopInput();
     const auto &w = m_editor->world();
+    if (m_editor->inspectionOnly() && !w.heights.instances.empty()) {
+        m_pivot = {};
+        m_camera = {70, 54, 80};
+        const auto direction = (-m_camera).normalized();
+        m_yaw = qRadiansToDegrees(std::atan2(direction.x(), -direction.z()));
+        m_pitch = qRadiansToDegrees(std::asin(direction.y()));
+        m_speed = 30;
+        changedCamera();
+        return;
+    }
     if (m_editor->inspectionOnly() && !w.creation.assets.empty()) {
         const auto &asset = w.creation.assets.front();
         m_pivot = {0, -63.f + asset.height * .5f, 0};
@@ -328,8 +355,44 @@ void Viewport::mouseDoubleClickEvent(QMouseEvent *e) {
 }
 void Viewport::focusTarget() {
     m_velocity = {};
-    if (m_editor && m_editor->terrainDetails()["valid"].toBool()) {
-        m_editor->focusTerrain();
+    if (!m_editor)
+        return;
+    const auto &w = m_editor->world();
+    QVector3D center, span;
+    const auto id = m_editor->selectedNode();
+    for (const auto &p : w.creation.presets)
+        if (p.id == id)
+            for (const auto &a : w.creation.assets)
+                if (a.id == p.assetId) {
+                    const auto transform = wb::placementMatrix(p);
+                    span = {float(a.width), float(a.height), float(a.depth)};
+                    center = transform.map(span * .5f - a.pivot);
+                    span *= p.scale;
+                }
+    for (const auto &v : w.creation.volumes)
+        if (v.id == id) {
+            center = (v.min + v.max) * .5f;
+            span = v.max - v.min;
+        }
+    for (const auto &n : w.creation.roadNodes)
+        if (n.id == id) {
+            center = n.position;
+            span = {6, 6, 6};
+        }
+    for (const auto &t : w.heights.instances)
+        if (t.id == id) {
+            const auto bounds = t.bounds();
+            center = {float(bounds.center().x()),
+                      float(w.height(int(bounds.center().x()), int(bounds.center().y()))),
+                      float(bounds.center().y())};
+            span = {float(bounds.width()), float((t.high - t.low) * t.scaleY / 100.), float(bounds.height())};
+        }
+    if (!span.isNull()) {
+        const float aspect = float(width() / std::max(1., height()));
+        const float halfAngle = std::atan(.57735f * std::min(1.f, aspect));
+        m_pivot = center;
+        m_camera = center - forward() * std::max(4.f, span.length() * .55f / std::sin(halfAngle));
+        changedCamera();
         return;
     }
     m_pivot = m_hit.valid ? m_hit.position : QVector3D(0, 20, 0);
@@ -895,7 +958,8 @@ QVariantList Viewport::creationOverlay() const {
                                                  {"inner", inner}};
                     }
         };
-        box(lo, hi, false);
+        if (kind == "volume")
+            box(lo, hi, false);
         if (transition > 0) {
             auto size = (hi - lo) * .5f;
             float t = std::min({transition, size.x() * .95f, size.z() * .95f});
@@ -905,7 +969,7 @@ QVariantList Viewport::creationOverlay() const {
                                {"y", c.y()},  {"edges", edges}, {"selected", id == m_editor->selectedNode()},
                                {"kind", kind}};
     };
-    if (m_ghostVolume)
+    if (m_ghostVolume && (!m_ghostVisible || !m_ghostMesh))
         add("placement-preview", m_ghostName, m_ghostMin, m_ghostMax, 0, "volume");
     for (auto &v : world.creation.volumes)
         if (v.visible)
