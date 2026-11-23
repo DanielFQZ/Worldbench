@@ -188,6 +188,7 @@ class Stroke {
     std::map<int, double> m_accumulated;
     int flattenHeight = -9999;
     uint64_t changes = 0;
+    uint32_t stampIndex = 0;
 };
 std::set<int> affectedChunks(const World &world, const Command &command);
 int floorDiv(int value, int divisor);

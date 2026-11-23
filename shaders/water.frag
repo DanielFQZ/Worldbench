@@ -5,11 +5,11 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=4) uniform sampler2D reflectionColor;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;vec4 waterFog;vec4 waterFogColor;vec4 waterTint;vec4 waterReflectionTint;vec4 waterFoamColor;vec4 renderData;mat4 model;} u;
 
 layout(binding=2) uniform sampler2D shadowNear;
 layout(binding=3) uniform sampler2D shadowFar;
-float pcf(sampler2D map, vec3 p, float bias) {
+float pcf(sampler2D map, vec3 p, float bias, float texel) {
     // Compare the receiver plane at each sampled texel centre. A fixed depth
     // bias alone causes stripes on slopes when PCF taps cross different depths.
     vec3 dx=dFdx(p), dy=dFdy(p);
@@ -17,7 +17,7 @@ float pcf(sampler2D map, vec3 p, float bias) {
     vec2 gradient=abs(determinant)>1e-12 ? vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/determinant : vec2(0);
     float sum=0.0;
     for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
-        vec2 uv=(floor(p.xy/u.effects.y+vec2(x,y))+.5)*u.effects.y;
+        vec2 uv=(floor(p.xy/texel+vec2(x,y))+.5)*texel;
         float depth=p.z+clamp(dot(gradient,uv-p.xy),-.01,.01)-bias;
         sum+=depth<=texture(map,uv).r ? 1.0 : 0.0;
     }
@@ -29,10 +29,10 @@ float shadowVisibility(vec3 position, vec3 normal) {
     vec3 p=a.xyz/a.w, q=b.xyz/b.w;
     float slope=1.0+2.0*(1.0-max(0.0,dot(normalize(normal),u.sunDirection.xyz)));
     float farLight=1.0;
-    if(all(greaterThan(q,vec3(0)))&&all(lessThan(q,vec3(1))))farLight=pcf(shadowFar,q,u.shadowData.y*slope);
+    if(all(greaterThan(q,vec3(0)))&&all(lessThan(q,vec3(1))))farLight=pcf(shadowFar,q,u.shadowData.y*slope,u.renderData.x);
     float margin=min(min(p.x,1.0-p.x),min(p.y,1.0-p.y));
     if(margin<=0.0||p.z<=0.0||p.z>=1.0)return farLight;
-    float nearLight=pcf(shadowNear,p,u.shadowData.x*slope);
+    float nearLight=pcf(shadowNear,p,u.shadowData.x*slope,u.effects.y);
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
@@ -88,15 +88,8 @@ void main(){
     float fresnel=.025+.975*pow(1.0-clamp(dot(n,view),0.0,1.0),5.0);
     float lit=shadowVisibility(worldPos,n);
     float depth=clamp(baseColor.a,0.0,1.0);
-    // Alpha stores the water column depth over 64 Minecraft blocks. Keep the
-    // shoreline clear, then absorb light aggressively: five blocks is the
-    // visible transition and ten blocks is effectively opaque black water.
-    float physicalDepth=depth*64.0;
-    float depthFactor=smoothstep(5.0,10.0,physicalDepth);
-    depthFactor*=clamp(u.skyEffects.x,0.0,1.0);
-    vec3 tint=clamp(baseColor.rgb,vec3(.015),vec3(.9));
-    tint*=mix(1.06,.16,depthFactor);
-    tint=mix(tint,vec3(.006,.012,.02),depthFactor*depthFactor);
+    // A thin colored interface; the scene below already contains path-length fog.
+    vec3 tint=u.waterTint.rgb;
     vec3 col=tint*.9;
     if(u.sunColor.w>.5){
         vec3 ambient=mix(u.groundColor.rgb,u.skyColor.rgb,.8)*u.skyColor.w;
@@ -125,7 +118,7 @@ void main(){
         float edge=min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y));
         if(abs(worldPos.y-u.water.w)<.05 && projected.w>0.0 && edge>0.0)
             reflected=mix(reflected,textureGrad(reflectionColor,uv,reflectionDx*1.5,reflectionDy*1.5).rgb,smoothstep(0.0,.025,edge));
-        col=mix(col,reflected,.20+.70*fresnel);
+        col=mix(col,reflected*u.waterReflectionTint.rgb,.55+.40*fresnel);
     }
     float foamWidth=max(.008,u.skyEffects.z);
     // Keep a narrow band just inside the shoreline. This prevents an entire
@@ -137,7 +130,7 @@ void main(){
     // motion; adding a tiled bright pattern here would read as moire instead
     // of foam on large, shallow shelves.
     float foam=shoreline*clamp(u.skyEffects.y,0.0,1.0);
-    col=mix(col,vec3(.91,.97,1.0),foam*.78);
+    col=mix(col,u.waterFoamColor.rgb,foam*.78);
     if(u.sunColor.w>.5 && u.envFlags.z>.5){
         float haze=u.horizonColor.w;
         float density=(haze+63.0*pow(haze,4.0))/16000.0;
@@ -146,9 +139,10 @@ void main(){
         fogColor=fogColor/(vec3(1)+fogColor*.35);
         col=mix(col,fogColor,fog);
     }
-    // At maximum absorption the requested 10-block reference is black even
-    // under bright sky reflections; lower values preserve reflected light.
-    col=mix(col,vec3(0.0),depthFactor);
+    if(u.waterFog.z>.5 && u.camera.y<u.water.w){
+        float fog=1.0-exp(-u.waterFog.x*max(0.0,distance(worldPos,u.camera.xyz)-u.waterFog.y));
+        col=mix(col,u.waterFogColor.rgb,fog);
+    }
     // The brush hit is resolved against the underwater terrain column. Do not
     // draw a second footprint on the water surface: it makes one brush look
     // like two concentric edits when the cursor crosses a shoreline.
@@ -163,7 +157,7 @@ void main(){
         col=mix(col,vec3(1.0,0.68,0.2),coverage*(.12+.78*outline));
     }
 
-    float alpha=mix(.42,1.0,depthFactor);
+    float alpha=mix(.18,.92,fresnel);
     alpha=clamp(alpha+foam*.18,0.0,1.0);
     fragColor=vec4(col,alpha);
 }

@@ -67,9 +67,21 @@ ColumnLayout {
    Label{text:"波动速度 %";Layout.fillWidth:true}
    WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waveSpeed";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waveSpeed;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waveSpeed",value)}
   }
-  RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
-   Label{text:"深度透明度 %";Layout.fillWidth:true}
-   WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waterDepthFade";Layout.preferredWidth:130;from:0;to:100;value:panel.env.waterDepthFade;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waterDepthFade",value)}
+  Repeater {
+   model:[{key:"waterFogDensity",label:"水下雾浓度 · % / 米",lo:0,hi:200},{key:"waterFogStart",label:"水下雾起始距离 · 米",lo:0,hi:128}]
+   RowLayout {required property var modelData;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+    Label{text:modelData.label;Layout.fillWidth:true}
+    WorkbenchSpinBox {objectName:"environment_"+modelData.key;returnFocusToViewport:true;Layout.preferredWidth:130;from:modelData.lo;to:modelData.hi;value:panel.env[modelData.key];onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change(modelData.key,value)}
+   }
+  }
+  Repeater {
+   model:[{key:"waterFogColor",label:"水下雾颜色"},{key:"waterSurfaceColor",label:"水面颜色"},{key:"waterReflectionColor",label:"反射色调"},{key:"waterFoamColor",label:"岸边泡沫颜色"}]
+   RowLayout {required property var modelData;Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+    Label{text:modelData.label;Layout.fillWidth:true}
+    WorkbenchButton {Layout.preferredWidth:130;text:panel.env[modelData.key];onClicked:{colorPicker.targetKey=modelData.key;colorPicker.selectedColor=panel.env[modelData.key];colorPicker.open()}
+     Rectangle{anchors.left:parent.left;anchors.leftMargin:8;anchors.verticalCenter:parent.verticalCenter;width:14;height:14;color:panel.env[modelData.key];border.color:Theme.border}
+    }
+   }
   }
   RowLayout {Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
    Label{text:"岸边泡沫强度 %";Layout.fillWidth:true}
@@ -80,14 +92,14 @@ ColumnLayout {
    WorkbenchSpinBox {returnFocusToViewport:true;objectName:"environment_waterFoamWidth";Layout.preferredWidth:130;from:1;to:32;value:panel.env.waterFoamWidth;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("waterFoamWidth",value)}
   }
   WorkbenchCheckBox {objectName:"environment_waterReflections";text:"水面反射";checked:panel.env.waterReflections;Layout.leftMargin:16;onToggled:panel.change("waterReflections",checked)}
-  Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹会扰动采样坐标并自动过滤高频细节。深度透明度控制浅水到深水的吸收变化，岸边泡沫会沿地形水岸生成。不同高度的独立水方块仅使用天空反射。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
+  Label {text:"海平面使用半分辨率场景反射（长边最多1024像素），波纹会扰动采样坐标并自动过滤高频细节。水下雾按视线在水中的长度衰减，起始距离内保留清晰，之后逐渐呈现雾的颜色；可用于从岸边清水过渡到深水。1方块=1米，岸边泡沫会沿地形水岸生成。不同高度的独立水方块仅使用天空反射。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
  }
  RowLayout {Layout.fillWidth:true;Layout.margins:12
   Label{text:"曝光 · 0.1 EV";Layout.fillWidth:true}
   WorkbenchSpinBox{returnFocusToViewport:true;objectName:"environment_exposure";Layout.preferredWidth:130;from:-30;to:30;value:panel.env.exposure;onScrubStarted:editor.beginEnvironmentEdit();onScrubFinished:function(cancelled){editor.endEnvironmentEdit(cancelled)};onValueModified:panel.change("exposure",value)}
  }
  Label{text:"大气浓度采用渐进曲线：低值适合全图观察，高值在近景也明显。0% 无雾，50% 约3606格衰减至37%，100% 约250格。需开启光照预览与大气。";visible:panel.selected==="environment"||panel.selected==="environment-atmosphere";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
- Label{text:"太阳阴影采用局部＋全图两级2048贴图与PCF过滤。天空云层使用球面坐标投影噪声，随时间缓慢移动并会进入水面反射；可选用本地2:1天空盒/球图替换背景。体积云雾和间接光照GI仍未实现。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
+ Label{text:"太阳阴影采用局部＋全图两级贴图，编辑→偏好设置可选近景1024/2048/4096分辨率与PCF过滤。天空云层使用球面坐标投影噪声，随时间缓慢移动并会进入水面反射；可选用本地2:1天空盒/球图替换背景。体积云雾和间接光照GI仍未实现。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
  ColorDialog{id:colorPicker;property string targetKey;title:"选择环境颜色";options:ColorDialog.DontUseNativeDialog;onAccepted:panel.change(targetKey,selectedColor.toString())}
  FileDialog{id:skyFileDialog;objectName:"skyFileDialog";title:"选择经纬度天空图（2:1）";nameFilters:["天空图 (*.hdr *.exr *.png *.jpg *.jpeg *.tga *.bmp)","所有文件 (*)"];onRejected:editor.rememberDialogFolder("skyTexture",currentFolder,true);onAccepted:{editor.rememberDialogFolder("skyTexture",selectedFile);panel.change("skyTexturePath",selectedFile.toString())}}
 }

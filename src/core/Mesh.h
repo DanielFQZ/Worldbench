@@ -40,6 +40,15 @@ struct FarTile {
     MeshPtr mesh;
 };
 struct MeshScene {
+    struct Object {
+        QString id, ownerId;
+        AssetPreset placement;
+        MeshPtr mesh;
+        std::vector<MeshPtr> lods;
+    };
+    std::vector<Object> objects;
+    std::shared_ptr<const GeneratedCreation> generated;
+    CreationState creation;
     std::shared_ptr<const SurfaceMaterials> surfaceMaterials;
     std::vector<MeshPtr> chunks;
     std::vector<int> chunkIds;
@@ -64,5 +73,7 @@ struct MeshScene {
     QString error;
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision,
-                       bool creationOnly = false, bool isolatedAsset = false);
+                       bool creationOnly = false, bool isolatedAsset = false, bool omitObjects = false);
+std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision);
+MeshPtr buildAssetGhost(World world, const StructureAsset &asset);
 } // namespace wb

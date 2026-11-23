@@ -1,0 +1,148 @@
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR)
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR)
+-- nlohmann_json not found in system. Using our own bundled one
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+shaders/voxel.vert -> voxel.vert.qsb exposed as :/shaders/voxel.vert.qsb
+shaders/voxel.frag -> voxel.frag.qsb exposed as :/shaders/voxel.frag.qsb
+shaders/sky.vert -> sky.vert.qsb exposed as :/shaders/sky.vert.qsb
+shaders/sky.frag -> sky.frag.qsb exposed as :/shaders/sky.frag.qsb
+shaders/shadow.vert -> shadow.vert.qsb exposed as :/shaders/shadow.vert.qsb
+shaders/shadow.frag -> shadow.frag.qsb exposed as :/shaders/shadow.frag.qsb
+shaders/water.frag -> water.frag.qsb exposed as :/shaders/water.frag.qsb
+-- Configuring done (51.5s)
+-- Generating done (1.0s)
+-- Build files have been written to: E:/AppProject/Worldbench/build
+[1/95] Generating CXX dyndep file _deps\meshoptimizer-build\CMakeFiles\meshoptimizer.dir\CXX.dd
+[2/78] Automatic MOC and UIC for target WorldbenchMcp
+[3/76] Automatic MOC and UIC for target worldbench_core
+[4/74] Automatic MOC and UIC for target Worldbench
+[5/73] Automatic MOC and UIC for target worldbench_ui_tests
+[6/72] Automatic MOC and UIC for target worldbench_water_tests
+[7/71] Automatic MOC and UIC for target worldbench_render_tests
+[8/70] Automatic MOC and UIC for target worldbench_surface_preview_tests
+[9/69] Automatic MOC and UIC for target worldbench_surface_tests
+[10/67] Automatic MOC and UIC for target worldbench_creation_ui_tests
+[11/66] Automatic MOC and UIC for target worldbench_flight_benchmark
+[12/65] Automatic MOC and UIC for target worldbench_core_tests
+[13/63] Automatic MOC and UIC for target worldbench_region_tests
+[14/61] Automatic MOC and UIC for target worldbench_storage_tests
+[15/59] Automatic MOC and UIC for target worldbench_asset_tests
+[16/57] Automatic MOC and UIC for target worldbench_terrain_tests
+[17/55] Automatic MOC and UIC for target worldbench_theme_tests
+[18/53] Automatic MOC and UIC for target worldbench_asset_benchmark
+[19/51] Automatic MOC and UIC for target worldbench_smart_blend_tests
+[20/49] Automatic MOC and UIC for target worldbench_far_scene_tests
+[21/47] Automatic RCC for app/resources.qrc
+[22/47] Automatic RCC for app/resources.qrc
+[23/47] Automatic MOC and UIC for target worldbench_creation_tests
+[24/45] Automatic RCC for app/resources.qrc
+[25/45] Automatic RCC for app/resources.qrc
+[26/45] Automatic RCC for app/resources.qrc
+[27/45] Building CXX object CMakeFiles\Worldbench.dir\Worldbench_autogen\VJIZ3MDCXP\qrc_resources.cpp.obj
+[28/45] Building CXX object CMakeFiles\worldbench_ui_tests.dir\worldbench_ui_tests_autogen\VJIZ3MDCXP\qrc_resources.cpp.obj
+[29/45] Building CXX object CMakeFiles\worldbench_surface_preview_tests.dir\worldbench_surface_preview_tests_autogen\VJIZ3MDCXP\qrc_resources.cpp.obj
+[30/45] Building CXX object CMakeFiles\worldbench_creation_ui_tests.dir\worldbench_creation_ui_tests_autogen\VJIZ3MDCXP\qrc_resources.cpp.obj
+[31/45] Building CXX object CMakeFiles\worldbench_flight_benchmark.dir\worldbench_flight_benchmark_autogen\VJIZ3MDCXP\qrc_resources.cpp.obj
+[32/45] Building CXX object CMakeFiles\worldbench_water_tests.dir\src\ViewportRenderer.cpp.obj
+[33/45] Building CXX object CMakeFiles\Worldbench.dir\src\ViewportRenderer.cpp.obj
+[34/45] Building CXX object CMakeFiles\worldbench_render_tests.dir\src\ViewportRenderer.cpp.obj
+[35/45] Building CXX object CMakeFiles\worldbench_surface_preview_tests.dir\src\ViewportRenderer.cpp.obj
+[36/45] Linking CXX executable worldbench_water_tests.exe
+[37/45] Linking CXX executable worldbench_render_tests.exe
+[38/45] Building CXX object CMakeFiles\worldbench_creation_ui_tests.dir\src\ViewportRenderer.cpp.obj
+[39/45] Building CXX object CMakeFiles\worldbench_ui_tests.dir\src\ViewportRenderer.cpp.obj
+[40/45] Linking CXX executable Worldbench.exe
+[41/45] Linking CXX executable worldbench_surface_preview_tests.exe
+[42/45] Building CXX object CMakeFiles\worldbench_flight_benchmark.dir\src\ViewportRenderer.cpp.obj
+[43/45] Linking CXX executable worldbench_creation_ui_tests.exe
+[44/45] Linking CXX executable worldbench_ui_tests.exe
+[45/45] Linking CXX executable worldbench_flight_benchmark.exe
+Test project E:/AppProject/Worldbench/build
+      Start  1: worldbench_surface
+ 1/15 Test  #1: worldbench_surface ...............   Passed    0.17 sec
+      Start  2: worldbench_core
+ 2/15 Test  #2: worldbench_core ..................   Passed    0.90 sec
+      Start  3: worldbench_region
+ 3/15 Test  #3: worldbench_region ................   Passed    0.23 sec
+      Start  4: worldbench_storage
+ 4/15 Test  #4: worldbench_storage ...............   Passed    7.94 sec
+      Start  5: worldbench_ui
+ 5/15 Test  #5: worldbench_ui ....................***Failed   28.54 sec
+Transform interaction 180 updates, 130 live snapshots in 4203 ms, final build 4 ms; visibility 58 ms
+Delete instance count 1 selected=terrain-base-1 top=heightmap-92b6d50cfc5745c9b3b260e1ac3f4885
+Real stdio region: cancelled; unchanged revision 293; no committed columns
+Mesh full 14 ms / undo 6 ms (1 of 64 chunks)
+FAIL UI after 431 checks: stationary held brush raises fixed XZ instead of repicking slope
+
+      Start  6: worldbench_assets
+ 6/15 Test  #6: worldbench_assets ................   Passed    0.11 sec
+      Start  7: worldbench_terrain
+ 7/15 Test  #7: worldbench_terrain ...............   Passed    0.18 sec
+      Start  8: worldbench_theme
+ 8/15 Test  #8: worldbench_theme .................   Passed    0.14 sec
+      Start  9: worldbench_smart_blend
+ 9/15 Test  #9: worldbench_smart_blend ...........   Passed    0.15 sec
+      Start 10: worldbench_far_scene
+10/15 Test #10: worldbench_far_scene .............   Passed    0.23 sec
+      Start 11: worldbench_creation
+11/15 Test #11: worldbench_creation ..............   Passed    3.43 sec
+      Start 12: worldbench_render
+12/15 Test #12: worldbench_render ................   Passed   97.49 sec
+      Start 13: worldbench_water
+13/15 Test #13: worldbench_water .................   Passed   32.67 sec
+      Start 14: worldbench_surface_preview
+14/15 Test #14: worldbench_surface_preview .......   Passed   29.07 sec
+      Start 15: worldbench_creation_ui
+15/15 Test #15: worldbench_creation_ui ...........   Passed   67.40 sec
+
+93% tests passed, 1 tests failed out of 15
+
+Label Time Summary:
+desktop    = 255.17 sec*proc (5 tests)
+
+Total Test time (real) = 268.96 sec
+
+The following tests FAILED:
+	  5 - worldbench_ui (Failed)                            desktop
+Errors while running CTest

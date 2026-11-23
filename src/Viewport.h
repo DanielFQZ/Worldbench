@@ -11,6 +11,7 @@ struct RenderMetrics {
     std::atomic_uint64_t renderedSourceRevision{0};
     std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
     std::atomic_int effectKiB{0}, shadowUpdates{0}, reflectionUpdates{0};
+    std::atomic_int gpuMicros{0}, pixelWidth{0}, pixelHeight{0}, objectTriangles{0}, objectLods{0};
     std::atomic_bool visibleWater{false};
 };
 
@@ -30,6 +31,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(bool snapEnabled READ snapEnabled WRITE setSnapEnabled NOTIFY cameraChanged)
     Q_PROPERTY(int rawPackets READ rawPackets NOTIFY cameraChanged)
     Q_PROPERTY(bool antialiasing READ antialiasing WRITE setAntialiasing NOTIFY cameraChanged)
+    Q_PROPERTY(int renderScale READ renderScale WRITE setRenderScale NOTIFY cameraChanged)
+    Q_PROPERTY(int shadowQuality READ shadowQuality WRITE setShadowQuality NOTIFY cameraChanged)
   public:
     explicit Viewport(QQuickItem *parent = nullptr);
     ~Viewport() override;
@@ -38,6 +41,14 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     int rawPackets() const { return m_rawPackets; }
     bool antialiasing() const { return sampleCount() > 1; }
     void setAntialiasing(bool enabled);
+    int renderScale() const { return m_renderScale; }
+    int shadowQuality() const { return m_shadowQuality; }
+    void setRenderScale(int value);
+    void setShadowQuality(int value);
+    Q_INVOKABLE void previewAsset(const QString &id, double x, double y);
+    Q_INVOKABLE void clearAssetPreview();
+    wb::MeshPtr ghostMesh() const { return m_ghostVisible ? m_ghostMesh : wb::MeshPtr{}; }
+    QMatrix4x4 ghostTransform() const { return m_ghostTransform; }
     double sensitivity() const { return m_sensitivity; }
     void setRawInput(bool value);
     void setSensitivity(double value);
@@ -88,6 +99,17 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void mouseUngrabEvent() override;
 
   private:
+    int m_renderScale = 100, m_shadowQuality = 2;
+    void updateRenderSize();
+    QString m_ghostId, m_ghostName;
+    wb::MeshPtr m_ghostMesh;
+    QMatrix4x4 m_ghostTransform;
+    bool m_ghostVisible = false;
+    bool m_ghostVolume = false;
+    QVector3D m_ghostMin, m_ghostMax;
+    uint64_t m_ghostUntilRevision = 0;
+    uint64_t m_ghostSourceRevision = 0;
+    QFutureWatcher<wb::MeshPtr> m_ghostWatcher;
     QPointF projectPoint(QVector3D p, bool *visible = nullptr) const;
     bool pressGizmo(QPointF p);
     void moveGizmo(QPointF p);

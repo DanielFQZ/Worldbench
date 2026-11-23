@@ -5,11 +5,11 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=1) uniform sampler2D atlas;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;vec4 waterFog;vec4 waterFogColor;vec4 waterTint;vec4 waterReflectionTint;vec4 waterFoamColor;vec4 renderData;mat4 model;} u;
 
 layout(binding=2) uniform sampler2D shadowNear;
 layout(binding=3) uniform sampler2D shadowFar;
-float pcf(sampler2D map, vec3 p, float bias) {
+float pcf(sampler2D map, vec3 p, float bias, float texel) {
     // Compare the receiver plane at each sampled texel centre. A fixed depth
     // bias alone causes stripes on slopes when PCF taps cross different depths.
     vec3 dx=dFdx(p), dy=dFdy(p);
@@ -17,7 +17,7 @@ float pcf(sampler2D map, vec3 p, float bias) {
     vec2 gradient=abs(determinant)>1e-12 ? vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/determinant : vec2(0);
     float sum=0.0;
     for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
-        vec2 uv=(floor(p.xy/u.effects.y+vec2(x,y))+.5)*u.effects.y;
+        vec2 uv=(floor(p.xy/texel+vec2(x,y))+.5)*texel;
         float depth=p.z+clamp(dot(gradient,uv-p.xy),-.01,.01)-bias;
         sum+=depth<=texture(map,uv).r ? 1.0 : 0.0;
     }
@@ -29,10 +29,10 @@ float shadowVisibility(vec3 position, vec3 normal) {
     vec3 p=a.xyz/a.w, q=b.xyz/b.w;
     float slope=1.0+2.0*(1.0-max(0.0,dot(normalize(normal),u.sunDirection.xyz)));
     float farLight=1.0;
-    if(all(greaterThan(q,vec3(0)))&&all(lessThan(q,vec3(1))))farLight=pcf(shadowFar,q,u.shadowData.y*slope);
+    if(all(greaterThan(q,vec3(0)))&&all(lessThan(q,vec3(1))))farLight=pcf(shadowFar,q,u.shadowData.y*slope,u.renderData.x);
     float margin=min(min(p.x,1.0-p.x),min(p.y,1.0-p.y));
     if(margin<=0.0||p.z<=0.0||p.z>=1.0)return farLight;
-    float nearLight=pcf(shadowNear,p,u.shadowData.x*slope);
+    float nearLight=pcf(shadowNear,p,u.shadowData.x*slope,u.effects.y);
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
@@ -61,6 +61,17 @@ void main(){
             col=mix(col,(u.horizonColor.rgb+u.sunColor.rgb*glow)*u.groundColor.w,fog);
         }
         col=col/(vec3(1.0)+col*.35);
+    }
+    // Beer-Lambert extinction along the actual visible ray inside the water.
+    // The terrain/structures below the surface are fogged, not the surface alpha.
+    if(u.waterFog.z>.5 && min(worldPos.y,u.camera.y)<u.water.w){
+        float segment=distance(u.camera.xyz,worldPos);
+        if(u.camera.y>u.water.w)
+            segment*=clamp((u.water.w-worldPos.y)/max(.001,u.camera.y-worldPos.y),0.0,1.0);
+        else if(worldPos.y>u.water.w)
+            segment*=clamp((u.water.w-u.camera.y)/max(.001,worldPos.y-u.camera.y),0.0,1.0);
+        float transmission=exp(-u.waterFog.x*max(0.0,segment-u.waterFog.y));
+        col=mix(u.waterFogColor.rgb,col,transmission);
     }
     if(u.params.x>0.5){
         vec3 delta=abs(worldPos-u.brush.xyz);

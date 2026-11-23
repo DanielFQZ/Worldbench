@@ -1,5 +1,6 @@
 #include "Editor.h"
 #include "Viewport.h"
+#include <QEventLoop>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
@@ -29,7 +30,7 @@ int main(int argc, char **argv) {
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
     qmlRegisterType<Viewport>("Worldbench", 1, 0, "VoxelViewport");
     qmlRegisterUncreatableType<Editor>("Worldbench", 1, 0, "WorldEditor", "Application instance only");
-    if (argc != 3)
+    if (argc < 3)
         return 2;
     Editor editor;
     editor.setTool(-1);
@@ -40,8 +41,13 @@ int main(int argc, char **argv) {
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     if (!window || !QTest::qWaitForWindowExposed(window))
         return 3;
-    window->resize(1440, 900);
+    if (app.arguments().contains("--maximized"))
+        window->showMaximized();
+    else
+        window->resize(1440, 900);
     auto *v = window->findChild<Viewport *>("voxelViewport");
+    if (app.arguments().contains("--scale75"))
+        v->setRenderScale(75);
     auto settle = [&] {
         return QTest::qWaitFor([&] { return !editor.meshBusy() && !editor.assetBusy(); }, 180000);
     };
@@ -55,7 +61,7 @@ int main(int argc, char **argv) {
     camera(x0);
     if (!settle())
         return 5;
-    QJsonArray frames, calls, builds, arrivals;
+    QJsonArray frames, calls, builds, arrivals, gpu, submit;
     QElapsedTimer clock;
     clock.start();
     qint64 lastFrame = 0;
@@ -74,13 +80,24 @@ int main(int argc, char **argv) {
                                       {"tiles", editor.scene()->updatedFarTiles}});
     });
     // Fixed path and update cadence, independent of machine navigation speed.
-    for (int i = 0; i < 240; ++i) {
+    QEventLoop navigation;
+    QTimer cameraTimer;
+    cameraTimer.setTimerType(Qt::PreciseTimer);
+    int step = 0;
+    QObject::connect(&cameraTimer, &QTimer::timeout, &navigation, [&] {
         QElapsedTimer call;
         call.start();
-        camera(x0 + i * 2);
+        camera(x0 + step * 2);
         calls.append(double(call.nsecsElapsed()) / 1e6);
-        QTest::qWait(16);
-    }
+        gpu.append(v->renderMetrics()->gpuMicros.load() / 1000.);
+        submit.append(v->renderMetrics()->submitMicros.load() / 1000.);
+        if (++step == 240) {
+            cameraTimer.stop();
+            navigation.quit();
+        }
+    });
+    cameraTimer.start(16);
+    navigation.exec();
     QElapsedTimer tail;
     tail.start();
     if (!settle())
@@ -111,19 +128,25 @@ int main(int argc, char **argv) {
                            {"p95", values[size_t((values.size() - 1) * .95)]},
                            {"max", values.back()}};
     };
-    QJsonObject report{{"width", w.width},
-                       {"depth", w.depth},
-                       {"instances", int(w.heights.instances.size())},
-                       {"frame_ms", stats(frames)},
-                       {"camera_call_ms", stats(calls)},
-                       {"builds", builds},
-                       {"catchup_ms", double(catchup)},
-                       {"cold_near_ms", arrivals},
-                       {"frame_samples", frames},
-                       {"logical_window", "1440x900"},
-                       {"dpr", window->devicePixelRatio()},
-                       {"environment_enabled", w.environment.enabled},
-                       {"exact_radius", editor.exactRadiusChunks()}};
+    QJsonObject report{
+        {"method", "240 camera updates at 16ms timer cadence; native event loop"},
+        {"width", w.width},
+        {"depth", w.depth},
+        {"instances", int(w.heights.instances.size())},
+        {"frame_ms", stats(frames)},
+        {"camera_call_ms", stats(calls)},
+        {"builds", builds},
+        {"catchup_ms", double(catchup)},
+        {"cold_near_ms", arrivals},
+        {"frame_samples", frames},
+        {"logical_window", QString::number(window->width()) + "x" + QString::number(window->height())},
+        {"render_pixels", QString::number(v->renderMetrics()->pixelWidth.load()) + "x" +
+                              QString::number(v->renderMetrics()->pixelHeight.load())},
+        {"gpu_ms", stats(gpu)},
+        {"cpu_submit_ms", stats(submit)},
+        {"dpr", window->devicePixelRatio()},
+        {"environment_enabled", w.environment.enabled},
+        {"exact_radius", editor.exactRadiusChunks()}};
     QFile output(app.arguments()[2]);
     if (!output.open(QIODevice::WriteOnly))
         return 9;

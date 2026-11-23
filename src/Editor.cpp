@@ -243,14 +243,23 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label) {
     command.creationAfter = std::make_shared<const wb::CreationState>(std::move(next));
     auto candidate = m_world;
     candidate.creation = *command.creationAfter;
+    const auto previousGenerated = m_world.generated;
+    m_creationPending = command.creationAfter;
     QString error;
-    if (!prepareCreation(candidate, error)) {
+    auto metadataOnly = m_world.creation;
+    metadataOnly.pcgAssets = candidate.creation.pcgAssets;
+    const bool prepared = metadataOnly == candidate.creation ? wb::validateCreation(candidate.creation, error)
+                                                             : prepareCreation(candidate, error);
+    if (!prepared) {
+        m_creationPending.reset();
         emit failure(error);
+        emit changed();
         return false;
     }
+    m_creationPending.reset();
     m_world = std::move(candidate);
     ++m_revision;
-    dirtyAll();
+    dirtyCreation(previousGenerated);
     pushCommand(std::move(command));
     m_status = label + " · Ctrl+Z 撤销";
     emit changed();
@@ -819,6 +828,8 @@ QString Editor::meshUpdateSummary() const {
         .arg(m_scene->colorBytes / 1048576., 0, 'f', 1);
 }
 QString Editor::terrainUpdateStatus() const {
+    if (m_creationStart)
+        return "创作变换预览 · 松手后校验地基 / 地表规则与散布";
     if (!m_surfaceFailure.isEmpty())
         return "地形更新失败 · " + m_surfaceFailure;
     if (m_interactiveMesh)
@@ -875,6 +886,42 @@ void Editor::dirtyAll() {
         m_meshTimer.start();
     emit changed();
 }
+void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &before) {
+    std::set<int> changed;
+    auto add = [&](uint64_t key) {
+        int x, y, z;
+        m_world.decode(key, x, y, z);
+        for (int dz = -1; dz <= 1; ++dz)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int cx = (x - m_world.originX) / 16 + dx, cz = (z - m_world.originZ) / 16 + dz;
+                if (cx >= 0 && cz >= 0 && cx < m_world.chunksX() && cz < m_world.chunksZ())
+                    changed.insert(cz * m_world.chunksX() + cx);
+            }
+    };
+    auto compare = [&](const auto &a, const auto &b) {
+        if (!a)
+            return;
+        for (auto [key, value] : a->cells)
+            if (!b || !b->cells.contains(key) || b->cells.at(key) != value)
+                add(key);
+        for (auto [column, h] : a->heights)
+            if (!b || !b->heights.contains(column) || b->heights.at(column) != h)
+                add(m_world.key(m_world.originX + column % m_world.width, 0,
+                                m_world.originZ + column / m_world.width));
+    };
+    compare(before, m_world.generated);
+    compare(m_world.generated, before);
+    const auto wanted = desiredChunks();
+    for (int id : changed) {
+        m_farRegions.emplace_back(m_world.originX + id % m_world.chunksX() * 16,
+                                  m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
+        if (wanted.contains(id))
+            m_dirty.insert(id);
+    }
+    m_farDirty = true;
+    m_rejectStaleMeshes = true;
+    m_meshTimer.start();
+}
 void Editor::startMesh() {
     if (m_meshActive || (m_dirty.empty() && !m_farDirty))
         return;
@@ -888,6 +935,8 @@ void Editor::startMesh() {
     m_farRegions.clear();
     m_farDirty = m_farAllDirty = false;
     auto snapshot = m_world;
+    if (m_creationStart)
+        snapshot.creation = *m_creationStart;
     auto old = m_scene;
     const auto serial = ++m_meshSerial;
     const bool interactive = m_interactiveMesh;
@@ -921,6 +970,8 @@ void Editor::startMesh() {
         next->sourceRevision = sourceRevision;
         next->provisional = interactive;
         next->assets = snapshot.assets;
+        next->generated = snapshot.generated;
+        next->creation = snapshot.creation;
         next->worldArea = QRect(snapshot.originX, snapshot.originZ, snapshot.width, snapshot.depth);
         next->seaSurface = float(snapshot.seaLevel + 1);
         try {
@@ -941,7 +992,8 @@ void Editor::startMesh() {
                     if (cancel->load())
                         return wb::MeshPtr{};
                     return wb::buildChunkMesh(snapshot, snapshot.originX / 16 + id % snapshot.chunksX(),
-                                              snapshot.originZ / 16 + id / snapshot.chunksX(), serial);
+                                              snapshot.originZ / 16 + id / snapshot.chunksX(), serial, false,
+                                              false, !inspection);
                 });
             if (cancel->load())
                 return std::shared_ptr<wb::MeshScene>{};
@@ -956,12 +1008,13 @@ void Editor::startMesh() {
                     if (!wanted.contains(id)) {
                         const int cacheId = -id - 1;
                         auto found = exactCache.find(cacheId);
-                        auto mesh = (!allFar && found != exactCache.end())
-                                        ? found->second
-                                        : wb::buildChunkMesh(snapshot,
-                                                             snapshot.originX / 16 + id % snapshot.chunksX(),
-                                                             snapshot.originZ / 16 + id / snapshot.chunksX(),
-                                                             serial, true, inspection);
+                        auto mesh =
+                            (!allFar && old->generated == snapshot.generated && found != exactCache.end())
+                                ? found->second
+                                : wb::buildChunkMesh(snapshot,
+                                                     snapshot.originX / 16 + id % snapshot.chunksX(),
+                                                     snapshot.originZ / 16 + id / snapshot.chunksX(), serial,
+                                                     true, inspection, !inspection);
                         next->chunkIds.push_back(cacheId);
                         next->chunks.push_back(mesh);
                     }
@@ -975,6 +1028,10 @@ void Editor::startMesh() {
                 next->buildMilliseconds = timer.elapsed();
                 return next;
             }
+            next->objects = old->generated == snapshot.generated && old->assets == snapshot.assets &&
+                                    !allFar && old->sourceRevision == sourceRevision
+                                ? old->objects
+                                : wb::buildCreationMeshes(snapshot, serial);
             QElapsedTimer surfaceTimer;
             surfaceTimer.start();
             next->farTiles = wb::planSurfaceTiles(snapshot, patchSize);
@@ -1016,6 +1073,12 @@ void Editor::startMesh() {
             };
             for (const auto &m : next->chunks)
                 bytes += cost(*m);
+            for (const auto &object : next->objects) {
+                bytes += cost(*object.mesh);
+                for (const auto &lod : object.lods)
+                    if (lod != object.mesh)
+                        bytes += cost(*lod);
+            }
             for (const auto &tile : next->farTiles)
                 if (tile.mesh)
                     bytes += cost(*tile.mesh);
@@ -1062,6 +1125,13 @@ void Editor::startMesh() {
             };
             for (const auto &mesh : next->chunks)
                 account(*mesh, false);
+            for (const auto &object : next->objects) {
+                account(*object.mesh, false);
+                for (const auto &lod : object.lods)
+                    if (lod != object.mesh)
+                        next->bufferBytes += lod->opaque.size() * sizeof(wb::Vertex) +
+                                             lod->opaqueIndices.size() * sizeof(uint32_t);
+            }
             for (const auto &tile : next->farTiles) {
                 account(*tile.mesh, true);
                 next->sampleCount += tile.mesh->sampleCount;

@@ -152,7 +152,18 @@ struct CaveMarker {
     static bool fromJson(const QJsonObject &, CaveMarker &, QString &error);
 };
 
+struct PcgAsset {
+    QString id, name;
+    PcgGraph graph;
+    PcgVolume volume;
+    std::vector<StructureAsset> assets;
+    std::vector<CaveMarker> markers;
+    QJsonObject toJson() const;
+    static bool fromJson(const QJsonObject &, PcgAsset &, QString &error);
+    bool operator==(const PcgAsset &) const = default;
+};
 struct CreationState {
+    std::vector<PcgAsset> pcgAssets;
     std::vector<PcgGraph> graphs;
     std::vector<PcgVolume> volumes;
     std::vector<StructureAsset> assets;
@@ -188,6 +199,13 @@ QJsonArray pcgNodeCatalog();
 bool validateCreation(const CreationState &state, QString &error);
 class World;
 struct GeneratedCreation {
+    struct Object {
+        QString id, ownerId;
+        AssetPreset placement;
+    };
+    std::vector<Object> objects;
+    // Ownership is derived only. Export still uses the complete cells map.
+    std::unordered_map<uint64_t, size_t> objectCells;
     std::unordered_map<uint64_t, uint32_t> cells;
     std::unordered_map<int, int> heights;
     std::vector<QVector3D> scatterPoints;

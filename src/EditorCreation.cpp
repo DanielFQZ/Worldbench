@@ -22,6 +22,26 @@ QVariantList rows(const QJsonArray &a) {
 QJsonArray xyz(float x, float y, float z) {
     return {x, y, z};
 }
+QJsonValue remapReferences(const QJsonValue &value, const QMap<QString, QString> &ids) {
+    if (value.isArray()) {
+        QJsonArray out;
+        for (auto v : value.toArray())
+            out.append(remapReferences(v, ids));
+        return out;
+    }
+    if (value.isObject()) {
+        auto o = value.toObject();
+        for (auto i = o.begin(); i != o.end(); ++i) {
+            if ((i.key() == "assetId" || i.key() == "id") && i.value().isString() &&
+                ids.contains(i.value().toString()))
+                i.value() = ids[i.value().toString()];
+            else
+                i.value() = remapReferences(i.value(), ids);
+        }
+        return o;
+    }
+    return value;
+}
 } // namespace
 QVariantMap Editor::creationState() const {
     QJsonObject data;
@@ -47,6 +67,11 @@ QVariantMap Editor::creationState() const {
         assets.append(o);
     }
     data["assets"] = assets;
+    QJsonArray pcgAssets;
+    for (const auto &a : m_world.creation.pcgAssets)
+        pcgAssets.append(QJsonObject{
+            {"id", a.id}, {"name", a.name}, {"graph", a.graph.toJson()}, {"volume", a.volume.toJson()}});
+    data["pcgAssets"] = pcgAssets;
     data["generatedCells"] = m_world.generated ? int(m_world.generated->cells.size()) : 0;
     data["diagnostics"] =
         m_world.generated ? QJsonArray::fromStringList(m_world.generated->diagnostics) : QJsonArray{};
@@ -74,6 +99,54 @@ QVariantList Editor::pcgVolumes() const {
 }
 QVariantList Editor::structureAssets() const {
     return creationState()["assets"].toList();
+}
+QVariantList Editor::libraryAssets() const {
+    auto rows = structureAssets();
+    for (const auto &a : m_world.creation.pcgAssets) {
+        const auto size = a.volume.max - a.volume.min;
+        rows.append(QVariantMap{{"id", a.id},
+                                {"name", a.name},
+                                {"kind", "pcg"},
+                                {"width", size.x()},
+                                {"height", size.y()},
+                                {"depth", size.z()}});
+    }
+    return rows;
+}
+bool Editor::storePcgAsset(const QString &id) {
+    wb::PcgAsset asset;
+    auto next = m_world.creation;
+    auto volume = std::find_if(next.volumes.begin(), next.volumes.end(), [&](auto &v) { return v.id == id; });
+    if (volume == next.volumes.end())
+        return false;
+    auto graph = std::find_if(next.graphs.begin(), next.graphs.end(),
+                              [&](auto &g) { return g.id == volume->graphId; });
+    if (graph == next.graphs.end())
+        return false;
+    asset.id = fresh("pcg-asset");
+    asset.name = volume->name;
+    asset.volume = *volume;
+    asset.graph = *graph;
+    asset.volume.sourceId.clear();
+    asset.volume.enabled = asset.volume.visible = true;
+    const int centerX = int((volume->min.x() + volume->max.x()) * .5f),
+              centerZ = int((volume->min.z() + volume->max.z()) * .5f);
+    const auto anchor =
+        QVector3D(float(centerX), float(m_world.height(centerX, centerZ) + 1), float(centerZ));
+    asset.volume.min -= anchor;
+    asset.volume.max -= anchor;
+    const auto json = QJsonDocument(graph->toJson()).toJson(QJsonDocument::Compact);
+    QSet<QString> references;
+    for (const auto &a : next.assets)
+        if (json.contains(('"' + a.id + '"').toUtf8())) {
+            asset.assets.push_back(a);
+            references.insert(a.id);
+        }
+    for (const auto &m : next.caveMarkers)
+        if (references.contains(m.assetId))
+            asset.markers.push_back(m);
+    next.pcgAssets.push_back(asset);
+    return commitCreation(std::move(next), "PCG范围加入资产库");
 }
 QVariantList Editor::assetPresets() const {
     return creationState()["presets"].toList();
@@ -211,6 +284,8 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
             ok = edit(next.roadEdges);
         else if (kind == "caveMarkers")
             ok = edit(next.caveMarkers);
+        else if (kind == "pcgAssets")
+            ok = edit(next.pcgAssets);
         else
             error = "对象类型无效";
         if (!ok) {
@@ -286,6 +361,25 @@ bool Editor::importStructureAsset(const QUrl &url) {
         return false;
     wb::StructureAsset asset;
     QString error;
+    if (QFileInfo(url.toLocalFile()).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
+        QFile file(url.toLocalFile());
+        if (file.size() > 64 * 1024 * 1024 || !file.open(QIODevice::ReadOnly)) {
+            emit failure("资产不可读或超过64MiB");
+            return false;
+        }
+        const auto data = QJsonDocument::fromJson(file.readAll()).object();
+        if (data["type"] == "pcg-volume") {
+            wb::PcgAsset pcg;
+            if (!wb::PcgAsset::fromJson(data, pcg, error)) {
+                emit failure(error);
+                return false;
+            }
+            pcg.id = fresh("pcg-asset");
+            auto next = m_world.creation;
+            next.pcgAssets.push_back(pcg);
+            return commitCreation(std::move(next), "导入PCG范围资产");
+        }
+    }
     if (!wb::importStructure(url.toLocalFile(), asset, error)) {
         emit failure(error);
         return false;
@@ -327,6 +421,36 @@ bool Editor::saveAssetPreset(const QString &id, const QUrl &url) {
 }
 bool Editor::placeAssetInstance(const QString &id, int x, int y, int z) {
     auto next = m_world.creation;
+    for (const auto &asset : m_world.creation.pcgAssets)
+        if (asset.id == id) {
+            QMap<QString, QString> ids;
+            for (auto a : asset.assets) {
+                const auto old = a.id;
+                a.id = fresh("asset");
+                ids[old] = a.id;
+                next.assets.push_back(a);
+            }
+            for (auto marker : asset.markers) {
+                marker.id = fresh("cave-marker");
+                marker.assetId = ids.value(marker.assetId);
+                next.caveMarkers.push_back(marker);
+            }
+            auto graph = asset.graph;
+            graph.id = fresh("pcg");
+            for (auto &node : graph.nodes)
+                node.parameters = remapReferences(node.parameters, ids).toObject();
+            next.graphs.push_back(graph);
+            auto volume = asset.volume;
+            volume.id = fresh("pcg-volume");
+            volume.graphId = graph.id;
+            volume.min += QVector3D(x, y, z);
+            volume.max += QVector3D(x, y, z);
+            next.volumes.push_back(volume);
+            if (!commitCreation(std::move(next), "放置PCG范围资产"))
+                return false;
+            setSelectedNode(volume.id);
+            return true;
+        }
     wb::AssetPreset p;
     p.id = fresh("asset-instance");
     p.assetId = id;
@@ -480,6 +604,9 @@ bool Editor::creationFile(const QString &action, const QString &id, const QUrl &
         }
     }
     if (action == "save_asset") {
+        for (const auto &asset : m_world.creation.pcgAssets)
+            if (asset.id == id)
+                data = asset.toJson();
         QString assetId = id;
         QJsonObject instance;
         for (auto &p : m_world.creation.presets)
@@ -568,14 +695,9 @@ void Editor::previewCreationTransform(const QVariantMap &changes) {
         }
     if (!found || next == m_world.creation)
         return;
-    auto candidate = m_world;
-    candidate.creation = std::move(next);
-    QString error;
-    if (!candidate.rebuildCreation(error))
-        return;
-    m_world = std::move(candidate);
-    ++m_revision;
-    dirtyAll();
+    // A gesture updates transforms only. The renderer moves the cached mesh;
+    // authoritative PCG/voxel generation is committed once on release.
+    m_world.creation = std::move(next);
     emit changed();
 }
 void Editor::endCreationTransform(bool cancel) {
@@ -585,20 +707,10 @@ void Editor::endCreationTransform(bool cancel) {
     m_creationStart.reset();
     if (*before == m_world.creation)
         return;
-    if (cancel) {
-        m_world.creation = *before;
-        QString error;
-        m_world.rebuildCreation(error);
-        ++m_revision;
-        dirtyAll();
-        emit changed();
-        return;
-    }
-    wb::Command cmd;
-    cmd.label = "变换创作实例";
-    cmd.creationBefore = before;
-    cmd.creationAfter = std::make_shared<const wb::CreationState>(m_world.creation);
-    pushCommand(std::move(cmd));
+    const auto next = m_world.creation;
+    m_world.creation = *before;
+    if (!cancel)
+        commitCreation(next, "变换创作实例");
     emit changed();
 }
 

@@ -359,8 +359,17 @@ bool validateCreation(const CreationState &s, QString &error) {
         return true;
     };
     if (!unique(s.graphs) || !unique(s.volumes) || !unique(s.assets) || !unique(s.presets) ||
-        !unique(s.roadNodes) || !unique(s.roadEdges) || !unique(s.caveMarkers))
+        !unique(s.roadNodes) || !unique(s.roadEdges) || !unique(s.caveMarkers) || !unique(s.pcgAssets))
         return fail("创作对象ID必须唯一，单类最多4096项");
+    for (const auto &asset : s.pcgAssets) {
+        CreationState local;
+        local.graphs = {asset.graph};
+        local.volumes = {asset.volume};
+        local.assets = asset.assets;
+        local.caveMarkers = asset.markers;
+        if (!validateCreation(local, error))
+            return false;
+    }
     for (auto &g : s.graphs) {
         if (!g.validate(error))
             return false;

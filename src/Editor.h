@@ -19,6 +19,7 @@ class Editor : public QObject {
     Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY changed)
     Q_PROPERTY(int radius READ radius WRITE setRadius NOTIFY changed)
     Q_PROPERTY(int strength READ strength WRITE setStrength NOTIFY changed)
+    Q_PROPERTY(QVariantList libraryAssets READ libraryAssets NOTIFY changed)
     Q_PROPERTY(int material READ material WRITE setMaterial NOTIFY changed)
     Q_PROPERTY(bool modified READ modified NOTIFY changed)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
@@ -79,6 +80,11 @@ class Editor : public QObject {
     Q_PROPERTY(QVariantList roadEdges READ roadEdges NOTIFY changed)
     Q_PROPERTY(QVariantList caveMarkers READ caveMarkers NOTIFY changed)
   public:
+    QVariantList libraryAssets() const;
+    Q_INVOKABLE bool storePcgAsset(const QString &volumeId);
+    const wb::CreationState &renderCreation() const {
+        return m_creationPending ? *m_creationPending : m_world.creation;
+    }
     explicit Editor(QObject *parent = nullptr);
     ~Editor() override;
     int tool() const { return m_tool; }
@@ -286,6 +292,7 @@ class Editor : public QObject {
     bool startHeightRegion(const QRect &area, int offset, QString &error);
     QJsonObject regionJobInfo() const;
     void dirtyAll();
+    void dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &before);
     bool dirtyCommand(const wb::Command &command, bool forward = true);
     void startMesh();
     void resetHistory();
@@ -311,6 +318,7 @@ class Editor : public QObject {
     bool prepareCreation(wb::World &candidate, QString &error, bool cancellable = true);
     bool commitCreation(wb::CreationState next, const QString &label);
     std::shared_ptr<const wb::CreationState> m_creationStart;
+    std::shared_ptr<const wb::CreationState> m_creationPending;
     QString m_placementAsset;
     bool m_roadPlacement = false;
     std::shared_ptr<const std::vector<wb::TerrainInstance>> m_terrainStart;

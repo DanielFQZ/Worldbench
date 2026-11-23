@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <bitset>
 namespace wb {
-MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creationOnly, bool isolatedAsset) {
+MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creationOnly, bool isolatedAsset,
+                       bool omitObjects) {
     auto mesh = std::make_shared<ChunkMesh>();
     mesh->revision = rev;
     mesh->center = {float(cx * 16 + 8), 20, float(cz * 16 + 8)};
@@ -94,6 +95,9 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                 const Block b = blockAt(x, y, z);
                 if (b == Air)
                     continue;
+                if (omitObjects && w.generated && w.generated->objectCells.contains(w.key(x, y, z)) &&
+                    !w.overrides.contains(w.key(x, y, z)))
+                    continue;
                 const auto &m = *w.models[b];
                 auto &vertices = b == Water ? mesh->water : m.translucent ? mesh->transparent : mesh->opaque;
                 for (const auto &face : m.faces) {
@@ -103,6 +107,13 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                     if (face.cull >= 0) {
                         const auto &n = normals[face.cull];
                         Block nb = blockAt(x + n[0], y + n[1], z + n[2]);
+                        // Movable assets have separate meshes. Keep terrain
+                        // contact faces so dragging an asset cannot reveal a hole.
+                        const auto neighborKey = w.key(x + n[0], y + n[1], z + n[2]);
+                        if (omitObjects && w.contains(x + n[0], y + n[1], z + n[2]) && w.generated &&
+                            w.generated->objectCells.contains(neighborKey) &&
+                            !w.overrides.contains(neighborKey))
+                            nb = Air;
                         const auto &neighbor = *w.models[nb];
                         if ((nb == b && m.translucent) ||
                             (neighbor.full && !neighbor.translucent && nb != Air))

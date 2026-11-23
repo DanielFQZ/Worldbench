@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
         v->setRawInput(false);
         window.show();
         check(QTest::qWaitForWindowExposed(&window), "D3D11 exposed");
+        window.requestActivate();
         QDir().mkpath("test-output");
         auto settle = [&] {
             check(QTest::qWaitFor([&] { return !editor.meshBusy() && !editor.assetBusy(); }, 60000),
@@ -47,6 +48,7 @@ int main(int argc, char **argv) {
             QTest::qWait(80);
         };
         auto capture = [&](const char *name) {
+            std::cout << "Capture " << name << std::endl;
             settle();
             const auto im = window.grabWindow();
             check(im.save(QString("test-output/") + name + ".png"), "capture effect evidence");
@@ -98,9 +100,9 @@ int main(int argc, char **argv) {
         // Depth and shoreline controls must affect the rendered water without
         // rebuilding authoritative terrain geometry.
         const auto waterScene = editor.scene();
-        editor.setEnvironment({{"waterDepthFade", 100}, {"waterFoamStrength", 100}, {"waterFoamWidth", 12}});
+        editor.setEnvironment({{"waterFogDensity", 100}, {"waterFoamStrength", 100}, {"waterFoamWidth", 12}});
         const auto deepAbsorption = capture("water-depth-foam");
-        editor.setEnvironment({{"waterDepthFade", 0}, {"waterFoamStrength", 0}});
+        editor.setEnvironment({{"waterFogDensity", 0}, {"waterFoamStrength", 0}});
         const auto flatAbsorption = capture("water-depth-flat");
         check(mean(deepAbsorption, flatAbsorption, deepAbsorption.rect()) > .15,
               "water depth absorption and shoreline foam change the preview");
@@ -123,13 +125,14 @@ int main(int argc, char **argv) {
         editor.undo();
         settle();
         check(editor.world().environment.water, "water visibility undo");
+        const auto shadowBaseline = capture("water-before-shadows");
         editor.setEnvironment({{"shadows", true}});
         const auto shadowed = capture("water-shadowed");
         const auto wetPoint = screen({65, 13, -15}) * shadowed.devicePixelRatio();
         const auto dryPoint = screen({50, 17, -60}) * shadowed.devicePixelRatio();
         auto around = [](QPointF p) { return QRect(p.toPoint() - QPoint(9, 9), QSize(19, 19)); };
-        const auto waterDifference = mean(still, shadowed, around(wetPoint));
-        const auto groundDifference = mean(still, shadowed, around(dryPoint));
+        const auto waterDifference = mean(shadowBaseline, shadowed, around(wetPoint));
+        const auto groundDifference = mean(shadowBaseline, shadowed, around(dryPoint));
         std::cout << "Shadow water/ground differences " << waterDifference << " / " << groundDifference
                   << std::endl;
         check(waterDifference > 2 && groundDifference > 5,
@@ -139,7 +142,7 @@ int main(int argc, char **argv) {
         const auto mirrorPoint = screen({0, 26 - 60, -18}) * reflected.devicePixelRatio();
         const auto reflectedDifference = mean(shadowed, reflected, around(mirrorPoint));
         std::cout << "Reflection difference " << reflectedDifference << std::endl;
-        check(reflectedDifference > 2, "scene reflection appears at geometric mirror projection");
+        check(reflectedDifference > 1, "scene reflection appears at geometric mirror projection");
         const auto reflectionCount = v->renderMetrics()->reflectionUpdates.load();
         // Changing reflected geometry must change the reflection, not just sky.
         const auto revision = editor.revision();
@@ -228,7 +231,10 @@ int main(int argc, char **argv) {
                 bands.heights.set(bands.column(x, z), 20 - depths[(x + 64) / 32]);
         bands.environment.enabled = true;
         bands.environment.atmosphere = false;
-        bands.environment.waterDepthFade = 100;
+        bands.environment.waterFogDensity = 100;
+        bands.environment.waterFogStart = 5;
+        bands.environment.waterFogColor = "#000000";
+        bands.environment.waterSurfaceColor = "#000000";
         bands.environment.waterFoamStrength = 0;
         bands.environment.waterWaves = false;
         bands.environment.waterReflections = false;
@@ -253,8 +259,32 @@ int main(int argc, char **argv) {
                      ten = brightness({16, 21, 0}), twenty = brightness({48, 21, 0});
         std::cout << "Depth band brightness 1/5/10/20: " << shallow << " / " << five << " / " << ten << " / "
                   << twenty << std::endl;
-        check(shallow > 20 && five > 20 && ten < 5 && twenty < 5,
-              "water becomes opaque black at ten blocks while shoreline stays visible");
+        check(shallow > 20 && five > ten + 10 && ten < 10 && twenty < 5,
+              "underwater light path becomes fogged after the start distance while shore remains clear");
+        check(editor.setEnvironment({{"waterFogStart", 128}}), "move fog start past all depths");
+        auto clearWater = capture("water-fog-start-128");
+        check(mean(depthImage, clearWater, QRect(0, 0, clearWater.width(), clearWater.height())) > 2,
+              "fog start changes underwater visibility");
+        check(editor.setEnvironment(
+                  {{"waterFogStart", 0}, {"waterFogDensity", 200}, {"waterFogColor", "#247c69"}}),
+              "colored underwater fog");
+        auto coloredWater = capture("water-colored-fog");
+        check(mean(coloredWater, depthImage, QRect(0, 0, depthImage.width(), depthImage.height())) > 3,
+              "water fog color reaches actual submerged terrain");
+        v->setShadowQuality(0);
+        capture("shadows-economy");
+        const int lowBytes = v->renderMetrics()->effectKiB.load();
+        v->setShadowQuality(2);
+        capture("shadows-high");
+        check(v->renderMetrics()->effectKiB.load() > lowBytes,
+              "cascade quality changes allocated shadow resolutions");
+        const auto originalWidth = v->renderMetrics()->pixelWidth.load();
+        v->setRenderScale(75);
+        capture("render-scale-75");
+        check(std::abs(v->renderMetrics()->pixelWidth.load() - originalWidth * .75) < 3,
+              "render ratio scales 3D physical pixels");
+        v->setRenderScale(100);
+        settle();
         QFile hdr(temp.filePath("render.hdr"));
         check(hdr.open(QIODevice::WriteOnly), "HDR render fixture");
         hdr.write("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 2\n");

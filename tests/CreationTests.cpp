@@ -86,6 +86,33 @@ int main(int argc, char **argv) {
         options.baseHeight = 24;
         options.seaLevel = 4;
         World world = World::create(options);
+        {
+            auto placed = World::create(options);
+            auto asset = tree();
+            asset.groundBlend = 2;
+            placed.creation.assets = {asset};
+            AssetPreset instance;
+            instance.id = "root-test";
+            instance.assetId = asset.id;
+            instance.position = {0, 25, 0};
+            placed.creation.presets = {instance};
+            check(placed.rebuildCreation(error), "tree ground blend fixture");
+            check(placed.block(1, 28, 0) == Air && placed.block(1, 27, 0) == Air,
+                  "canopy must not create floating stone foundation");
+            auto original = placed.generated->cells;
+            auto meshes = buildCreationMeshes(placed, 1);
+            check(meshes.size() == 1 && !meshes[0].mesh->opaque.empty(), "asset has independent mesh");
+            bool simplified = false;
+            for (auto &lod : meshes[0].lods)
+                simplified |=
+                    !lod->opaqueIndices.empty() && lod->opaqueIndices.size() < meshes[0].mesh->opaque.size();
+            check(simplified, "distant asset simplifies triangle count");
+            check(original == placed.generated->cells, "LOD keeps authoritative generated blocks");
+            placed.setBlock(0, 26, 0, Air);
+            auto edited = buildCreationMeshes(placed, 2);
+            check(edited[0].mesh->opaque.size() != meshes[0].mesh->opaque.size(),
+                  "manual carve honored by independent asset mesh");
+        }
         world.creation.graphs.push_back(graph);
         world.creation.volumes.push_back(
             {"volume", "Paint", graph.id, {-16, 0, -16}, {16, 64, 16}, 0, 7, true, true});

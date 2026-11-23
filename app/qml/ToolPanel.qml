@@ -21,6 +21,13 @@ ColumnLayout {
   Label{text:editor.radius;Layout.preferredWidth:22}
  }
  RowLayout{
+  visible:editor.tool>=0&&editor.tool<=5
+  Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
+  Label{text:"强度";color:Theme.secondary}
+  WorkbenchSlider {objectName:"brushStrength";Layout.fillWidth:true;from:1;to:4;stepSize:1;value:editor.strength;onMoved:editor.strength=Math.round(value)}
+  Label{text:editor.strength+" / 4";Layout.preferredWidth:36}
+ }
+ RowLayout{
   visible:panel.surfaceTool
   Layout.fillWidth:true;Layout.leftMargin:12;Layout.rightMargin:12
   Label{text:"衰减";color:Theme.secondary}

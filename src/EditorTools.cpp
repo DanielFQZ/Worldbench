@@ -425,8 +425,21 @@ QJsonObject Editor::worldInfo() const {
         sculptLayers.append(QJsonObject{
             {"id", l.id}, {"name", l.name}, {"enabled", l.enabled}, {"columns", int(l.deltas->size())}});
     const auto creation = QJsonObject::fromVariantMap(creationState());
+    QJsonObject rendering;
+    if (auto *viewport = qobject_cast<Viewport *>(m_cameraController.data())) {
+        auto m = viewport->renderMetrics();
+        rendering = {{"cpu_submit_ms", m->submitMicros.load() / 1000.},
+                     {"gpu_ms", m->gpuMicros.load() / 1000.},
+                     {"pixel_width", m->pixelWidth.load()},
+                     {"pixel_height", m->pixelHeight.load()},
+                     {"render_scale", viewport->renderScale()},
+                     {"shadow_quality", viewport->shadowQuality()},
+                     {"object_triangles", m->objectTriangles.load()},
+                     {"object_lods", m->objectLods.load()}};
+    }
     return {
         {"revision", double(m_revision)},
+        {"rendering", rendering},
         {"sculpt_layers", sculptLayers},
         {"active_sculpt_layer", m_world.heights.activeLayer},
         {"terrain_instances", terrain},
@@ -629,6 +642,8 @@ QJsonObject Editor::executeTool(const QString &name, const QJsonObject &args) {
             ok = creationEdit(args["operation"].toString(), args["data"].toObject().toVariantMap());
         else if (action == "new_graph")
             ok = createPcgGraph(args["name"].toString());
+        else if (action == "store_pcg_asset")
+            ok = storePcgAsset(args["id"].toString());
         else if (action == "new_volume")
             ok = addPcgVolume(args["graph_id"].toString());
         else if (action == "import_asset")

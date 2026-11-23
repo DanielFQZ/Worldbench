@@ -35,7 +35,8 @@ QJsonArray toolList() {
         {}, {}, true);
     add("creation",
         "Inspect or edit the shared PCG/asset/road/cave creation state. "
-        "action=inspect/new_graph/new_volume/import_asset/place_asset/road_node/edit/file/cave_analysis. "
+        "action=inspect/new_graph/new_volume/store_pcg_asset/import_asset/place_asset/road_node/edit/file/"
+        "cave_analysis. "
         "Mutations require expected_revision. edit operation=add/patch/remove/graph/replace; data uses the "
         "inspect schema. file operation=save_graph/load_graph/save_asset/load_asset. All edits are one undo "
         "command and use the same revision as GUI.",
@@ -120,9 +121,11 @@ QJsonArray toolList() {
         {"action", "expected_revision"}, false);
     add("environment",
         "Change viewport environment only (water, waterWaves, waterReflections, shadows, clouds: bool; "
-        "waveStrength/waveDensity/waveSpeed/waterDepthFade/waterFoamStrength/cloudDensity/cloudSpeed: "
+        "waveStrength/waveDensity/waveSpeed/waterFoamStrength/cloudDensity/cloudSpeed: "
         "integer 0..100; "
-        "waterFoamWidth: integer 1..32); shared undo and project persistence. Changes: "
+        "waterFogDensity: 0..200 (percent extinction per metre), waterFogStart: 0..128 metres; "
+        "waterFogColor/waterSurfaceColor/waterReflectionColor/waterFoamColor: #RRGGBB; waterFoamWidth: "
+        "integer 1..32); shared undo and project persistence. Changes: "
         "enabled,sky,sun,atmosphere "
         "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 "
         "degrees; "

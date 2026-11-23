@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import "Theme.js" as Theme
 
 Rectangle {
@@ -9,6 +10,16 @@ Rectangle {
     property bool expanded:false
     signal editorRequested()
     color:Theme.window
+    property string saveId:""
+    property bool dragActive:false
+    property bool dragCancelled:false
+    Shortcut{sequence:"Esc";enabled:root.dragActive;onActivated:{root.dragCancelled=true;root.dragActive=false;root.viewport.clearAssetPreview()}}
+    Menu {id:assetMenu;property string assetId;property bool pcg
+        MenuItem{text:"导出资产预设…";onTriggered:{root.saveId=assetMenu.assetId;saveAsset.currentFolder=editor.dialogFolder("assetPresetSave");saveAsset.open()}}
+        MenuItem{text:"从资产库删除";onTriggered:editor.creationEdit("remove",{kind:assetMenu.pcg?"pcgAssets":"assets",id:assetMenu.assetId})}
+    }
+    FileDialog{id:saveAsset;fileMode:FileDialog.SaveFile;nameFilters:["Worldbench 资产 (*.wbasset)"];onAccepted:{editor.rememberDialogFolder("assetPresetSave",selectedFile);editor.saveAssetPreset(root.saveId,selectedFile)}
+        onRejected:editor.rememberDialogFolder("assetPresetSave",currentFolder,true)}
     ColumnLayout {
         anchors.fill:parent;spacing:0
         Rectangle {
@@ -16,7 +27,7 @@ Rectangle {
             RowLayout {
                 anchors.fill:parent;anchors.leftMargin:6;anchors.rightMargin:8;spacing:8
                 WorkbenchButton {objectName:"assetShelfToggle";text:(root.expanded?"▾  ":"▸  ")+"资产库";flat:true;implicitHeight:28;checkable:true;checked:root.expanded;onClicked:root.expanded=!root.expanded}
-                Label{text:editor.structureAssets.length+" 项";color:Theme.muted;font.pixelSize:11}
+                Label{text:editor.libraryAssets.length+" 项";color:Theme.muted;font.pixelSize:11}
                 Item{Layout.fillWidth:true}
                 WorkbenchTextField {id:search;visible:root.expanded;Layout.preferredWidth:180;implicitHeight:24;placeholderText:"搜索资产…"}
                 WorkbenchButton {visible:root.expanded;text:"管理资产 ↗";flat:true;implicitHeight:26;onClicked:root.editorRequested()}
@@ -27,7 +38,7 @@ Rectangle {
             GridView {
                 id:grid;objectName:"assetShelfGrid";anchors.fill:parent;anchors.margins:10
                 clip:true;cellWidth:150;cellHeight:142
-                model:root.expanded?editor.structureAssets.filter(a=>!search.text||a.name.toLowerCase().indexOf(search.text.toLowerCase())>=0):[]
+                model:root.expanded?editor.libraryAssets.filter(a=>!search.text||a.name.toLowerCase().indexOf(search.text.toLowerCase())>=0):[]
                 ScrollBar.vertical:ScrollBar{}
                 delegate:Rectangle {
                     id:card;required property var modelData
@@ -42,21 +53,30 @@ Rectangle {
                             }
                         }
                         Text {text:card.modelData.name;width:parent.width;elide:Text.ElideRight;color:Theme.text;font.pixelSize:12}
-                        Text {text:card.modelData.width+" × "+card.modelData.height+" × "+card.modelData.depth;width:parent.width;elide:Text.ElideRight;color:Theme.muted;font.pixelSize:10}
+                        Text {text:(card.modelData.kind==="pcg"?"PCG · ":"")+card.modelData.width+" × "+card.modelData.height+" × "+card.modelData.depth;width:parent.width;elide:Text.ElideRight;color:Theme.muted;font.pixelSize:10}
                     }
                     MouseArea {
                         id:drag;anchors.fill:parent;hoverEnabled:true;preventStealing:true
                         property point startPoint
                         property bool dragging:false
                         readonly property bool hovered:containsMouse
+                        acceptedButtons:Qt.LeftButton|Qt.RightButton
                         cursorShape:dragging?Qt.DragCopyCursor:Qt.OpenHandCursor
-                        onPressed:function(mouse){startPoint=Qt.point(mouse.x,mouse.y);dragging=false}
-                        onPositionChanged:function(mouse){if(pressed&&Math.hypot(mouse.x-startPoint.x,mouse.y-startPoint.y)>8)dragging=true}
-                        onReleased:function(mouse){
-                            if(dragging&&root.viewport){let p=mapToItem(root.viewport,mouse.x,mouse.y);if(p.x>=0&&p.x<root.viewport.width&&p.y>=0&&p.y<root.viewport.height){root.viewport.dropAsset(card.modelData.id,p.x,p.y);root.viewport.forceActiveFocus()}}
-                            dragging=false
+                        onPressed:function(mouse){if(mouse.button===Qt.RightButton){assetMenu.assetId=card.modelData.id;assetMenu.pcg=card.modelData.kind==="pcg";assetMenu.popup();return;}root.dragCancelled=false;startPoint=Qt.point(mouse.x,mouse.y);dragging=false}
+                        onPositionChanged:function(mouse){
+                            if((pressedButtons&Qt.LeftButton)&&Math.hypot(mouse.x-startPoint.x,mouse.y-startPoint.y)>8){dragging=true;root.dragActive=true}
+                            if(dragging&&!root.dragCancelled&&root.viewport){let p=mapToItem(root.viewport,mouse.x,mouse.y);root.viewport.previewAsset(card.modelData.id,p.x,p.y)}
                         }
-                        onCanceled:dragging=false
+                        onReleased:function(mouse){
+                            const shouldDrop=dragging&&!root.dragCancelled&&root.viewport
+                            const p=root.viewport?mapToItem(root.viewport,mouse.x,mouse.y):Qt.point(-1,-1)
+                            const assetId=card.modelData.id
+                            // Committing can replace this delegate. Release the
+                            // library's Escape shortcut before changing models.
+                            dragging=false;root.dragActive=false
+                            if(shouldDrop){if(p.x>=0&&p.x<root.viewport.width&&p.y>=0&&p.y<root.viewport.height){root.viewport.forceActiveFocus();root.viewport.dropAsset(assetId,p.x,p.y)}else root.viewport.clearAssetPreview()}
+                        }
+                        onCanceled:{dragging=false;root.dragActive=false;if(root.viewport)root.viewport.clearAssetPreview()}
                         onDoubleClicked:{editor.beginPlacement(card.modelData.id);root.viewport.forceActiveFocus()}
                     }
                     ToolTip.visible:drag.containsMouse&&!drag.pressed;ToolTip.delay:700;ToolTip.text:card.modelData.name+" · 拖入地表放置，或双击后点击地表"

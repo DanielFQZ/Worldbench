@@ -86,6 +86,11 @@ Item {
                     Label { text: "性能与精度"; font.pixelSize: 19; color: Theme.text; Layout.margins: 20; Layout.bottomMargin: 0 }
                     WorkbenchCheckBox { text: "4× 多重采样抗锯齿"; checked: editor.cameraController ? editor.cameraController.antialiasing : true; Layout.leftMargin: 20; onToggled: if (editor.cameraController) editor.cameraController.antialiasing = checked }
                     Label { text: "使用视口原生多重采样平滑体素轮廓和水面边缘。关闭后使用单采样，可在低端设备上节省显存与带宽。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: Theme.secondary }
+                    Label {text:"视口渲染比例 · "+(editor.cameraController?editor.cameraController.renderScale:100)+"%";Layout.leftMargin:20;color:Theme.text}
+                    WorkbenchSlider {objectName:"renderScale";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;from:50;to:100;stepSize:5;value:editor.cameraController?editor.cameraController.renderScale:100;onMoved:if(editor.cameraController)editor.cameraController.renderScale=Math.round(value)}
+                    Label {text:"只缩放3D像素缓冲，界面文字、命中位置和地形精度不变。大窗口GPU耗时较高时可试75%。这是空间缩放，不是DLSS/FSR或插帧。";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;wrapMode:Text.WordWrap;color:Theme.secondary}
+                    Label {text:"太阳阴影质量 · 近景 / 全图";Layout.leftMargin:20;color:Theme.text}
+                    WorkbenchComboBox {objectName:"shadowQuality";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;model:["节省 · 1024 / 512","均衡 · 2048 / 1024","精细 · 4096 / 2048"];currentIndex:editor.cameraController?editor.cameraController.shadowQuality:2;onActivated:if(editor.cameraController)editor.cameraController.shadowQuality=currentIndex}
                     Label { text: "全精度区域半径（区块）"; color: Theme.text; Layout.leftMargin: 20 }
                     RowLayout { Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20
                         WorkbenchSlider { id: exactRadius; from: 1; to: 12; stepSize: 1; snapMode: Slider.SnapAlways; value: editor.exactRadiusChunks; Layout.fillWidth: true; onMoved: editor.exactRadiusChunks = Math.round(value) }

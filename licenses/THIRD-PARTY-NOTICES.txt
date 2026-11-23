@@ -1581,3 +1581,9 @@ Worldbench adapts the compact workspace organization and neutral dark visual
 direction in its own QML implementation. No Figma components, source assets,
 or Blender branding are included. The Worldbench controls and icons were
 implemented for this application. This reference does not imply endorsement.
+
+meshoptimizer v0.25 (static library)
+Source: https://github.com/zeux/meshoptimizer/tree/6daea4695c48338363b08022d2fb15deaef6ac09
+Copyright (c) 2016-2025 Arseny Kapoulkine. MIT license; see meshoptimizer-MIT.txt.
+Used for derived structure LOD triangle simplification and vertex compaction.
+Terrain height sampling and exported Minecraft blocks are not simplified by it.

@@ -47,6 +47,8 @@ ColumnLayout {
   WorkbenchComboBox {Layout.fillWidth:true;model:[{id:"",name:"独立范围"}].concat(editor.sceneNodes.filter(n=>n.kind==="heightmap"));textRole:"name";valueRole:"id";currentIndex:model.findIndex(n=>n.id===(root.detailsData.sourceId||""));onActivated:root.patch("sourceId",currentValue)}
   WorkbenchCheckBox {text:"仅实际贡献区域";checked:root.detailsData.contributionOnly!==false;onToggled:root.patch("contributionOnly",checked)}
  }
+ WorkbenchButton {objectName:"storePcgAsset";Layout.margins:12;text:"PCG 范围加入资产库";visible:root.detailsData.kind==="volumes";onClicked:editor.storePcgAsset(root.detailsData.id)}
+ Label {visible:root.detailsData.kind==="volumes";text:"资产保留节点图、依赖、尺寸、过渡和参数。跨工程时解除地貌绑定；从资产库拖入后可重新绑定。";Layout.fillWidth:true;Layout.margins:12;wrapMode:Text.WordWrap;color:Theme.secondary}
  WorkbenchButton {Layout.margins:12;text:"保存为资产预设…";visible:root.detailsData.kind==="presets";onClicked:{presetFile.currentFolder=editor.dialogFolder("assetPresetSave");presetFile.open()}}
  FileDialog{id:presetFile;fileMode:FileDialog.SaveFile;nameFilters:["Worldbench资产 (*.wbasset)"];onRejected:editor.rememberDialogFolder("assetPresetSave",currentFolder,true);onAccepted:{editor.rememberDialogFolder("assetPresetSave",selectedFile);editor.saveAssetPreset(root.detailsData.id,selectedFile)}}
  WorkbenchButton {Layout.margins:12;text:"删除此对象";onClicked:editor.creationEdit("remove",{kind:root.detailsData.kind,id:root.detailsData.id})}

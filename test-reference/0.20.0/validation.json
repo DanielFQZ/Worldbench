@@ -1,0 +1,59 @@
+{
+  "version": "0.20.0",
+  "date": "2026-11-24",
+  "user_acceptance": "pending",
+  "backup": "backup/0.19.1",
+  "automated_tests": {
+    "full_run": "14 passed; UI held-brush test failed before ensuring native activation",
+    "total": 15,
+    "retest": "UI test adds explicit activation before held input; 590 checks passed on unchanged product code",
+    "passed": 15,
+    "retest_log": "regression-ui-retest.log",
+    "full_log": "regression-full.log"
+  },
+  "creation": {
+    "additional_source_project_checks": 6477,
+    "source_project_sha256": "1155fb80b560fbc288d40e1023d3bf72c52cbfc97035dfcb3fe2ba2d039c2ebc",
+    "preview_total_ms": 204,
+    "core_checks": 211,
+    "near_asset_triangles": 68250,
+    "far_asset_triangles": 6160,
+    "source_project_note": "Additional source-project run preceded the final QML focus-order and transparent-sort cleanup. Final packaged 3K smoke passed.",
+    "preview_calls": 120,
+    "final_qml_stdio_checks": 6429
+  },
+  "rendering": {
+    "surface_preview_checks": 25127,
+    "water_checks": 125,
+    "package_image": "package-smoke.png",
+    "gpu_checks": 207,
+    "packaged_smoke": "passed"
+  },
+  "performance": {
+    "ram_gb_approx": 96,
+    "heightmap_instances": 3,
+    "normal": "flight-normal.json",
+    "gpu": "RTX 4080",
+    "project_size": "3072x3072",
+    "maximized_75": "flight-max75.json",
+    "conclusion": "Maximized slowdown reproduced; 75% scale did not reliably improve it. GPU timings and Qt synchronization/presentation waits require deeper attribution; no stable 30-60 FPS certification.",
+    "cpu": "Intel i9-13900K",
+    "maximized": "flight-max.json",
+    "method": "240 updates on a 16ms native timer; 3 cold near-region arrivals"
+  },
+  "qt_profile": {
+    "scope": "Includes load, fixed flight, and cold arrivals; diagnostic logging changes timing",
+    "swap_p95_ms": 14,
+    "frames": 1514,
+    "total_p95_ms": 22,
+    "sync_p95_ms": 6
+  },
+  "limitations": [
+    "PCG drag transforms existing cached geometry; final projection, scatter membership and surface rules evaluate on release",
+    "First asset preview builds asynchronously with immediate bounds fallback",
+    "Global sea-plane water fog only",
+    "No DLSS/FSR/frame generation",
+    "No 8K/16K full workflow certification"
+  ],
+  "executable_sha256": "594369afee1aed73b1fc95863ec0b1fdabb4c024d2d8b7e087accdda70cff498"
+}

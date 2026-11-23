@@ -9,7 +9,7 @@ ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 680
     visible: true
-    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.1"
+    title: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.20.0"
     flags: Qt.platform.os === "windows" ? Qt.FramelessWindowHint | Qt.Window : Qt.Window
     color: Theme.window
     font.family: "Microsoft YaHei UI"; font.pixelSize: 13
@@ -100,7 +100,7 @@ ApplicationWindow {
                 Text { anchors.centerIn: parent; text: "W"; color: Theme.text; font.bold: true; font.pixelSize: 15 }
             }
             Text {
-                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.19.1"
+                text: (editor.modified ? "● " : "") + editor.projectName + " — Worldbench 0.20.0"
                 color: Theme.text
                 font.pixelSize: 13
                 elide: Text.ElideRight
@@ -191,7 +191,7 @@ ApplicationWindow {
         WorkbenchMenu {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
-            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.19.1 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
+            Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = "Worldbench 0.20.0 · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
         }
     }
       Rectangle {

@@ -242,6 +242,26 @@ int main(int argc, char **argv) {
         add("volumes", volume.toJson());
         settle();
         check(editor.world().generated->scatterPoints.size() > 5, "MCP graph scatters real structures");
+        write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
+        check(editor.world().creation.pcgAssets.size() == 1, "PCG range stored as library asset through MCP");
+        const auto pcgAssetId = editor.world().creation.pcgAssets.back().id;
+        const auto pcgPath = out + "/forest-range.wbasset";
+        write("creation",
+              {{"action", "file"}, {"operation", "save_asset"}, {"id", pcgAssetId}, {"path", pcgPath}});
+        write("creation", {{"action", "import_asset"}, {"path", pcgPath}});
+        check(editor.world().creation.pcgAssets.size() == 2, "portable PCG asset imported with dependencies");
+        const auto libraryId = editor.world().creation.pcgAssets.back().id;
+        write("creation",
+              {{"action", "place_asset"}, {"asset_id", libraryId}, {"x", 0}, {"y", 25}, {"z", 0}});
+        check(editor.world().creation.volumes.size() == 2, "library placement makes editable PCG range");
+        check(editor.world().creation.volumes.back().min.y() == volume.min.y(),
+              "PCG preset keeps ground-relative vertical extent");
+        write("undo", {});
+        write("undo", {});
+        write("undo", {});
+        check(editor.world().creation.pcgAssets.empty() && editor.world().creation.volumes.size() == 1,
+              "PCG library operations undo atomically");
+        settle();
         auto generated = editor.world().generated->cells;
         auto points = editor.world().generated->scatterPoints;
         auto stateBefore = editor.world().creation;
@@ -278,6 +298,18 @@ int main(int argc, char **argv) {
         call("camera", {{"position", QJsonArray{105, 100, 140}}, {"yaw", -36}, {"pitch", -27}});
         editor.setSelectedNode(volume.id);
         capture("01-pcg-scene");
+        call("camera", {{"position", QJsonArray{0, 50, 65}}, {"yaw", 0}, {"pitch", -20}});
+        capture("01a-assets-near");
+        const int nearTriangles = viewport->renderMetrics()->objectTriangles.load();
+        check(nearTriangles > 0 && viewport->renderMetrics()->objectLods.load() == 0,
+              "near assets use original block geometry");
+        call("camera", {{"position", QJsonArray{0, 200, 500}}, {"yaw", 0}, {"pitch", -20}});
+        capture("01b-assets-distant");
+        const int farTriangles = viewport->renderMetrics()->objectTriangles.load();
+        check(viewport->renderMetrics()->objectLods.load() > 0 && farTriangles < nearTriangles * .7,
+              "distant assets actually select simplified GPU meshes");
+        std::cout << "Asset triangles near/far " << nearTriangles << " / " << farTriangles << std::endl;
+        call("camera", {{"position", QJsonArray{105, 100, 140}}, {"yaw", -36}, {"pitch", -27}});
         auto *workspace = window->findChild<QObject *>("creationWorkspace");
         auto *panel = window->findChild<QObject *>("creationPanel");
         check(workspace && panel, "creation workspace and tabs exist");
@@ -332,6 +364,10 @@ int main(int argc, char **argv) {
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, dragStart);
         QTest::mouseMove(window, dragStart + QPoint(15, -15), 30);
         QTest::mouseMove(window, dragEnd, 80);
+        check(QTest::qWaitFor([&] { return bool(viewport->ghostMesh()); }, 15000),
+              "held library drag displays the real structure before placement");
+        check(editor.world().creation.presets.size() == beforeDrag, "ghost does not commit while dragging");
+        check(window->grabWindow().save(out + "/03a-live-asset-drop.png"), "capture held drag preview");
         QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
         check(
             QTest::qWaitFor([&] { return editor.world().creation.presets.size() == beforeDrag + 1; }, 15000),
@@ -339,9 +375,32 @@ int main(int argc, char **argv) {
         capture("03b-asset-library");
         write("undo", {});
         check(editor.world().creation.presets.size() == beforeDrag, "asset library drop is undoable");
+        write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
+        settle();
+        const auto rangeStart = shelfGrid->mapToScene({180, 30}).toPoint();
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, rangeStart);
+        QTest::mouseMove(window, rangeStart + QPoint(15, -15), 30);
+        QTest::mouseMove(window, dragEnd, 80);
+        check(editor.world().creation.volumes.size() == 1, "PCG drag remains a preview until release");
+        check(window->grabWindow().save(out + "/03c-pcg-library-preview.png"), "PCG library drag evidence");
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, dragEnd);
+        check(QTest::qWaitFor([&] { return editor.world().creation.volumes.size() == 2; }, 15000),
+              "PCG volume is draggable directly from the asset library");
+        write("undo", {});
+        write("undo", {});
+        check(editor.world().creation.volumes.size() == 1 && editor.world().creation.pcgAssets.empty(),
+              "PCG library drop and store undo independently");
         shelf->setProperty("expanded", false);
         write("creation", {{"action", "place_asset"}, {"asset_id", treeId}, {"x", 52}, {"y", 25}, {"z", 0}});
         QString placedId = editor.world().creation.presets.back().id;
+        settle();
+        const auto beforeCarveMesh = editor.scene()->objects.back().mesh;
+        write("set_blocks", {{"blocks", QJsonArray{QJsonObject{{"position", QJsonArray{52, 26, 0}},
+                                                               {"block", "minecraft:air"}}}}});
+        settle();
+        check(editor.scene()->objects.back().mesh != beforeCarveMesh,
+              "manual block edit invalidates cached object display geometry");
+        write("undo", {});
         patch("presets", placedId, {{"rotation", QJsonArray{0, 90, 0}}});
         check(editor.world().palette[editor.world().block(52, 25, 0)].name == "minecraft:oak_log",
               "rotated root remains fixed");
@@ -474,6 +533,17 @@ int main(int argc, char **argv) {
         };
         editor.setSelectedNode(volume.id);
         const auto baseline = editor.world().creation;
+        const auto cachedGeneration = editor.world().generated;
+        editor.beginCreationTransform();
+        QElapsedTimer previewTimer;
+        previewTimer.start();
+        for (int step = 1; step <= 120; ++step)
+            editor.previewCreationTransform({{"x", step * .1}});
+        std::cout << "PCG 120 transform previews: " << previewTimer.elapsed() << " ms" << std::endl;
+        check(previewTimer.elapsed() < 1500, "PCG gesture avoids synchronous generation on pointer updates");
+        check(editor.world().generated == cachedGeneration, "drag retains cached generated geometry");
+        editor.endCreationTransform(true);
+        check(editor.world().creation == baseline, "preview cancel preserves original authority");
         gesture(0, 0, false);
         check(editor.world().creation.volumes.front().min.x() != baseline.volumes.front().min.x(),
               "PCG arrow translates bounds");
@@ -556,12 +626,15 @@ int main(int argc, char **argv) {
         viewport->setGizmoMode(2);
         check(!viewport->gizmoOverlay()["active"].toBool(), "road node does not advertise scaling");
         viewport->setGizmoMode(0);
+        write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
         auto project = out + "/creation-demo.wbench";
         check(editor.save(QUrl::fromLocalFile(project)), "save creation project");
         auto beforeOpen = editor.world().generated->cells;
         check(editor.open(QUrl::fromLocalFile(project)), "reopen creation project");
         settle();
         check(editor.world().generated->cells == beforeOpen, "save reopen identical authoritative voxels");
+        check(editor.world().creation.pcgAssets.size() == 1,
+              "PCG library survives project reopen without source file");
         call("camera", {{"position", QJsonArray{100, 400, 140}}, {"yaw", -35}, {"pitch", -60}});
         settle();
         check(editor.scene()->exactArea.isEmpty(), "high camera has no screen-centre precision island");

@@ -432,6 +432,7 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
         flattenHeight = hit.y;
     radius = std::clamp(radius, 1, 16);
     strength = std::clamp(strength, 1, 4);
+    ++stampIndex;
     const auto heights = world.heights; // Stable slopes and smooth kernel, independent of iteration order.
     auto height = [&](int x, int z) {
         x = std::clamp(x, world.originX, world.originX + world.width - 1);
@@ -519,6 +520,17 @@ bool Stroke::stamp(const Hit &hit, int tool, int radius, int strength, Block mat
                         continue;
                     if (!allows(x, y, z))
                         continue;
+                    // Stable density per stamp for paint/volume tools; full
+                    // strength preserves the previous solid stamp behavior.
+                    if (strength < 4 && !(x == cx && y == cy && z == cz)) {
+                        uint32_t hash = uint32_t(x) * 73856093u ^ uint32_t(y) * 19349663u ^
+                                        uint32_t(z) * 83492791u ^ stampIndex * 2654435761u;
+                        hash ^= hash >> 16;
+                        hash *= 0x7feb352du;
+                        hash ^= hash >> 15;
+                        if (int(hash & 3) >= strength)
+                            continue;
+                    }
                     if (tool == 4) {
                         if (!world.isAir(world.block(x, y, z)))
                             changeCell(x, y, z, mat);

@@ -298,6 +298,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
             if (out->cells.size() >= 2000000 && !out->cells.contains(w.key(x, y, z)))
                 throw std::runtime_error("生成结果超过200万方块预算，请缩小范围/降低密度");
             out->cells[w.key(x, y, z)] = b;
+            out->objectCells.erase(w.key(x, y, z));
             out->blockEntities.erase(w.key(x, y, z));
             if (geometry)
                 out->geometryCells.insert(w.key(x, y, z));
@@ -348,7 +349,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
             reserved.push_back(box);
         }
         QHash<QString, CaveAnalysis> caves;
-        auto place = [&](const AssetPreset &p, bool scatter, int embed = 0) -> bool {
+        auto place = [&](const AssetPreset &p, bool scatter, int embed = 0, QString owner = {}) -> bool {
             auto a = assets.value(p.assetId);
             if (!a || a->placement == "ignore")
                 return false;
@@ -438,8 +439,11 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                 }
             if (a->groundBlend != 0 && a->placement == "place" && !scatter) {
                 std::map<std::pair<int, int>, int> bottom;
+                // Only the marked base/root plane may grow a foundation.
+                // Canopies, overhangs and balconies must never sprout stone.
+                const int baseY = int(p.position.y());
                 for (auto &[v, b] : writes)
-                    if (b != Air) {
+                    if (b != Air && int(v.y()) <= baseY) {
                         auto k = std::pair{int(v.x()), int(v.z())};
                         if (!bottom.contains(k))
                             bottom[k] = int(v.y());
@@ -455,8 +459,14 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                         put(xz.first, yy, xz.second, Stone, true);
                 }
             }
-            for (auto &[v, b] : writes)
+            const size_t objectIndex = out->objects.size();
+            if (a->placement == "place")
+                out->objects.push_back({p.id, owner.isEmpty() ? p.id : owner, p});
+            for (auto &[v, b] : writes) {
                 put(int(v.x()), int(v.y()), int(v.z()), b, true);
+                if (a->placement == "place" && b != Air)
+                    out->objectCells[w.key(int(v.x()), int(v.y()), int(v.z()))] = objectIndex;
+            }
             for (auto &[v, raw] : nbtWrites)
                 out->blockEntities[w.key(int(v.x()), int(v.y()), int(v.z()))] = raw;
             if (a->placement == "place")
@@ -698,7 +708,9 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                                     float scale =
                                         float(low + int(random01(gx, gz, seed + 19) * (high - low + 1)));
                                     instance.scale = {scale, scale, scale};
-                                    if (place(instance, true, embed))
+                                    instance.id = volume.id + "/" + n.id + "/" + QString::number(x) + "/" +
+                                                  QString::number(z);
+                                    if (place(instance, true, embed, volume.id))
                                         out->scatterPoints.push_back(instance.position);
                                 }
                             }

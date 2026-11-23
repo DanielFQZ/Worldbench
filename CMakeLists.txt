@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.19.1 LANGUAGES CXX)
+project(Worldbench VERSION 0.20.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -26,12 +26,18 @@ FetchContent_Declare(kddockwidgets
   URL_HASH SHA256=ea9ad76d5c8b4c861c9c931b265f3a08713b0bc4d238fbc3185718f312b03c3a
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(kddockwidgets)
+FetchContent_Declare(meshoptimizer
+  URL https://codeload.github.com/zeux/meshoptimizer/zip/6daea4695c48338363b08022d2fb15deaef6ac09
+  URL_HASH SHA256=42515a86ed64a81211551961a6ba6ff2496f8062ba42a35081d626afde72871f
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(meshoptimizer)
 add_library(worldbench_core STATIC
+  src/core/CreationMesh.cpp
   src/core/TerrainSurface.cpp
   src/core/ProjectChunks.cpp src/core/ProjectCompression.cpp src/core/HeightDeltas.cpp src/core/RegionEdit.cpp
   src/core/Environment.cpp src/core/RenderSupport.cpp src/core/World.cpp src/core/WorldCreation.cpp src/core/Pcg.cpp src/core/StructureImport.cpp src/core/CreationGenerate.cpp src/core/NbtPayload.cpp src/core/SkyImage.cpp src/core/SurfaceTheme.cpp src/core/HeightField.cpp src/core/Heightmap.cpp src/core/HeightmapRay.cpp src/core/TerrainProject.cpp src/core/Search.cpp src/core/Assets.cpp src/core/Project.cpp src/core/Mesh.cpp src/core/MinecraftExport.cpp)
 target_include_directories(worldbench_core PUBLIC src)
-target_link_libraries(worldbench_core PUBLIC Qt6::Core Qt6::Gui PRIVATE Qt6::CorePrivate)
+target_link_libraries(worldbench_core PUBLIC Qt6::Core Qt6::Gui PRIVATE Qt6::CorePrivate meshoptimizer)
 qt_add_resources(worldbench_core block_names PREFIX /translations BASE src/core/resources FILES src/core/resources/zh_cn_blocks_1.20.1.json src/core/resources/pinyin_search.json src/core/resources/legacy_blockstates.json src/core/resources/block_properties_1.20.1.json)
 qt_add_executable(Worldbench WIN32 src/main.cpp src/Editor.cpp src/EditorTools.cpp src/EditorCreation.cpp src/EditorTerrain.cpp src/EditorTheme.cpp src/EditorEnvironment.cpp src/McpServer.cpp src/Viewport.cpp src/ViewportRenderer.cpp src/ViewportGizmo.cpp app/resources.qrc)
 target_link_libraries(Worldbench PRIVATE worldbench_core Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent Qt6::Network Qt6::GuiPrivate KDAB::kddockwidgets)

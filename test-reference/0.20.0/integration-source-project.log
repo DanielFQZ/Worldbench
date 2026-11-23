@@ -1,0 +1,10 @@
+Asset triangles near/far 68250 / 6160
+PCG 120 transform previews: 204 ms
+Gesture forest-bounds mode=0 axis=0 cancel=0
+Gesture forest-bounds mode=0 axis=3 cancel=1
+Gesture forest-bounds mode=2 axis=5 cancel=0
+Gesture asset-instance-6e51fcaacf1c4a129eff9e0e04f5ac0c mode=2 axis=2 cancel=0
+Gesture asset-instance-6e51fcaacf1c4a129eff9e0e04f5ac0c mode=0 axis=0 cancel=0
+Gesture asset-instance-6e51fcaacf1c4a129eff9e0e04f5ac0c mode=2 axis=0 cancel=0
+Gesture road-a mode=0 axis=0 cancel=0
+Creation UI tests passed: 6477; output=E:/AppProject/Worldbench/test-output/BF-final-integration

@@ -1220,8 +1220,12 @@ int main(int argc, char **argv) {
         editor.setRadius(3);
         editor.setBrushOption("shape", 0);
         v->resetCamera();
-        v->forceActiveFocus();
         check(QTest::qWaitFor([&] { return !editor.meshBusy(); }, 15000), "stationary brush fixture ready");
+        // Programmatic editor operations above can leave the desktop window
+        // inactive. A held brush intentionally stops when it loses activation.
+        win->requestActivate();
+        check(QTest::qWaitForWindowActive(win), "held brush test window active");
+        v->forceActiveFocus();
         point = v->mapToScene(QPointF(v->width() * .5, v->height() * .6)).toPoint();
         QTest::mouseMove(win, point);
         QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, point);
@@ -1229,6 +1233,9 @@ int main(int argc, char **argv) {
         QTest::qWait(550);
         const auto held = v->hit();
         QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, point);
+        if (!anchored.valid || held.x != anchored.x || held.z != anchored.z || held.y <= anchored.y)
+            std::cerr << "Held brush active=" << win->isActive() << " focus=" << v->hasActiveFocus()
+                      << " height=" << anchored.y << " -> " << held.y << std::endl;
         check(anchored.valid && held.x == anchored.x && held.z == anchored.z && held.y > anchored.y,
               "stationary held brush raises fixed XZ instead of repicking slope");
         editor.undo();

@@ -22,6 +22,12 @@ QJsonObject saveEnvironment(const Environment &e) {
             {"waveDensity", e.waveDensity},
             {"waveSpeed", e.waveSpeed},
             {"waterDepthFade", e.waterDepthFade},
+            {"waterFogDensity", e.waterFogDensity},
+            {"waterFogStart", e.waterFogStart},
+            {"waterFogColor", e.waterFogColor},
+            {"waterSurfaceColor", e.waterSurfaceColor},
+            {"waterReflectionColor", e.waterReflectionColor},
+            {"waterFoamColor", e.waterFoamColor},
             {"waterFoamStrength", e.waterFoamStrength},
             {"waterFoamWidth", e.waterFoamWidth},
             {"cloudDensity", e.cloudDensity},
@@ -75,9 +81,9 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
     // These preview-only fields were added within project v9. Older files keep
     // their strict original validation and receive the new effect defaults.
     for (auto [name, target] : {std::pair{"water", &next.water},
-                               {"waterWaves", &next.waterWaves},
-                               {"waterReflections", &next.waterReflections},
-                               {"shadows", &next.shadows}}) {
+                                {"waterWaves", &next.waterWaves},
+                                {"waterReflections", &next.waterReflections},
+                                {"shadows", &next.shadows}}) {
         if (!o.contains(name))
             continue;
         if (!o[name].isBool())
@@ -91,6 +97,11 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
     if (o.contains("waveSpeed") && !number("waveSpeed", next.waveSpeed, 0, 100))
         return fail();
     if (o.contains("waterDepthFade") && !number("waterDepthFade", next.waterDepthFade, 0, 100))
+        return fail();
+    next.waterFogDensity = next.waterDepthFade;
+    if (o.contains("waterFogDensity") && !number("waterFogDensity", next.waterFogDensity, 0, 200))
+        return fail();
+    if (o.contains("waterFogStart") && !number("waterFogStart", next.waterFogStart, 0, 128))
         return fail();
     if (o.contains("waterFoamStrength") && !number("waterFoamStrength", next.waterFoamStrength, 0, 100))
         return fail();
@@ -111,6 +122,16 @@ bool loadEnvironment(const QJsonObject &o, Environment &e, QString &error) {
         !number("exposure", next.exposure, -30, 30))
         return fail();
     static const QRegularExpression color("^#[0-9a-fA-F]{6}$");
+    for (auto [name, target] : {std::pair{"waterFogColor", &next.waterFogColor},
+                                {"waterSurfaceColor", &next.waterSurfaceColor},
+                                {"waterReflectionColor", &next.waterReflectionColor},
+                                {"waterFoamColor", &next.waterFoamColor}}) {
+        if (!o.contains(name))
+            continue;
+        if (!o[name].isString() || !color.match(o[name].toString()).hasMatch())
+            return fail();
+        *target = o[name].toString().toLower();
+    }
     for (auto [name, target] : {std::pair{"skyColor", &next.skyColor},
                                 {"horizonColor", &next.horizonColor},
                                 {"groundColor", &next.groundColor},
@@ -127,6 +148,10 @@ bool patchEnvironment(const Environment &before, const QJsonObject &changes, Env
     auto o = saveEnvironment(before);
     for (auto it = changes.begin(); it != changes.end(); ++it)
         o[it.key()] = it.value();
+    // Existing MCP clients may still use the old control name. Treat it as a
+    // density alias, while an explicitly supplied new value takes precedence.
+    if (changes.contains("waterDepthFade") && !changes.contains("waterFogDensity"))
+        o["waterFogDensity"] = changes["waterDepthFade"];
     return loadEnvironment(o, after, error);
 }
 } // namespace wb

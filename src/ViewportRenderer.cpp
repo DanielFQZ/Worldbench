@@ -15,7 +15,7 @@
 #include <rhi/qrhi.h>
 
 namespace {
-constexpr int UniformFloats = 141, ShadowSize = 2048;
+constexpr int UniformFloats = 184;
 using Uniforms = std::array<float, UniformFloats>;
 
 QShader shader(const char *name) {
@@ -50,6 +50,10 @@ struct GpuChunk {
     std::unique_ptr<QRhiBuffer> opaque, transparent, water, indices;
     std::unique_ptr<QRhiTexture> colors;
     std::unique_ptr<QRhiShaderResourceBindings> mainBindings, reflectionBindings;
+    std::unique_ptr<QRhiBuffer> objectUniform, objectReflectionUniform;
+    std::array<std::unique_ptr<QRhiBuffer>, 2> objectShadowUniform;
+    std::unique_ptr<QRhiShaderResourceBindings> objectBindings, objectReflectionBindings, objectWaterBindings;
+    std::array<std::unique_ptr<QRhiShaderResourceBindings>, 2> objectShadowBindings;
     size_t colorBytes = 0;
     int opaqueCount = 0, transparentCount = 0, waterCount = 0, indexCount = 0;
 };
@@ -84,7 +88,60 @@ class Renderer final : public QQuickRhiItemRenderer {
     QElapsedTimer m_clock;
     bool m_shadowReady = false, m_reflectionReady = false;
     size_t m_uploadBytes = 0;
-    int m_draws = 0;
+    int m_draws = 0, m_shadowQuality = 2;
+    std::array<int, 2> m_shadowSizes{4096, 2048};
+    wb::CreationState m_creation;
+    wb::MeshPtr m_ghost;
+    QMatrix4x4 m_ghostMatrix;
+    std::map<wb::MeshPtr, QMatrix4x4, std::owner_less<wb::MeshPtr>> m_objectTransforms,
+        m_lastObjectTransforms;
+    static QMatrix4x4 placementMatrix(const wb::AssetPreset &p) {
+        QMatrix4x4 m;
+        m.translate(p.position + QVector3D(.5, .5, .5));
+        m.rotate(-p.rotation.y(), 0, 1, 0);
+        m.scale(p.scale.x() < 0 ? -1 : 1, 1, p.scale.z() < 0 ? -1 : 1);
+        m.translate(-.5, -.5, -.5);
+        m.scale(std::abs(p.scale.x()), p.scale.y(), std::abs(p.scale.z()));
+        return m;
+    }
+    QMatrix4x4 objectTransform(const wb::MeshScene::Object &object) const {
+        for (const auto &p : m_creation.presets)
+            if (p.id == object.ownerId)
+                return placementMatrix(p) * placementMatrix(object.placement).inverted();
+        for (const auto &v : m_creation.volumes)
+            if (v.id == object.ownerId)
+                for (const auto &old : m_scene->creation.volumes)
+                    if (old.id == v.id) {
+                        QMatrix4x4 m;
+                        m.translate(v.min);
+                        const auto a = v.max - v.min, b = old.max - old.min;
+                        m.scale(a.x() / b.x(), a.y() / b.y(), a.z() / b.z());
+                        m.translate(-old.min);
+                        return m;
+                    }
+        return {};
+    }
+    void bindWater() {
+        m_waterBindings = waterBindings(m_uniform.get());
+        for (auto &[mesh, chunk] : m_chunks)
+            chunk.objectWaterBindings.reset();
+    }
+    std::unique_ptr<QRhiShaderResourceBindings> waterBindings(QRhiBuffer *uniform) {
+        auto result = std::unique_ptr<QRhiShaderResourceBindings>(rhi()->newShaderResourceBindings());
+        result->setBindings(
+            {QRhiShaderResourceBinding::uniformBuffer(
+                 0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                 uniform),
+             QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
+                                                       m_shadows[0].color.get(), m_nearest.get()),
+             QRhiShaderResourceBinding::sampledTexture(3, QRhiShaderResourceBinding::FragmentStage,
+                                                       m_shadows[1].color.get(), m_nearest.get()),
+             QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage,
+                                                       m_reflection.color.get(), m_surfaceSampler.get())});
+        if (!result->create())
+            qFatal("Unable to bind water effects");
+        return result;
+    }
 
     std::unique_ptr<QRhiShaderResourceBindings> bindings(QRhiBuffer *uniform, QRhiTexture *atlas,
                                                          QRhiSampler *sampler, bool shadows = true) {
@@ -173,7 +230,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_reflectionUniform = uniform(UniformFloats * 4);
             for (int i = 0; i < 2; ++i) {
                 m_shadowUniform[i] = uniform(64);
-                m_shadows[i].create(rhi(), QSize(ShadowSize, ShadowSize), QRhiTexture::R32F);
+                m_shadows[i].create(rhi(), QSize(m_shadowSizes[i], m_shadowSizes[i]), QRhiTexture::R32F);
             }
             m_atlas.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
             m_white.reset(rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
@@ -213,20 +270,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_waterBindings.reset();
             m_reflection.create(rhi(), reflectSize, QRhiTexture::RGBA8, true);
             m_reflectionReady = false;
-            m_waterBindings.reset(rhi()->newShaderResourceBindings());
-            m_waterBindings->setBindings(
-                {QRhiShaderResourceBinding::uniformBuffer(
-                     0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                     m_uniform.get()),
-                 QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
-                                                           m_shadows[0].color.get(), m_nearest.get()),
-                 QRhiShaderResourceBinding::sampledTexture(3, QRhiShaderResourceBinding::FragmentStage,
-                                                           m_shadows[1].color.get(), m_nearest.get()),
-                 QRhiShaderResourceBinding::sampledTexture(4, QRhiShaderResourceBinding::FragmentStage,
-                                                           m_reflection.color.get(),
-                                                           m_surfaceSampler.get())});
-            if (!m_waterBindings->create())
-                qFatal("Unable to bind water effects");
+            bindWater();
             m_reflectOpaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb",
                                        m_reflectionBindings.get(), m_reflection.target.get());
             m_reflectSky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb",
@@ -244,12 +288,16 @@ class Renderer final : public QQuickRhiItemRenderer {
     void synchronize(QQuickRhiItem *item) override {
         auto *v = static_cast<Viewport *>(item);
         m_matrix = v->viewProjection();
+        m_shadowQuality = v->shadowQuality();
+        m_ghost = v->ghostMesh();
+        m_ghostMatrix = v->ghostTransform();
         m_camera = v->camera();
         m_hit = v->hit();
         m_frames = v->frameCounter();
         m_metrics = v->renderMetrics();
         if (v->editor()) {
             m_scene = v->editor()->scene();
+            m_creation = v->editor()->renderCreation();
             m_environment = v->editor()->world().environment;
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
@@ -269,7 +317,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         QMatrix4x4 view;
         float bias;
     };
-    ShadowView lightView(const QRectF &receiver) const {
+    ShadowView lightView(const QRectF &receiver, int resolution) const {
         const auto sun = m_environment.sunDirection();
         QMatrix4x4 light;
         light.lookAt(sun * 1000.f, {}, std::abs(sun.y()) > .98 ? QVector3D(0, 0, 1) : QVector3D(0, 1, 0));
@@ -290,7 +338,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         // the viewer must still cast onto a visible lake or ground patch.
         include(QRectF(m_scene->worldArea), false);
         const float half = std::max(hi.x() - lo.x(), hi.y() - lo.y()) * .5f + 2.f;
-        const float texel = 2.f * half / ShadowSize;
+        const float texel = 2.f * half / resolution;
         float cx = std::floor((lo.x() + hi.x()) * .5f / texel) * texel;
         float cy = std::floor((lo.y() + hi.y()) * .5f / texel) * texel;
         QMatrix4x4 projection;
@@ -348,7 +396,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[126] = m_environment.waterReflections && m_reflectionReady;
         u[127] = m_scene ? m_scene->seaSurface : 0;
         u[128] = shadows;
-        u[129] = 1.f / ShadowSize;
+        u[129] = 1.f / m_shadowSizes[0];
         u[130] = reflection;
         u[131] = m_environment.waveDensity / 100.f;
         u[132] = shadowViews[0].bias;
@@ -364,6 +412,16 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[138] = m_environment.waterFoamWidth / 64.f;
         u[139] = m_environment.clouds && m_environment.sky;
         u[140] = m_skyTextureValid && !m_skyTexturePath.isEmpty() && m_environment.sky;
+        u[144] = m_environment.waterFogDensity / 100.f;
+        u[145] = float(m_environment.waterFogStart);
+        u[146] = m_environment.water;
+        color(148, m_environment.waterFogColor, 1);
+        color(152, m_environment.waterSurfaceColor, 1);
+        color(156, m_environment.waterReflectionColor, 1);
+        color(160, m_environment.waterFoamColor, 1);
+        u[164] = 1.f / m_shadowSizes[1];
+        QMatrix4x4 identity;
+        std::memcpy(u.data() + 168, identity.constData(), 64);
         return u;
     }
     void upload(const wb::MeshPtr &src, QRhiResourceUpdateBatch *updates) {
@@ -463,11 +521,53 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_atlas.reset(rhi()->newTexture(QRhiTexture::RGBA8, image.size()));
             if (!m_atlas->create())
                 qFatal("Unable to allocate atlas");
+            m_chunks.clear();
             atlasBindings();
             updates->uploadTexture(m_atlas.get(), image);
             m_uploadedAssets = assets;
             m_textureReady = true;
         }
+        const std::array<int, 2> sizes{1024 << m_shadowQuality, 512 << m_shadowQuality};
+        if (sizes != m_shadowSizes) {
+            m_chunks.clear();
+            m_shadowReady = m_reflectionReady = false;
+            m_shadowSizes = sizes;
+            for (int i = 0; i < 2; ++i)
+                m_shadows[i].create(rhi(), QSize(sizes[i], sizes[i]), QRhiTexture::R32F);
+            atlasBindings();
+            bindWater();
+            for (int i = 0; i < 2; ++i)
+                m_shadowSurfaceBindings[i] =
+                    bindings(m_shadowUniform[i].get(), m_white.get(), m_nearest.get(), false);
+        }
+        m_objectTransforms.clear();
+        int objectTriangles = 0, objectLods = 0;
+        if (m_scene)
+            for (const auto &object : m_scene->objects) {
+                QMatrix4x4 transform = objectTransform(object);
+                auto mesh = object.mesh;
+                const float distance = std::max(1.f, (transform.map(mesh->center) - m_camera).length());
+                // Perspective projected geometric error: never simplify the terrain.
+                const float pixels = renderTarget()->pixelSize().height() * .866f / distance;
+                const float radius = (mesh->upper - mesh->lower).length() * .5f;
+                const float scaling = std::max({transform.column(0).toVector3D().length(),
+                                                transform.column(1).toVector3D().length(),
+                                                transform.column(2).toVector3D().length()});
+                for (const auto &lod : object.lods)
+                    if (lod != object.mesh && distance > std::max(128.f, radius * 4) &&
+                        lod->surfaceError * pixels * scaling < 1.5f)
+                        mesh = lod;
+                objectTriangles += int(mesh->opaqueIndices.empty() ? mesh->opaque.size() / 3
+                                                                   : mesh->opaqueIndices.size() / 3);
+                objectLods += mesh != object.mesh;
+                m_objectTransforms[mesh] = transform;
+            }
+        if (m_ghost)
+            m_objectTransforms[m_ghost] = m_ghostMatrix;
+        const bool movedObjects = m_objectTransforms != m_lastObjectTransforms;
+        if (movedObjects)
+            m_shadowReady = m_reflectionReady = false;
+        m_lastObjectTransforms = m_objectTransforms;
         const bool shadows = m_scene && m_environment.enabled && m_environment.sun && m_environment.shadows &&
                              m_environment.sunIntensity > 0;
         bool visibleWater = false;
@@ -479,6 +579,8 @@ class Renderer final : public QQuickRhiItemRenderer {
                 visibleWater |= wet(mesh);
             for (const auto &tile : m_scene->farTiles)
                 visibleWater |= wet(tile.mesh);
+            for (const auto &[mesh, transform] : m_objectTransforms)
+                visibleWater |= !mesh->water.empty() && wb::visibleMesh(*mesh, m_matrix * transform);
         }
         const bool reflection =
             visibleWater && m_environment.waterReflections && m_camera.y() > m_scene->seaSurface + .05f;
@@ -493,9 +595,9 @@ class Renderer final : public QQuickRhiItemRenderer {
                 std::clamp((m_camera.y() - m_scene->seaSurface) / std::max(.1f, -forward.y()), 64.f, 20000.f);
             const auto focus = m_camera + forward * distance;
             const float radius = std::clamp(distance * .65f, 192.f, 4096.f);
-            shadowViews[0] =
-                lightView(QRectF(focus.x() - radius, focus.z() - radius, 2 * radius, 2 * radius));
-            shadowViews[1] = lightView(QRectF(m_scene->worldArea));
+            shadowViews[0] = lightView(QRectF(focus.x() - radius, focus.z() - radius, 2 * radius, 2 * radius),
+                                       m_shadowSizes[0]);
+            shadowViews[1] = lightView(QRectF(m_scene->worldArea), m_shadowSizes[1]);
             updateShadow =
                 !m_shadowReady || m_shadowScene != m_scene || m_shadowSun != m_environment.sunDirection();
             for (int i = 0; i < 2; ++i) {
@@ -531,22 +633,26 @@ class Renderer final : public QQuickRhiItemRenderer {
         std::set<wb::MeshPtr, std::owner_less<wb::MeshPtr>> retained;
         std::vector<wb::MeshPtr> visible, reflected;
         std::array<std::vector<wb::MeshPtr>, 2> casters;
+        auto isVisible = [&](const wb::MeshPtr &mesh, const QMatrix4x4 &view) {
+            auto found = m_objectTransforms.find(mesh);
+            return wb::visibleMesh(*mesh, found == m_objectTransforms.end() ? view : view * found->second);
+        };
         auto collect = [&](const wb::MeshPtr &mesh) {
             if (!mesh)
                 return;
             retained.insert(mesh);
             bool needed = false;
-            if (wb::visibleMesh(*mesh, m_matrix)) {
+            if (isVisible(mesh, m_matrix)) {
                 visible.push_back(mesh);
                 needed = true;
             }
-            if (updateReflection && wb::visibleMesh(*mesh, reflectedView)) {
+            if (updateReflection && isVisible(mesh, reflectedView)) {
                 reflected.push_back(mesh);
                 needed = true;
             }
             if (updateShadow)
                 for (int i = 0; i < 2; ++i)
-                    if (updateCascades[i] && !mesh->opaque.empty() && wb::visibleMesh(*mesh, m_shadowView[i])) {
+                    if (updateCascades[i] && !mesh->opaque.empty() && isVisible(mesh, m_shadowView[i])) {
                         casters[i].push_back(mesh);
                         needed = true;
                     }
@@ -559,6 +665,8 @@ class Renderer final : public QQuickRhiItemRenderer {
             for (const auto &t : m_scene->farTiles)
                 collect(t.mesh);
         }
+        for (const auto &[mesh, transform] : m_objectTransforms)
+            collect(mesh);
         std::erase_if(m_chunks, [&](const auto &pair) { return !retained.contains(pair.first); });
         auto main = sceneUniform(m_matrix, m_camera, false, shadows, shadowViews);
         if (!reflection)
@@ -570,6 +678,46 @@ class Renderer final : public QQuickRhiItemRenderer {
             updates->updateDynamicBuffer(m_reflectionUniform.get(), 0, UniformFloats * 4,
                                          reflectedUniform.data());
         }
+        for (const auto &[mesh, transform] : m_objectTransforms) {
+            auto it = m_chunks.find(mesh);
+            if (it == m_chunks.end())
+                continue;
+            auto &c = it->second;
+            auto buffer = [&](int size) {
+                auto b = std::unique_ptr<QRhiBuffer>(
+                    rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, size));
+                if (!b->create())
+                    qFatal("Object uniforms");
+                return b;
+            };
+            if (!c.objectUniform) {
+                c.objectUniform = buffer(UniformFloats * 4);
+                c.objectReflectionUniform = buffer(UniformFloats * 4);
+                c.objectBindings = bindings(c.objectUniform.get(), m_atlas.get(), m_nearest.get());
+                c.objectReflectionBindings =
+                    bindings(c.objectReflectionUniform.get(), m_atlas.get(), m_nearest.get());
+                for (int i = 0; i < 2; ++i) {
+                    c.objectShadowUniform[i] = buffer(64);
+                    c.objectShadowBindings[i] =
+                        bindings(c.objectShadowUniform[i].get(), m_atlas.get(), m_nearest.get(), false);
+                }
+            }
+            auto objectUniform = main;
+            if (c.waterCount && !c.objectWaterBindings)
+                c.objectWaterBindings = waterBindings(c.objectUniform.get());
+            objectUniform[165] = 1;
+            std::memcpy(objectUniform.data() + 168, transform.constData(), 64);
+            updates->updateDynamicBuffer(c.objectUniform.get(), 0, UniformFloats * 4, objectUniform.data());
+            auto reflectedUniform = sceneUniform(reflectedView, reflectedCamera, true, shadows, shadowViews);
+            reflectedUniform[165] = 1;
+            std::memcpy(reflectedUniform.data() + 168, transform.constData(), 64);
+            updates->updateDynamicBuffer(c.objectReflectionUniform.get(), 0, UniformFloats * 4,
+                                         reflectedUniform.data());
+            for (int i = 0; i < 2; ++i) {
+                auto matrix = rhi()->clipSpaceCorrMatrix() * m_shadowView[i] * transform;
+                updates->updateDynamicBuffer(c.objectShadowUniform[i].get(), 0, 64, matrix.constData());
+            }
+        }
         cb->resourceUpdate(updates);
         if (updateShadow) {
             for (int i = 0; i < 2; ++i) {
@@ -580,8 +728,9 @@ class Renderer final : public QQuickRhiItemRenderer {
                 cb->setGraphicsPipeline(m_shadow.get());
                 for (const auto &src : casters[i]) {
                     auto &c = m_chunks.at(src);
-                    cb->setShaderResources(c.colors ? m_shadowSurfaceBindings[i].get()
-                                                    : m_shadowBindings[i].get());
+                    cb->setShaderResources(c.objectUniform ? c.objectShadowBindings[i].get()
+                                           : c.colors      ? m_shadowSurfaceBindings[i].get()
+                                                           : m_shadowBindings[i].get());
                     draw(cb, c.opaque.get(), c.opaqueCount, c.indices.get(), c.indexCount);
                 }
                 cb->endPass();
@@ -595,8 +744,10 @@ class Renderer final : public QQuickRhiItemRenderer {
             for (const auto &src : meshes) {
                 auto &c = m_chunks.at(src);
                 cb->setShaderResources(
-                    reflectedPass ? (c.colors ? c.reflectionBindings.get() : m_reflectionBindings.get())
-                                  : (c.colors ? c.mainBindings.get() : m_mainBindings.get()));
+                    c.objectUniform
+                        ? (reflectedPass ? c.objectReflectionBindings.get() : c.objectBindings.get())
+                    : reflectedPass ? (c.colors ? c.reflectionBindings.get() : m_reflectionBindings.get())
+                                    : (c.colors ? c.mainBindings.get() : m_mainBindings.get()));
                 draw(cb, c.opaque.get(), c.opaqueCount, c.indices.get(), c.indexCount);
             }
         };
@@ -626,14 +777,21 @@ class Renderer final : public QQuickRhiItemRenderer {
             ++m_draws;
         }
         opaquePass(visible, false);
+        auto displayedCenter = [&](const wb::MeshPtr &mesh) {
+            const auto found = m_objectTransforms.find(mesh);
+            return found == m_objectTransforms.end() ? mesh->center : found->second.map(mesh->center);
+        };
         std::sort(visible.begin(), visible.end(), [&](const auto &a, const auto &b) {
-            return (a->center - m_camera).lengthSquared() > (b->center - m_camera).lengthSquared();
+            return (displayedCenter(a) - m_camera).lengthSquared() >
+                   (displayedCenter(b) - m_camera).lengthSquared();
         });
         if (m_environment.water) {
             cb->setGraphicsPipeline(m_water.get());
             cb->setShaderResources(m_waterBindings.get());
             for (const auto &src : visible) {
                 auto &c = m_chunks.at(src);
+                cb->setShaderResources(c.objectWaterBindings ? c.objectWaterBindings.get()
+                                                             : m_waterBindings.get());
                 draw(cb, c.water.get(), c.waterCount);
             }
         }
@@ -641,6 +799,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         cb->setShaderResources(m_mainBindings.get());
         for (const auto &src : visible) {
             auto &c = m_chunks.at(src);
+            cb->setShaderResources(c.objectUniform ? c.objectBindings.get() : m_mainBindings.get());
             draw(cb, c.transparent.get(), c.transparentCount);
         }
         cb->endPass();
@@ -661,7 +820,13 @@ class Renderer final : public QQuickRhiItemRenderer {
                     break;
             }
             const int effectBytes =
-                2 * ShadowSize * ShadowSize * 8 + size.width() * size.height() * 4 + mipPixels * 4;
+                (m_shadowSizes[0] * m_shadowSizes[0] + m_shadowSizes[1] * m_shadowSizes[1]) * 8 +
+                size.width() * size.height() * 4 + mipPixels * 4;
+            m_metrics->gpuMicros = int(cb->lastCompletedGpuTime() * 1e6);
+            m_metrics->pixelWidth = renderTarget()->pixelSize().width();
+            m_metrics->pixelHeight = renderTarget()->pixelSize().height();
+            m_metrics->objectTriangles = objectTriangles;
+            m_metrics->objectLods = objectLods;
             m_metrics->submitMicros = int(timer.nsecsElapsed() / 1000);
             m_metrics->uploadKiB = int(m_uploadBytes / 1024);
             m_metrics->residentKiB = int(bytes / 1024);

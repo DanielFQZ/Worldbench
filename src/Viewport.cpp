@@ -12,8 +12,10 @@
 #endif
 #include <QFile>
 #include <QMouseEvent>
+#include <QQuickGraphicsConfiguration>
 #include <QQuickWindow>
 #include <QWheelEvent>
+#include <QtConcurrent>
 #include <QtMath>
 #include <algorithm>
 #include <array>
@@ -38,6 +40,23 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     // Screen-space markers must follow layout changes even with a static camera.
     connect(this, &QQuickItem::widthChanged, this, &Viewport::cameraChanged);
     connect(this, &QQuickItem::heightChanged, this, &Viewport::cameraChanged);
+    connect(this, &QQuickItem::widthChanged, this, &Viewport::updateRenderSize);
+    connect(this, &QQuickItem::heightChanged, this, &Viewport::updateRenderSize);
+    connect(this, &QQuickItem::windowChanged, this, [this] {
+        if (window())
+            connect(window(), &QWindow::screenChanged, this, &Viewport::updateRenderSize,
+                    Qt::UniqueConnection);
+        if (window() && !window()->isSceneGraphInitialized()) {
+            auto config = window()->graphicsConfiguration();
+            config.setTimestamps(true);
+            window()->setGraphicsConfiguration(config);
+        }
+        updateRenderSize();
+    });
+    connect(&m_ghostWatcher, &QFutureWatcherBase::finished, this, [this] {
+        m_ghostMesh = m_ghostWatcher.result();
+        update();
+    });
     m_timer.setInterval(16);
     connect(&m_timer, &QTimer::timeout, this, &Viewport::tick);
     m_elapsed.start();
@@ -52,7 +71,33 @@ Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
     m_flightInertia = settings.value("input/flightInertia", true).toBool();
     m_sensitivity = std::clamp(settings.value("input/sensitivity", .12).toDouble(), .01, 1.0);
     setSampleCount(settings.value("rendering/antialiasing", true).toBool() ? 4 : 1);
+    m_renderScale = std::clamp(settings.value("rendering/scale", 100).toInt(), 50, 100);
+    m_shadowQuality = std::clamp(settings.value("rendering/shadowQuality", 2).toInt(), 0, 2);
     QCoreApplication::instance()->installNativeEventFilter(this);
+}
+void Viewport::updateRenderSize() {
+    const double scale = (window() ? window()->devicePixelRatio() : 1.) * m_renderScale / 100.;
+    setFixedColorBufferWidth(m_renderScale == 100 ? 0 : std::max(1, int(std::ceil(width() * scale))));
+    setFixedColorBufferHeight(m_renderScale == 100 ? 0 : std::max(1, int(std::ceil(height() * scale))));
+    update();
+}
+void Viewport::setRenderScale(int value) {
+    value = std::clamp(value, 50, 100);
+    if (m_renderScale == value)
+        return;
+    m_renderScale = value;
+    QSettings().setValue("rendering/scale", value);
+    updateRenderSize();
+    emit cameraChanged();
+}
+void Viewport::setShadowQuality(int value) {
+    value = std::clamp(value, 0, 2);
+    if (m_shadowQuality == value)
+        return;
+    m_shadowQuality = value;
+    QSettings().setValue("rendering/shadowQuality", value);
+    update();
+    emit cameraChanged();
 }
 void Viewport::setAntialiasing(bool enabled) {
     const bool current = sampleCount() > 1;
@@ -75,7 +120,19 @@ void Viewport::setEditor(Editor *e) {
     m_editor = e;
     if (e) {
         e->setCameraController(this);
-        connect(e, &Editor::sceneChanged, this, [this] { update(); });
+        connect(e, &Editor::sceneChanged, this, [this] {
+            if (m_ghostUntilRevision && m_editor->scene()->sourceRevision >= m_ghostUntilRevision)
+                clearAssetPreview();
+            update();
+        });
+        connect(e, &Editor::worldReset, this, [this] {
+            clearAssetPreview();
+            m_ghostId.clear();
+        });
+        connect(e, &Editor::catalogChanged, this, [this] {
+            clearAssetPreview();
+            m_ghostId.clear();
+        });
         connect(e, &Editor::changed, this, [this] {
             update();
             emit cameraChanged();
@@ -223,12 +280,17 @@ void Viewport::resetCamera() {
     changedCamera();
 }
 QString Viewport::renderText() const {
-    return QString("CPU提交 %1 ms · 上传 %2 MiB · 网格/颜色 %3 MiB · %4 次绘制 · 光影目标 %5 MiB")
+    return QString("CPU提交 %1 ms · 上传 %2 MiB · 网格/颜色 %3 MiB · %4 次绘制 · 光影目标 %5 MiB · GPU %6 ms "
+                   "· %7×%8 · 资产LOD %9")
         .arg(m_metrics->submitMicros.load() / 1000., 0, 'f', 2)
         .arg(m_metrics->uploadKiB.load() / 1024., 0, 'f', 1)
         .arg(m_metrics->residentKiB.load() / 1024., 0, 'f', 1)
         .arg(m_metrics->draws.load())
-        .arg(m_metrics->effectKiB.load() / 1024., 0, 'f', 1);
+        .arg(m_metrics->effectKiB.load() / 1024., 0, 'f', 1)
+        .arg(m_metrics->gpuMicros.load() / 1000., 0, 'f', 2)
+        .arg(m_metrics->pixelWidth.load())
+        .arg(m_metrics->pixelHeight.load())
+        .arg(m_metrics->objectLods.load());
 }
 void Viewport::frameWorld() {
     if (!m_editor)
@@ -277,7 +339,8 @@ void Viewport::focusTarget() {
 void Viewport::mousePressEvent(QMouseEvent *e) {
     m_toolCycleActive = false;
     forceActiveFocus();
-    if (e->buttons() == Qt::LeftButton && !(e->modifiers() & ~Qt::ControlModifier) && pressGizmo(e->position())) {
+    if (e->buttons() == Qt::LeftButton && !(e->modifiers() & ~Qt::ControlModifier) &&
+        pressGizmo(e->position())) {
         e->accept();
         return;
     }
@@ -565,6 +628,7 @@ void Viewport::tick() {
 }
 
 Viewport::~Viewport() {
+    m_ghostWatcher.waitForFinished();
     endRawInput();
     QCoreApplication::instance()->removeNativeEventFilter(this);
 }
@@ -711,7 +775,86 @@ bool Viewport::dropAsset(const QString &id, double x, double y) {
     if (!m_editor)
         return false;
     pick({x, y});
-    return m_hit.valid && m_editor->placeAssetInstance(id, m_hit.x, m_hit.y + 1, m_hit.z);
+    bool ok = m_hit.valid && m_editor->placeAssetInstance(id, m_hit.x, m_hit.y + 1, m_hit.z);
+    if (ok)
+        m_ghostUntilRevision = m_editor->revision();
+    else
+        clearAssetPreview();
+    return ok;
+}
+void Viewport::clearAssetPreview() {
+    m_ghostVisible = false;
+    m_ghostVolume = false;
+    m_ghostUntilRevision = 0;
+    update();
+    emit cameraChanged();
+}
+void Viewport::previewAsset(const QString &id, double x, double y) {
+    if (!m_editor || m_editor->commandBusy())
+        return;
+    if (x < 0 || y < 0 || x >= width() || y >= height()) {
+        clearAssetPreview();
+        return;
+    }
+    pick({x, y});
+    if (!m_hit.valid) {
+        clearAssetPreview();
+        return;
+    }
+    auto &state = m_editor->world().creation;
+    for (const auto &a : state.pcgAssets)
+        if (a.id == id) {
+            m_ghostVisible = false;
+            m_ghostVolume = true;
+            m_ghostName = "PCG 放置预览";
+            const QVector3D at(m_hit.x, m_hit.y + 1, m_hit.z);
+            m_ghostMin = a.volume.min + at;
+            m_ghostMax = a.volume.max + at;
+            update();
+            emit cameraChanged();
+            return;
+        }
+    m_ghostVolume = false;
+    auto a = std::find_if(state.assets.begin(), state.assets.end(), [&](auto &a) { return a.id == id; });
+    if (a == state.assets.end())
+        return;
+    if ((m_ghostId != id || m_ghostSourceRevision != m_editor->revision()) && !m_ghostWatcher.isRunning()) {
+        m_ghostId = id;
+        m_ghostSourceRevision = m_editor->revision();
+        m_ghostMesh.reset();
+        auto world = m_editor->world();
+        auto asset = *a;
+        m_ghostWatcher.setFuture(QtConcurrent::run([world = std::move(world), asset]() mutable {
+            try {
+                return wb::buildAssetGhost(std::move(world), asset);
+            } catch (...) {
+                return wb::MeshPtr{};
+            }
+        }));
+    }
+    m_ghostVisible = m_ghostId == id;
+    m_ghostTransform.setToIdentity();
+    m_ghostTransform.translate(QVector3D(m_hit.x + .5f, m_hit.y + 1.5f, m_hit.z + .5f));
+    m_ghostTransform.rotate(-a->defaultRotation.y(), 0, 1, 0);
+    m_ghostTransform.scale(a->defaultScale.x() < 0 ? -1 : 1, 1, a->defaultScale.z() < 0 ? -1 : 1);
+    m_ghostTransform.translate(-.5, -.5, -.5);
+    m_ghostTransform.scale(std::abs(a->defaultScale.x()), a->defaultScale.y(), std::abs(a->defaultScale.z()));
+    m_ghostTransform.translate(-a->pivot);
+    m_ghostVolume = true;
+    m_ghostName = m_ghostMesh ? "资产放置预览" : "正在准备资产预览";
+    m_ghostMin = {1e9f, 1e9f, 1e9f};
+    m_ghostMax = {-1e9f, -1e9f, -1e9f};
+    for (int i = 0; i < 8; ++i) {
+        const auto p = m_ghostTransform.map(
+            QVector3D(i & 1 ? a->width : 0, i & 2 ? a->height : 0, i & 4 ? a->depth : 0));
+        for (int axis = 0; axis < 3; ++axis) {
+            m_ghostMin[axis] = std::min(m_ghostMin[axis], p[axis]);
+            m_ghostMax[axis] = std::max(m_ghostMax[axis], p[axis]);
+        }
+    }
+
+    update();
+    emit cameraChanged();
 }
 QVariantList Viewport::creationOverlay() const {
     QVariantList objects;
@@ -750,14 +893,12 @@ QVariantList Viewport::creationOverlay() const {
             float t = std::min({transition, size.x() * .95f, size.z() * .95f});
             box(lo + QVector3D(t, 0, t), hi - QVector3D(t, 0, t), true);
         }
-        objects << QVariantMap{{"id", id},
-                               {"name", name},
-                               {"x", c.x()},
-                               {"y", c.y()},
-                               {"edges", edges},
-                               {"selected", id == m_editor->selectedNode()},
+        objects << QVariantMap{{"id", id},    {"name", name},   {"x", c.x()},
+                               {"y", c.y()},  {"edges", edges}, {"selected", id == m_editor->selectedNode()},
                                {"kind", kind}};
     };
+    if (m_ghostVolume)
+        add("placement-preview", m_ghostName, m_ghostMin, m_ghostMax, 0, "volume");
     for (auto &v : world.creation.volumes)
         if (v.visible)
             add(v.id, v.name, v.min, v.max, v.transition, "volume");

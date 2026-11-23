@@ -242,9 +242,15 @@ int main(int argc, char **argv) {
         filter.materialFilter = 0;
         filter.minHeight = filter.maxHeight = 11;
         Stroke filterVolume(vol);
-        filterVolume.stamp(plane, 3, 2, 1, Planks, false, filter);
+        filterVolume.stamp(plane, 3, 2, 4, Planks, false, filter);
         check(vol.block(0, 11, 0) == Planks && vol.block(0, 12, 0) == Air && vol.block(0, 10, 0) == Grass,
               "volume filter applies to each voxel");
+        auto weakWorld = flat, strongWorld = flat;
+        Stroke weakBrush(weakWorld), strongBrush(strongWorld);
+        weakBrush.stamp(plane, 3, 4, 1, Planks, false);
+        strongBrush.stamp(plane, 3, 4, 4, Planks, false);
+        check(!weakWorld.overrides.empty() && weakWorld.overrides.size() < strongWorld.overrides.size(),
+              "volume brush strength controls first-stamp density");
         Stroke noChange(flat);
         check(!noChange.stamp(plane, 1, 2, 4, Stone, false), "settled flatten avoids needless mesh jobs");
         Command inner;
@@ -325,19 +331,19 @@ int main(int argc, char **argv) {
         check(w.height(5, 5) == 6, "shift lowers height");
         w = before;
         Stroke carve(w);
-        carve.stamp(h, 2, 2, 1, Stone, false);
+        carve.stamp(h, 2, 2, 4, Stone, false);
         auto carveCmd = carve.finish("carve");
         check(w.block(5, 8, 5) == Air && w.block(5, 6, 5) == Air, "carve volume");
         w.apply(carveCmd, false);
         check(equal(w, before), "carve undo");
         Stroke fill(w);
-        fill.stamp(h, 3, 1, 1, Planks, false);
+        fill.stamp(h, 3, 1, 4, Planks, false);
         auto fillCmd = fill.finish("fill");
         check(w.block(5, 10, 5) == Planks, "volume above ground");
         w.apply(fillCmd, false);
         check(equal(w, before), "fill undo");
         Stroke paint(w);
-        paint.stamp(h, 4, 2, 1, Sand, false);
+        paint.stamp(h, 4, 2, 4, Sand, false);
         auto paintCmd = paint.finish("paint");
         check(w.block(5, 8, 5) == Sand && w.block(5, 10, 5) == Air, "paint preserves air");
         w.apply(paintCmd, false);
