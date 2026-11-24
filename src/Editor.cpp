@@ -34,6 +34,7 @@ QString defaultShortcut(const QString &action) {
 
 Editor::Editor(QObject *parent)
     : QObject(parent), m_world(wb::World::create()), m_scene(std::make_shared<wb::MeshScene>()) {
+    connect(this, &Editor::changed, this, &Editor::placementChanged);
     m_surfaceWorkers.setMaxThreadCount(std::clamp(QThread::idealThreadCount() - 2, 1, 4));
     QSettings settings;
     m_exactRadiusChunks = std::clamp(settings.value("performance/exactRadiusChunks", 4).toInt(), 1, 12);
@@ -229,6 +230,44 @@ void Editor::setExactPreviewEnabled(bool value) {
     emit changed();
 }
 
+namespace {
+// Only an isolated translation may retain the validated procedural prefix.
+bool independentMove(const wb::World &world, const wb::CreationState &before,
+                     const wb::CreationState &after) {
+    if (before.presets.size() != after.presets.size() || !world.generated ||
+        world.generated->placementPages.size() > 64)
+        return false;
+    size_t bakedCells = 0;
+    for (const auto &asset : before.presets) {
+        if (!asset.enabled)
+            continue;
+        const auto stamp = world.generated->stamps.value(asset.id);
+        if (!stamp)
+            return false;
+        bakedCells += stamp->voxels.size();
+        if (bakedCells > 32768)
+            return false;
+    }
+    auto unchanged = after;
+    unchanged.presets = before.presets;
+    if (unchanged != before)
+        return false;
+    const wb::AssetPreset *moved = nullptr, *previous = nullptr;
+    for (size_t i = 0; i < after.presets.size(); ++i) {
+        const auto &a = before.presets[i], &b = after.presets[i];
+        if (a == b)
+            continue;
+        auto restored = b;
+        restored.position = a.position;
+        if (moved || !b.enabled || restored != a || !std::isfinite(b.position.lengthSquared()) ||
+            b.position.lengthSquared() >= 1e14f)
+            return false;
+        previous = &a;
+        moved = &b;
+    }
+    return moved && wb::canReuseScatter(world, *previous, *moved);
+}
+} // namespace
 bool Editor::commitCreation(wb::CreationState next, const QString &label,
                             const std::vector<wb::TerrainInstance> *terrains) {
     auto terrainNames = terrains ? *terrains : m_world.heights.instances;
@@ -280,9 +319,14 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
     const bool reuseMaterials = !terrainChanged && before.graphs == after.graphs &&
                                 before.roadNodes == after.roadNodes && before.roadEdges == after.roadEdges &&
                                 materialVolumes(before) == materialVolumes(after);
-    const bool prepared = !terrainChanged && metadataOnly == candidate.creation
+    QElapsedTimer generationTimer;
+    generationTimer.start();
+    const bool isolated = !terrainChanged && independentMove(m_world, before, after);
+    const bool prepared = isolated ? candidate.rebuildCreation(error, {}, true, true)
+                          : !terrainChanged && metadataOnly == candidate.creation
                               ? wb::validateCreation(candidate.creation, error)
                               : prepareCreation(candidate, error, true, reuseMaterials);
+    m_placementGenerationMs = generationTimer.nsecsElapsed() / 1e6;
     if (!prepared) {
         m_creationPending.reset();
         emit failure(error);
@@ -296,9 +340,12 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
         dirtyAll();
     else
         dirtyCreation(previousGenerated);
-    pushCommand(std::move(command));
+    pushCommand(std::move(command), false);
     m_status = label + " · Ctrl+Z 撤销";
-    emit changed();
+    if (isolated)
+        emit placementChanged();
+    else
+        emit changed();
     return true;
 }
 
@@ -501,7 +548,7 @@ void Editor::endStroke() {
         return;
     pushCommand(std::move(c));
 }
-void Editor::pushCommand(wb::Command c) {
+void Editor::pushCommand(wb::Command c, bool notify) {
     if (!c.cells.empty() || !c.heights.empty() || c.terrainAfter || c.layersAfter || c.themeAfter ||
         c.environmentAfter || c.deltaAfter || c.creationAfter) {
         m_history.erase(m_history.begin() + m_cursor, m_history.end());
@@ -558,7 +605,8 @@ void Editor::pushCommand(wb::Command c) {
         m_cursor = int(m_history.size());
         m_status = "笔划已应用 · Ctrl+Z 撤销";
     }
-    emit changed();
+    if (notify)
+        emit changed();
 }
 void Editor::undo() {
     if (assetBusy())
@@ -757,14 +805,21 @@ bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
         m_world.apply(command, !forward);
         const auto committedRevision = m_revision;
         --m_revision;
-        if (!prepareCreation(candidate, error, false)) {
+        const bool isolated = command.creationBefore && !command.terrainAfter &&
+                              independentMove(m_world, m_world.creation, candidate.creation);
+        const auto previousGenerated = m_world.generated;
+        if (!(isolated ? candidate.rebuildCreation(error, {}, true, true)
+                       : prepareCreation(candidate, error, false))) {
             dirtyAll();
             emit failure(error + "；本次修改已回滚");
             return false;
         }
         m_world = std::move(candidate);
         m_revision = committedRevision;
-        dirtyAll();
+        if (isolated)
+            dirtyCreation(previousGenerated);
+        else
+            dirtyAll();
         return true;
     }
     if (command.deltaAfter) {
@@ -927,8 +982,77 @@ void Editor::dirtyAll() {
         m_meshTimer.start();
     emit changed();
 }
+namespace {
+uint64_t placementMeshBytes(const wb::ChunkMesh &m) {
+    return (m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
+           m.opaqueIndices.size() * sizeof(uint32_t) + m.surfaceColorBytes() + m.clipCacheBytes();
+}
+// Rigid placements preserve terrain heights. Refresh only contact geometry, cutouts and color texels.
+bool refreshPlacementScene(wb::MeshScene &scene, const wb::World &w, const std::set<int> &chunks,
+                           const std::set<int> &columns, uint64_t serial) {
+    if (!scene.surfaceMaterials || columns.size() > 4096 || chunks.size() > 32)
+        return false;
+    const uint64_t budget = 512ull * 1024 * 1024;
+    auto replace = [&](wb::MeshPtr &slot, wb::MeshPtr next, bool surface) {
+        auto count = [&](const wb::ChunkMesh &m) {
+            return (surface ? m.opaqueIndices.size() : m.opaque.size()) + m.transparent.size() +
+                   m.water.size();
+        };
+        if (slot) {
+            scene.bufferBytes -= placementMeshBytes(*slot) - slot->surfaceColorBytes();
+            scene.vertices -= count(*slot);
+            scene.waterVertices -= slot->water.size();
+            scene.colorBytes -= slot->surfaceColorBytes();
+        }
+        slot = next;
+        if (next) {
+            scene.bufferBytes += placementMeshBytes(*next) - next->surfaceColorBytes();
+            scene.vertices += count(*next);
+            scene.waterVertices += next->water.size();
+            scene.colorBytes += next->surfaceColorBytes();
+        }
+    };
+    for (auto &tile : scene.farTiles) {
+        const auto area = tile.area.adjusted(-1, -1, 2, 2);
+        if (std::none_of(columns.begin(), columns.end(), [&](int c) {
+                return area.contains(w.originX + c % w.width, w.originZ + c / w.width);
+            }))
+            continue;
+        replace(tile.mesh, wb::refreshPlacementSurface(w, tile, *scene.surfaceMaterials, columns, serial),
+                true);
+        ++scene.updatedFarTiles;
+    }
+    for (int id : chunks) {
+        int cx = id % w.chunksX() + w.originX / 16, cz = id / w.chunksX() + w.originZ / 16;
+        bool exact = scene.exactArea.contains(cx * 16, cz * 16);
+        const int slotId = exact ? id : -id - 1;
+        auto it = std::find(scene.chunkIds.begin(), scene.chunkIds.end(), slotId);
+        const bool required = exact || w.generated->geometryChunks.contains(id);
+        if (!required && it == scene.chunkIds.end())
+            continue;
+        const auto mesh =
+            required ? wb::buildChunkMesh(w, cx, cz, serial, !exact, false, true) : wb::MeshPtr{};
+        if (it != scene.chunkIds.end()) {
+            const size_t index = it - scene.chunkIds.begin();
+            replace(scene.chunks[index], mesh, false);
+            if (!mesh) {
+                scene.chunks.erase(scene.chunks.begin() + index);
+                scene.chunkIds.erase(it);
+            }
+        } else {
+            scene.chunkIds.push_back(slotId);
+            scene.chunks.emplace_back();
+            replace(scene.chunks.back(), mesh, false);
+        }
+        if (exact)
+            ++scene.updatedChunks;
+    }
+    return scene.bufferBytes + scene.colorBytes <= budget;
+}
+} // namespace
 void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &before) {
-    std::set<int> changed;
+    std::set<int> changed, columns;
+    bool waterChanged = false;
     auto add = [&](uint64_t key) {
         int x, y, z;
         m_world.decode(key, x, y, z);
@@ -940,14 +1064,21 @@ void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &b
             }
     };
     std::unordered_map<int, int> surfaceHeights;
+    const auto &after = m_world.generated;
+    const bool local = before && after && before->procedural && before->procedural == after->procedural;
+    std::set<int> pages;
+    if (local) {
+        pages = before->placementPages;
+        pages.insert(after->placementPages.begin(), after->placementPages.end());
+    }
     auto compare = [&](const auto &a, const auto &b) {
         if (!a)
             return;
-        for (auto [key, value] : a->cells) {
+        auto checkCell = [&](uint64_t key, wb::Block value) {
             if (b && b->cells.contains(key) && b->cells.at(key) == value &&
                 a->objectCells.contains(key) == b->objectCells.contains(key) &&
                 a->caveAir.contains(key) == b->caveAir.contains(key))
-                continue;
+                return;
             if (a->objectCells.contains(key)) {
                 int x, y, z;
                 m_world.decode(key, x, y, z);
@@ -955,11 +1086,45 @@ void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &b
                 auto [top, added] = surfaceHeights.try_emplace(m_world.column(x, z));
                 if (added)
                     top->second = std::max(m_world.height(x, z), m_world.seaLevel);
-                if (y > top->second)
-                    continue;
+                if (y > top->second && y != m_world.seaLevel + 1)
+                    return;
+            }
+            if (local) {
+                int x, y, z;
+                m_world.decode(key, x, y, z);
+                const int c = m_world.column(x, z);
+                const int h = m_world.heights[c];
+                const auto road = after->heights.find(c);
+                if (y == h || (road != after->heights.end() && y == road->second))
+                    columns.insert(c);
+                if (y == m_world.seaLevel || y == m_world.seaLevel + 1) {
+                    auto wet = [&](const wb::GeneratedCreation *layer) {
+                        const auto above = m_world.blockAtHeight(x, m_world.seaLevel + 1, z, h, layer);
+                        return m_world.blockAtHeight(x, m_world.seaLevel, z, h, layer) == wb::Water &&
+                               above != wb::Water && (above == wb::Air || m_world.models[above]->translucent);
+                    };
+                    waterChanged |= wet(after.get()) != wet(before.get());
+                }
+                for (int dz = -1; dz <= 1; ++dz)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = x + dx, nz = z + dz;
+                        if (m_world.contains(nx, y, nz))
+                            changed.insert((nz - m_world.originZ) / 16 * m_world.chunksX() +
+                                           (nx - m_world.originX) / 16);
+                    }
+                return;
             }
             add(key);
+        };
+        if (local) {
+            for (int id : pages)
+                if (const auto *page = a->cells.page(id))
+                    for (const auto &[key, value] : *page)
+                        checkCell(key, value);
+            return;
         }
+        for (const auto &[key, value] : a->cells)
+            checkCell(key, value);
         for (auto [column, h] : a->heights)
             if (!b || !b->heights.contains(column) || b->heights.at(column) != h)
                 add(m_world.key(m_world.originX + column % m_world.width, 0,
@@ -967,12 +1132,121 @@ void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &b
     };
     compare(before, m_world.generated);
     compare(m_world.generated, before);
-    const auto wanted = desiredChunks();
+    if (local)
+        std::set_symmetric_difference(before->geometryChunks.begin(), before->geometryChunks.end(),
+                                      after->geometryChunks.begin(), after->geometryChunks.end(),
+                                      std::inserter(changed, changed.end()));
+    // Preserve GPU buffers when a rigid move retains the same exposed local voxels.
+    QElapsedTimer publishTimer;
+    publishTimer.start();
+    auto publishLocal = [&]() -> bool {
+        if (local && m_scene && m_scene->generated == before && !m_scene->provisional && !meshBusy()) {
+            auto oldState = m_scene->creation;
+            int index = -1;
+            for (size_t i = 0; i < oldState.presets.size(); ++i)
+                if (oldState.presets[i].position != m_world.creation.presets[i].position) {
+                    index = int(i);
+                    break;
+                }
+            if (index >= 0) {
+                const auto &moved = m_world.creation.presets[index];
+                const auto delta = moved.position - oldState.presets[index].position;
+                bool rebuildMoved = false;
+                auto compatible = [&](const auto &a, const auto &b, QVector3D offset) {
+                    for (int id : pages)
+                        if (const auto *page = a->objectCells.page(id))
+                            for (const auto &[key, owner] : *page) {
+                                if (m_world.explicitOverride(key))
+                                    continue;
+                                int x, y, z;
+                                m_world.decode(key, x, y, z);
+                                const auto &object = a->objects[owner];
+                                if (object.id == moved.id) {
+                                    x += qRound(offset.x());
+                                    y += qRound(offset.y());
+                                    z += qRound(offset.z());
+                                }
+                                if (!m_world.contains(x, y, z))
+                                    return false;
+                                const auto dest = m_world.key(x, y, z);
+                                const auto *nextOwner = b->objectCells.get(dest);
+                                if (!nextOwner || m_world.explicitOverride(dest) ||
+                                    b->objects[*nextOwner].id != object.id ||
+                                    b->cells.at(dest) != a->cells.at(key)) {
+                                    if (object.id != moved.id)
+                                        return false;
+                                    rebuildMoved = true;
+                                }
+                            }
+                    return true;
+                };
+                if (delta == QVector3D(qRound(delta.x()), qRound(delta.y()), qRound(delta.z())) &&
+                    compatible(before, after, delta) && compatible(after, before, -delta)) {
+                    auto scene = std::make_shared<wb::MeshScene>(*m_scene);
+                    if (rebuildMoved) {
+                        auto object = std::find_if(scene->objects.begin(), scene->objects.end(),
+                                                   [&](const auto &o) { return o.id == moved.id; });
+                        // Keep cluster member indices stable. New or fully occluded objects use the regular
+                        // scene builder.
+                        if (object == scene->objects.end() || object->shape->size() > 8192)
+                            return false;
+                        auto replacements =
+                            wb::buildCreationMeshes(m_world, m_meshSerial + 1, nullptr, nullptr, moved.id);
+                        if (replacements.size() != 1)
+                            return false;
+                        auto account = [&](const auto &o, int sign) {
+                            scene->vertices += sign * (o.mesh->opaque.size() + o.mesh->transparent.size() +
+                                                       o.mesh->water.size());
+                            scene->waterVertices += sign * o.mesh->water.size();
+                            scene->bufferBytes += sign * placementMeshBytes(*o.mesh);
+                            for (const auto &lod : o.lods)
+                                if (lod != o.mesh)
+                                    scene->bufferBytes += sign * placementMeshBytes(*lod);
+                        };
+                        account(*object, -1);
+                        *object = std::move(replacements.front());
+                        account(*object, 1);
+                        uint64_t objectBytes = 0;
+                        for (const auto &obj : scene->objects) {
+                            objectBytes += placementMeshBytes(*obj.mesh);
+                            for (const auto &lod : obj.lods)
+                                if (lod != obj.mesh)
+                                    objectBytes += placementMeshBytes(*lod);
+                        }
+                        for (const auto &cluster : scene->clusters)
+                            objectBytes += placementMeshBytes(*cluster.mesh);
+                        if (objectBytes > 256ull * 1024 * 1024)
+                            return false;
+                    }
+                    scene->generated = after;
+                    scene->creation = m_world.creation;
+                    scene->sourceRevision = m_revision;
+                    scene->updatedChunks = scene->updatedFarTiles = 0;
+                    scene->updatedSamples = 0;
+                    const auto serial = ++m_meshSerial;
+                    if (!waterChanged && refreshPlacementScene(*scene, m_world, changed, columns, serial)) {
+                        scene->revision = serial;
+                        scene->buildMilliseconds = publishTimer.elapsed();
+                        scene->farMilliseconds = 0;
+                        m_scene = std::move(scene);
+                        emit sceneChanged();
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+    try {
+        if (publishLocal())
+            return;
+    } catch (const std::exception &) {
+        // Retry through the budgeted asynchronous scene builder, which keeps the previous display on error.
+    }
     for (int id : changed) {
         m_farRegions.emplace_back(m_world.originX + id % m_world.chunksX() * 16,
                                   m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
-        if (wanted.contains(id))
-            m_dirty.insert(id);
+        m_dirty.insert(id);
     }
     m_farDirty = true;
     m_rejectStaleMeshes = true;
@@ -1071,19 +1345,21 @@ void Editor::startMesh() {
             if (snapshot.generated) {
                 auto patchIds = snapshot.generated->geometryChunks;
                 if (inspection)
-                    for (const auto &[id, cells] : snapshot.generated->byChunk)
+                    for (const auto &[id, cells] : snapshot.generated->cells.pages())
                         patchIds.insert(id);
                 for (int id : patchIds)
                     if (!wanted.contains(id)) {
                         const int cacheId = -id - 1;
                         auto found = exactCache.find(cacheId);
-                        auto mesh =
-                            (!allFar && old->generated == snapshot.generated && found != exactCache.end())
-                                ? found->second
-                                : wb::buildChunkMesh(snapshot,
-                                                     snapshot.originX / 16 + id % snapshot.chunksX(),
-                                                     snapshot.originZ / 16 + id / snapshot.chunksX(), serial,
-                                                     true, inspection, !inspection);
+                        auto mesh = (!allFar && !dirty.contains(id) && found != exactCache.end() &&
+                                     (old->generated == snapshot.generated ||
+                                      (old->generated && old->generated->procedural &&
+                                       old->generated->procedural == snapshot.generated->procedural)))
+                                        ? found->second
+                                        : wb::buildChunkMesh(snapshot,
+                                                             snapshot.originX / 16 + id % snapshot.chunksX(),
+                                                             snapshot.originZ / 16 + id / snapshot.chunksX(),
+                                                             serial, true, inspection, !inspection);
                         next->chunkIds.push_back(cacheId);
                         next->chunks.push_back(mesh);
                     }
@@ -1155,9 +1431,9 @@ void Editor::startMesh() {
             std::atomic_bool overBudget{false};
             constexpr uint64_t limit = 512ull * 1024 * 1024;
             auto cost = [](const wb::ChunkMesh &m) {
-                return uint64_t((m.opaque.size() + m.transparent.size() + m.water.size()) *
-                                    sizeof(wb::Vertex) +
-                                m.opaqueIndices.size() * sizeof(uint32_t) + m.surfaceColorBytes());
+                return uint64_t(
+                    (m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
+                    m.opaqueIndices.size() * sizeof(uint32_t) + m.surfaceColorBytes() + m.clipCacheBytes());
             };
             for (const auto &c : next->clusters)
                 bytes += cost(*c.mesh);
@@ -1210,7 +1486,7 @@ void Editor::startMesh() {
                 next->waterVertices += m.water.size();
                 next->bufferBytes +=
                     (m.opaque.size() + m.transparent.size() + m.water.size()) * sizeof(wb::Vertex) +
-                    m.opaqueIndices.size() * sizeof(uint32_t);
+                    m.opaqueIndices.size() * sizeof(uint32_t) + m.clipCacheBytes();
                 next->colorBytes += m.surfaceColorBytes();
             };
             for (const auto &c : next->clusters)

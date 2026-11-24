@@ -8,6 +8,17 @@ struct Vertex {
     float x, y, z, nx, ny, nz, r, g, b, a, u, v;
 };
 struct ChunkMesh {
+    struct SurfaceBase {
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        size_t referenceVertices;
+    };
+    std::shared_ptr<const SurfaceBase> beforeHoles;
+    uint64_t clipCacheBytes() const {
+        return beforeHoles ? beforeHoles->vertices.size() * sizeof(Vertex) +
+                                 beforeHoles->indices.size() * sizeof(uint32_t)
+                           : 0;
+    }
     std::vector<Vertex> opaque, transparent, water;
     std::vector<uint32_t> opaqueIndices;
     QImage surfaceColors; // One resolved top-face color per column, including a one-column halo.
@@ -88,7 +99,8 @@ MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revi
                        bool creationOnly = false, bool isolatedAsset = false, bool omitObjects = false);
 std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision,
                                                    std::vector<MeshScene::Cluster> *clusters = nullptr,
-                                                   const MeshScene *previous = nullptr);
+                                                   const MeshScene *previous = nullptr,
+                                                   const QString &onlyPlacement = {});
 MeshPtr buildTerrainAssetPreview(const TerrainInstance &terrain, int maxSamples = 129);
 MeshPtr buildAssetGhost(World world, const StructureAsset &asset);
 } // namespace wb

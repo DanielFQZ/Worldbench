@@ -2,7 +2,6 @@
 #include "Viewport.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
-#include "core/Project.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDragEnterEvent>
@@ -199,6 +198,128 @@ int main(int argc, char **argv) {
                   "MCP screenshot decoded");
             check(image.save(out + "/" + name + ".png"), "screenshot saved");
         };
+        if (args.contains("--placement-latency")) {
+            check(editor.open(QUrl::fromLocalFile(source)), "open placement benchmark");
+            settle();
+            const auto state = editor.world().creation;
+            const auto cave = std::find_if(state.assets.begin(), state.assets.end(),
+                                           [](const auto &a) { return a.placement == "cave"; });
+            check(cave != state.assets.end(), "benchmark has a closed shell");
+            const auto placed = std::find_if(state.presets.begin(), state.presets.end(),
+                                             [&](const auto &p) { return p.assetId == cave->id; });
+            check(placed != state.presets.end(), "benchmark has a placed cave");
+            const auto start = placed->position;
+            call("camera", {{"position", QJsonArray{start.x() + 58, start.y() + 40, start.z() + 90}},
+                            {"yaw", -32},
+                            {"pitch", -18}});
+            editor.setExactRadiusChunks(1);
+            settle();
+            QJsonObject report;
+            auto sample = [&](const wb::AssetPreset &p, QString name, QVector3D delta) {
+                editor.setSelectedNode(p.id);
+                const auto eye =
+                    p.position + (name == "near_building" ? QVector3D(8, 6, 15) : QVector3D(58, 40, 90));
+                call("camera",
+                     {{"position", QJsonArray{eye.x(), eye.y(), eye.z()}}, {"yaw", -32}, {"pitch", -18}});
+                settle();
+                QJsonArray samples;
+                for (int n = 0; n < 12; ++n) {
+                    auto step = (n % 2 ? -1 : 1) * delta;
+                    editor.beginCreationTransform();
+                    editor.previewCreationTransform({{"x", step.x()}, {"y", step.y()}, {"z", step.z()}});
+                    QTest::qWait(16);
+                    auto base = editor.world().generated->procedural;
+                    QElapsedTimer timer;
+                    timer.start();
+                    editor.endCreationTransform();
+                    auto ms = [&]() { return timer.nsecsElapsed() / 1e6; };
+                    double commit = ms();
+                    while (editor.meshBusy() && ms() < 20000)
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
+                    double convergence = ms();
+                    check(!editor.meshBusy() && !editor.assetBusy(), "placement converged");
+                    auto scene = editor.scene();
+                    const auto metrics = viewport->renderMetrics();
+                    auto swapped = std::make_shared<std::atomic_bool>(false);
+                    auto connection = QObject::connect(
+                        window, &QQuickWindow::frameSwapped, window,
+                        [swapped, metrics, scene] {
+                            if (metrics->renderedSourceRevision == scene->sourceRevision &&
+                                metrics->renderedMeshRevision == scene->revision)
+                                swapped->store(true);
+                        },
+                        Qt::DirectConnection);
+                    viewport->update();
+                    while (!swapped->load() && ms() < 20000)
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
+                    double presented = ms();
+                    QObject::disconnect(connection);
+                    check(swapped->load(), "presented converged placement");
+                    samples.append(QJsonObject{
+                        {"generation_ms", editor.lastPlacementGenerationMs()},
+                        {"commit_ms", commit},
+                        {"scene_ms", convergence},
+                        {"present_ms", presented},
+                        {"reused_procedural", base && base == editor.world().generated->procedural},
+                        {"updated_far", scene->updatedFarTiles},
+                        {"updated_exact", scene->updatedChunks},
+                        {"worker_ms", scene->buildMilliseconds}});
+                    if (n == 0 || n == 11) {
+                        auto baked = editor.world();
+                        QString error;
+                        check(baked.rebuildCreation(error) &&
+                                  baked.generated->cells == editor.world().generated->cells &&
+                                  baked.generated->objectCells == editor.world().generated->objectCells &&
+                                  baked.generated->caveAir == editor.world().generated->caveAir &&
+                                  baked.generated->geometryCells == editor.world().generated->geometryCells &&
+                                  baked.generated->blockEntities == editor.world().generated->blockEntities &&
+                                  baked.generated->entities == editor.world().generated->entities &&
+                                  baked.generated->surfaceHoles == editor.world().generated->surfaceHoles,
+                              "placement agrees with complete independent regeneration");
+                    }
+                }
+                report.insert(name, samples);
+                jsonFile("latency.json", report);
+            };
+            sample(*placed, "cave", {4, 5, 0});
+            auto structure = *cave;
+            structure.id = "latency-building";
+            structure.name = "测试建筑实体壳";
+            structure.placement = "place";
+            structure.groundBlend = 0;
+            add("assets", structure.toJson());
+            auto building = *placed;
+            building.id = "latency-building-instance";
+            building.assetId = structure.id;
+            int x = qRound(start.x()) + 96, z = qRound(start.z());
+            building.position = {float(x), float(editor.world().height(x, z) - structure.pivot.y() + 1),
+                                 float(z)};
+            add("presets", building.toJson());
+            settle();
+            sample(building, "rigid_building", {4, 5, 0});
+            sample(building, "near_building", {4, 5, 0});
+            patch("presets", building.id, {{"scale", QJsonArray{2, 2, 2}}});
+            settle();
+            sample(building, "scaled_building", {4, 5, 0});
+            editor.undo();
+            settle();
+            editor.redo();
+            settle();
+            const auto saved = out + "/moved.wbench";
+            const auto expected = editor.world().generated;
+            check(editor.save(QUrl::fromLocalFile(saved)) && editor.open(QUrl::fromLocalFile(saved)),
+                  "reopen moved placements");
+            settle();
+            check(editor.world().generated->cells == expected->cells &&
+                      editor.world().generated->entities == expected->entities,
+                  "saving and reopening reproduces placement state");
+            editor.setSelectedNode(building.id);
+            const auto eye = building.position + QVector3D(23, 15, 32);
+            call("camera", {{"position", QJsonArray{eye.x(), eye.y(), eye.z()}}, {"yaw", -36}, {"pitch", -18}});
+            capture("placements");
+            check(digest(source) == sourceHash, "preserved placement benchmark source");
+            return 0;
+        }
         if (args.contains("--move-review")) {
             check(!source.isEmpty() && editor.open(QUrl::fromLocalFile(source)),
                   "open the user project copy");
@@ -1039,21 +1160,24 @@ int main(int argc, char **argv) {
             check(!viewport->gizmoOverlay()["readout"].toString().isEmpty(),
                   "creation drag reports actual change");
             const auto beforeRelease = viewport->gizmoOverlay();
-            bool observedPending = false, steady = true;
-            const auto connection = QObject::connect(&editor, &Editor::changed, &app, [&] {
-                if (editor.renderCreation() == editor.world().creation)
-                    return;
-                observedPending = true;
+            const auto target = editor.renderCreation();
+            bool steady = true;
+            auto checkPosition = [&] {
                 const auto current = viewport->gizmoOverlay();
+                steady &= current["active"].toBool() && editor.renderCreation() == target;
                 for (auto key : {"cx", "cy"})
                     steady &= std::abs(current[key].toDouble() - beforeRelease[key].toDouble()) < 1.;
-            });
+            };
+            const auto connection = QObject::connect(&editor, &Editor::placementChanged, &app, checkPosition);
             if (cancel)
                 QTest::keyClick(window, Qt::Key_Escape);
             QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, b);
             QObject::disconnect(connection);
-            if (!cancel && mode == 0)
-                check(observedPending && steady, "released translation stays at the pending world position");
+            if (!cancel && mode == 0) {
+                checkPosition();
+                check(steady && editor.world().creation == target,
+                      "released translation stays at the preview position through publication");
+            }
         };
         editor.setSelectedNode(volume.id);
         const auto baseline = editor.world().creation;

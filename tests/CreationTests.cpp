@@ -240,6 +240,22 @@ int main(int argc, char **argv) {
             for (size_t j = i + 1; j < points.size(); ++j)
                 check((points[i] - points[j]).length() >= 4, "scatter spacing");
         }
+        { // Moving onto (or uncovering) a candidate must re-run scatter collision resolution.
+            auto occupied = world;
+            AssetPreset manual;
+            manual.id = "probe";
+            manual.assetId = "tree";
+            manual.position = {0, 110, 0};
+            occupied.creation.presets.push_back(manual);
+            check(occupied.rebuildCreation(error), "prepare reserved placement probe");
+            auto onto = manual;
+            onto.position = points.front();
+            check(!canReuseScatter(occupied, manual, onto),
+                  "occupied scatter footprint invalidates the prefix");
+            occupied.creation.presets.back() = onto;
+            check(occupied.rebuildCreation(error) && !canReuseScatter(occupied, onto, manual),
+                  "uncovering a rejected scatter candidate invalidates the prefix");
+        }
         auto first = points.front();
         check(world.palette[world.block(int(first.x()), 25, int(first.z()))].name == "minecraft:oak_log",
               "generated structure visible to block reader");

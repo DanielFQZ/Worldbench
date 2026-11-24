@@ -22,8 +22,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
         if (isolatedAsset) {
             if (!w.contains(x, y, z) || !w.generated)
                 return Air;
-            const auto it = w.generated->cells.find(w.key(x, y, z));
-            return it == w.generated->cells.end() ? Air : Block(it->second);
+            const auto it = w.generated->cells.get(w.key(x, y, z));
+            return it ? *it : Air;
         }
         const int h = heights[z - cz * 16 + 1][x - cx * 16 + 1];
         return w.blockAtHeight(x, y, z, h);
@@ -71,9 +71,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                 int gx = cx - w.originX / 16 + dx, gz = cz - w.originZ / 16 + dz;
                 if (gx < 0 || gz < 0 || gx >= w.chunksX() || gz >= w.chunksZ())
                     continue;
-                auto it = w.generated->byChunk.find(gz * w.chunksX() + gx);
-                if (it != w.generated->byChunk.end())
-                    markCells(it->second);
+                if (const auto *page = w.generated->cells.page(gz * w.chunksX() + gx))
+                    markCells(*page);
             }
     for (int z = cz * 16; z < cz * 16 + 16; ++z)
         for (int x = cx * 16; x < cx * 16 + 16; ++x)

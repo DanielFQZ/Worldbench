@@ -153,7 +153,8 @@ class World {
     std::shared_ptr<const AssetLibrary> assets;
     CreationState creation;
     std::shared_ptr<const GeneratedCreation> generated;
-    bool rebuildCreation(QString &error, const CreationProgress &progress = {}, bool reuseMaterials = false);
+    bool rebuildCreation(QString &error, const CreationProgress &progress = {}, bool reuseMaterials = false,
+                         bool reuseScatter = false);
     QStringList resourcePaths;
     QString resourceVersion;
     Block intern(const BlockState &state);
@@ -173,6 +174,7 @@ class World {
     Block naturalBlock(int x, int y, int z, int h) const;
     Block terrainBlock(int x, int y, int z, int h) const;
     Block blockAtHeight(int x, int y, int z, int height) const;
+    Block blockAtHeight(int x, int y, int z, int h, const GeneratedCreation *layer) const;
     void setBlock(int x, int y, int z, Block value);
     Hit raycast(QVector3D origin, QVector3D direction, float maxDistance = 1500,
                 bool terrainOnly = false) const;

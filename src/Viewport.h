@@ -8,7 +8,7 @@
 #include <QTimer>
 
 struct RenderMetrics {
-    std::atomic_uint64_t renderedSourceRevision{0};
+    std::atomic_uint64_t renderedSourceRevision{0}, renderedMeshRevision{0};
     std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
     std::atomic_int effectKiB{0}, shadowUpdates{0}, reflectionUpdates{0};
     std::atomic_int gpuMicros{0}, pixelWidth{0}, pixelHeight{0}, objectTriangles{0}, objectLods{0},

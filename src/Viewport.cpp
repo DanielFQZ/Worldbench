@@ -145,7 +145,7 @@ void Viewport::setEditor(Editor *e) {
             clearAssetPreview();
             m_ghostId.clear();
         });
-        connect(e, &Editor::changed, this, [this] {
+        connect(e, &Editor::placementChanged, this, [this] {
             refreshSelectionProxy();
             update();
             emit cameraChanged();
@@ -231,9 +231,9 @@ QString Viewport::pickCreation(QPointF position) const {
         limit = (m_hit.position - m_camera).length() + .05f;
         if (world.generated) {
             const auto key = world.key(m_hit.x, m_hit.y, m_hit.z);
-            const auto found = world.generated->objectCells.find(key);
-            if (found != world.generated->objectCells.end() && !world.explicitOverride(key))
-                selected = world.generated->objects[found->second].ownerId;
+            const auto found = world.generated->objectCells.get(key);
+            if (found && !world.explicitOverride(key))
+                selected = world.generated->objects[*found].ownerId;
         }
     }
     const auto view = viewProjection();
@@ -358,8 +358,16 @@ void Viewport::updatePreviewDetail() {
                     consider({x, float(heights.low), z}, {x + 16, float(heights.high), z + 16});
                 }
             }
-            for (const auto &obj : scene->objects)
-                consider(obj.mesh->lower, obj.mesh->upper);
+            for (const auto &obj : scene->objects) {
+                QVector3D offset;
+                if (obj.id == obj.ownerId)
+                    for (const auto &placement : scene->creation.presets)
+                        if (placement.id == obj.id) {
+                            offset = placement.position - obj.placement.position;
+                            break;
+                        }
+                consider(obj.mesh->lower + offset, obj.mesh->upper + offset);
+            }
             for (int z = wb::floorDiv(int(std::floor(m_camera.z() - range)), 16);
                  z <= wb::floorDiv(int(std::floor(m_camera.z() + range)), 16); ++z)
                 for (int x = wb::floorDiv(int(std::floor(m_camera.x() - range)), 16);

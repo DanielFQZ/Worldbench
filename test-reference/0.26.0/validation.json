@@ -1,0 +1,228 @@
+{
+  "version": "0.26.0",
+  "baseline": "c3739ca",
+  "ctest_passed": 15,
+  "sha256": {
+    "Worldbench.exe": "bc63ef994a34f45fba1b689c45635e04b2162591ffd8ab0fc4260bfd3c24d0d9",
+    "WorldbenchMcp.exe": "6c83a1daa5b6dccc20f6b9d9889fe268f5083fb97af4103a22a16ca542e40f43"
+  },
+  "original_project_sha256": "0dc7efb773abd5cf89cf51add35c1296d70c44f141e3c21d0f4150ab7ccb02b7",
+  "latest_project_sha256": "70b83ac439c06697394d532a0063061d20cae42f9466acb802526387d812b4e2",
+  "timing_keys": [
+    "p50",
+    "p95_nearest_rank",
+    "max"
+  ],
+  "samples": {
+    "original": {
+      "cave": [
+        {
+          "generation_ms": [
+            0.96,
+            1.27,
+            1.27
+          ],
+          "commit_ms": [
+            10.54,
+            12.53,
+            12.53
+          ],
+          "scene_ms": [
+            10.54,
+            12.53,
+            12.53
+          ],
+          "present_ms": [
+            23.21,
+            28.11,
+            28.11
+          ]
+        },
+        12
+      ],
+      "rigid_building": [
+        {
+          "generation_ms": [
+            1.01,
+            1.36,
+            1.36
+          ],
+          "commit_ms": [
+            5.82,
+            6.62,
+            6.62
+          ],
+          "scene_ms": [
+            5.82,
+            6.62,
+            6.62
+          ],
+          "present_ms": [
+            17.02,
+            21.57,
+            21.57
+          ]
+        },
+        12
+      ],
+      "near_building": [
+        {
+          "generation_ms": [
+            1.12,
+            1.27,
+            1.27
+          ],
+          "commit_ms": [
+            7.12,
+            8.81,
+            8.81
+          ],
+          "scene_ms": [
+            7.12,
+            8.81,
+            8.81
+          ],
+          "present_ms": [
+            19.02,
+            23.41,
+            23.41
+          ]
+        },
+        12
+      ],
+      "scaled_building": [
+        {
+          "generation_ms": [
+            1.77,
+            2.19,
+            2.19
+          ],
+          "commit_ms": [
+            8.92,
+            10.59,
+            10.59
+          ],
+          "scene_ms": [
+            8.92,
+            10.59,
+            10.59
+          ],
+          "present_ms": [
+            21.03,
+            22.94,
+            22.94
+          ]
+        },
+        12
+      ]
+    },
+    "latest": {
+      "cave": [
+        {
+          "generation_ms": [
+            1.01,
+            1.4,
+            1.4
+          ],
+          "commit_ms": [
+            10.83,
+            13.89,
+            13.89
+          ],
+          "scene_ms": [
+            10.83,
+            13.89,
+            13.89
+          ],
+          "present_ms": [
+            25.77,
+            37.68,
+            37.68
+          ]
+        },
+        10
+      ],
+      "rigid_building": [
+        {
+          "generation_ms": [
+            1.19,
+            1.44,
+            1.44
+          ],
+          "commit_ms": [
+            6.06,
+            7.38,
+            7.38
+          ],
+          "scene_ms": [
+            6.06,
+            7.38,
+            7.38
+          ],
+          "present_ms": [
+            18.67,
+            28.47,
+            28.47
+          ]
+        },
+        12
+      ],
+      "near_building": [
+        {
+          "generation_ms": [
+            1.16,
+            1.55,
+            1.55
+          ],
+          "commit_ms": [
+            8.52,
+            10.01,
+            10.01
+          ],
+          "scene_ms": [
+            8.52,
+            10.01,
+            10.01
+          ],
+          "present_ms": [
+            21.14,
+            26.86,
+            26.86
+          ]
+        },
+        12
+      ],
+      "scaled_building": [
+        {
+          "generation_ms": [
+            1.83,
+            2.57,
+            2.57
+          ],
+          "commit_ms": [
+            9.15,
+            9.94,
+            9.94
+          ],
+          "scene_ms": [
+            9.15,
+            9.94,
+            9.94
+          ],
+          "present_ms": [
+            21.87,
+            31.55,
+            31.55
+          ]
+        },
+        11
+      ]
+    }
+  },
+  "repeat_samples": {
+    "count": 48,
+    "generation_max_ms": 3.0201,
+    "present_max_ms": 30.479,
+    "within_30ms": 46
+  }
+}

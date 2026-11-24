@@ -1,17 +1,17 @@
 {
     "range_move": {
-        "command_ms": 2827,
+        "command_ms": 2964,
         "objects": 1552,
         "reused_original_meshes": 1542,
-        "settled_ms": 3189,
+        "settled_ms": 3384,
         "updated_exact_chunks": 0,
         "updated_far_tiles": 28
     },
     "shell_move": {
-        "command_ms": 1326,
+        "command_ms": 1499,
         "objects": 1547,
         "reused_original_meshes": 1546,
-        "settled_ms": 1537,
+        "settled_ms": 1749,
         "updated_exact_chunks": 0,
         "updated_far_tiles": 4
     },

@@ -26,6 +26,8 @@ std::vector<FarTile> planSurfaceTiles(const World &world, int patchSize = 128);
 MeshPtr buildInteractiveSurfaceMesh(const World &world, const FarTile &tile,
                                     const SurfaceMaterials &inputs, uint64_t revision,
                                     const std::atomic_bool *cancelled = nullptr, int stride = 8);
+MeshPtr refreshPlacementSurface(const World &, const FarTile &, const SurfaceMaterials &,
+                                const std::set<int> &columns, uint64_t revision);
 MeshPtr buildSurfaceMesh(const World &world, const FarTile &tile, const SurfaceMaterials &inputs,
                          uint64_t revision, float tolerance = .5f,
                          const std::atomic_bool *cancelled = nullptr, const QRect &exactArea = {});

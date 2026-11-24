@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.25.0");
+    app.setApplicationVersion("0.26.0");
     // KDDockWidgets floating frames use the application palette rather than
     // inheriting the QML window palette. Keep both surfaces on the same theme.
     QPalette palette;
@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.25.0 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.26.0 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);

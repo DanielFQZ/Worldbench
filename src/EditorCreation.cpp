@@ -128,6 +128,9 @@ bool loadIndexedGraph(wb::CreationState &state, const QJsonObject &manifest, con
 }
 } // namespace
 QVariantMap Editor::creationState() const {
+    const bool cacheable = !m_creationStart && !m_creationPending;
+    if (cacheable && m_creationSummaryRevision == m_revision)
+        return m_creationSummary;
     QJsonObject data;
     QJsonArray graphs, volumes, presets, nodes, edges, markers;
     for (auto &v : m_world.creation.graphs)
@@ -159,7 +162,12 @@ QVariantMap Editor::creationState() const {
     data["diagnostics"] =
         m_world.generated ? QJsonArray::fromStringList(m_world.generated->diagnostics) : QJsonArray{};
     data["scatterCount"] = m_world.generated ? int(m_world.generated->scatterPoints.size()) : 0;
-    return data.toVariantMap();
+    auto summary = data.toVariantMap();
+    if (cacheable) {
+        m_creationSummary = summary;
+        m_creationSummaryRevision = m_revision;
+    }
+    return summary;
 }
 QVariantMap Editor::creationDetails() const {
     auto data = creationState();
@@ -1153,9 +1161,8 @@ void Editor::endCreationTransform(bool cancel) {
         return;
     const auto next = m_world.creation;
     m_world.creation = *before;
-    if (!cancel)
-        commitCreation(next, "变换创作实例");
-    emit changed();
+    if (cancel || !commitCreation(next, "变换创作实例"))
+        emit changed();
 }
 
 // The snapshot is computed on a worker. A guarded event loop keeps the native

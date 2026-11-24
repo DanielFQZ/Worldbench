@@ -202,14 +202,23 @@ MeshPtr nextLevel(const MeshPtr &previous, float ratio, float tolerance) {
 
 std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revision,
                                                    std::vector<MeshScene::Cluster> *clusters,
-                                                   const MeshScene *previousScene) {
+                                                   const MeshScene *previousScene,
+                                                   const QString &onlyPlacement) {
     std::vector<MeshScene::Object> result;
     if (!w.generated)
         return result;
     std::vector<std::vector<uint64_t>> keys(w.generated->objects.size());
-    for (auto [key, owner] : w.generated->objectCells)
-        if (owner < keys.size() && !w.explicitOverride(key))
-            keys[owner].push_back(key);
+    if (onlyPlacement.isEmpty()) {
+        for (auto [key, owner] : w.generated->objectCells)
+            if (owner < keys.size() && !w.explicitOverride(key))
+                keys[owner].push_back(key);
+    } else {
+        for (int pageId : w.generated->placementPages)
+            if (const auto *page = w.generated->objectCells.page(pageId))
+                for (const auto &[key, owner] : *page)
+                    if (w.generated->objects[owner].id == onlyPlacement && !w.explicitOverride(key))
+                        keys[owner].push_back(key);
+    }
     std::unordered_map<int, int> heights;
     size_t meshBytes = 0;
     constexpr size_t objectBudget = 256ull * 1024 * 1024;
@@ -291,11 +300,8 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
                 if (!w.contains(nx, ny, nz))
                     return Air;
                 const auto neighborKey = w.key(nx, ny, nz);
-                const auto owner = w.generated->objectCells.find(neighborKey);
-                return owner != w.generated->objectCells.end() && owner->second == i &&
-                               !w.explicitOverride(neighborKey)
-                           ? sample(nx, ny, nz)
-                           : Air;
+                const auto owner = w.generated->objectCells.get(neighborKey);
+                return owner && *owner == i && !w.explicitOverride(neighborKey) ? sample(nx, ny, nz) : Air;
             };
             // Complete exterior faces remain available while a cached object
             // moves away from terrain or another object. Depth testing hides

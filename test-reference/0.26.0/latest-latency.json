@@ -1,0 +1,490 @@
+{
+    "cave": [
+        {
+            "commit_ms": 10.0948,
+            "generation_ms": 1.0256,
+            "present_ms": 27.0719,
+            "reused_procedural": true,
+            "scene_ms": 10.095,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 5
+        },
+        {
+            "commit_ms": 12.6434,
+            "generation_ms": 1.1234,
+            "present_ms": 26.288,
+            "reused_procedural": true,
+            "scene_ms": 12.6435,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 6
+        },
+        {
+            "commit_ms": 9.9743,
+            "generation_ms": 0.8848,
+            "present_ms": 37.682,
+            "reused_procedural": true,
+            "scene_ms": 9.9745,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 5
+        },
+        {
+            "commit_ms": 11.5862,
+            "generation_ms": 0.886,
+            "present_ms": 31.4816,
+            "reused_procedural": true,
+            "scene_ms": 11.5863,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 6
+        },
+        {
+            "commit_ms": 9.9361,
+            "generation_ms": 1.4046,
+            "present_ms": 21.674,
+            "reused_procedural": true,
+            "scene_ms": 9.9363,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 4
+        },
+        {
+            "commit_ms": 13.8904,
+            "generation_ms": 1.2386,
+            "present_ms": 28.4765,
+            "reused_procedural": true,
+            "scene_ms": 13.8905,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 7
+        },
+        {
+            "commit_ms": 9.7346,
+            "generation_ms": 0.9912,
+            "present_ms": 21.8024,
+            "reused_procedural": true,
+            "scene_ms": 9.7347,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 4
+        },
+        {
+            "commit_ms": 12.0578,
+            "generation_ms": 1.2031,
+            "present_ms": 26.292,
+            "reused_procedural": true,
+            "scene_ms": 12.058,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 6
+        },
+        {
+            "commit_ms": 10.1957,
+            "generation_ms": 0.9978,
+            "present_ms": 23.0528,
+            "reused_procedural": true,
+            "scene_ms": 10.196,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 4
+        },
+        {
+            "commit_ms": 11.9737,
+            "generation_ms": 0.9799,
+            "present_ms": 25.2583,
+            "reused_procedural": true,
+            "scene_ms": 11.9738,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 6
+        },
+        {
+            "commit_ms": 10.806,
+            "generation_ms": 1.0231,
+            "present_ms": 22.6821,
+            "reused_procedural": true,
+            "scene_ms": 10.8061,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 5
+        },
+        {
+            "commit_ms": 10.8623,
+            "generation_ms": 0.9772,
+            "present_ms": 22.41,
+            "reused_procedural": true,
+            "scene_ms": 10.8624,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 5
+        }
+    ],
+    "near_building": [
+        {
+            "commit_ms": 8.482,
+            "generation_ms": 1.0061,
+            "present_ms": 20.2737,
+            "reused_procedural": true,
+            "scene_ms": 8.4821,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 10.0143,
+            "generation_ms": 1.5481,
+            "present_ms": 23.1943,
+            "reused_procedural": true,
+            "scene_ms": 10.0145,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.5555,
+            "generation_ms": 1.1124,
+            "present_ms": 20.7392,
+            "reused_procedural": true,
+            "scene_ms": 8.5557,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 9.1944,
+            "generation_ms": 1.2038,
+            "present_ms": 22.1015,
+            "reused_procedural": true,
+            "scene_ms": 9.1945,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 9.1085,
+            "generation_ms": 1.197,
+            "present_ms": 22.0266,
+            "reused_procedural": true,
+            "scene_ms": 9.1087,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 7.6769,
+            "generation_ms": 0.927,
+            "present_ms": 20.4455,
+            "reused_procedural": true,
+            "scene_ms": 7.6771,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 9.3574,
+            "generation_ms": 1.4556,
+            "present_ms": 26.8566,
+            "reused_procedural": true,
+            "scene_ms": 9.3575,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.4659,
+            "generation_ms": 1.1164,
+            "present_ms": 21.4309,
+            "reused_procedural": true,
+            "scene_ms": 8.4661,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.2693,
+            "generation_ms": 1.3123,
+            "present_ms": 20.0378,
+            "reused_procedural": true,
+            "scene_ms": 8.2694,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.0299,
+            "generation_ms": 0.9766,
+            "present_ms": 20.0316,
+            "reused_procedural": true,
+            "scene_ms": 8.0301,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.2895,
+            "generation_ms": 1.1973,
+            "present_ms": 20.8507,
+            "reused_procedural": true,
+            "scene_ms": 8.2896,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        },
+        {
+            "commit_ms": 8.6968,
+            "generation_ms": 1.1263,
+            "present_ms": 21.5627,
+            "reused_procedural": true,
+            "scene_ms": 8.6969,
+            "updated_exact": 2,
+            "updated_far": 1,
+            "worker_ms": 3
+        }
+    ],
+    "rigid_building": [
+        {
+            "commit_ms": 7.0407,
+            "generation_ms": 1.2698,
+            "present_ms": 18.5628,
+            "reused_procedural": true,
+            "scene_ms": 7.0409,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 1
+        },
+        {
+            "commit_ms": 6.5678,
+            "generation_ms": 1.0864,
+            "present_ms": 20.7101,
+            "reused_procedural": true,
+            "scene_ms": 6.568,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 7.0496,
+            "generation_ms": 1.4374,
+            "present_ms": 22.3864,
+            "reused_procedural": true,
+            "scene_ms": 7.0497,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 1
+        },
+        {
+            "commit_ms": 5.8495,
+            "generation_ms": 1.1219,
+            "present_ms": 18.786,
+            "reused_procedural": true,
+            "scene_ms": 5.8496,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 5.9891,
+            "generation_ms": 1.1881,
+            "present_ms": 24.642,
+            "reused_procedural": true,
+            "scene_ms": 5.9893,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 5.8781,
+            "generation_ms": 1.0113,
+            "present_ms": 21.2341,
+            "reused_procedural": true,
+            "scene_ms": 5.8782,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 6.0325,
+            "generation_ms": 1.1994,
+            "present_ms": 28.4677,
+            "reused_procedural": true,
+            "scene_ms": 6.0326,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 6.504,
+            "generation_ms": 1.4107,
+            "present_ms": 17.8988,
+            "reused_procedural": true,
+            "scene_ms": 6.5041,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 6.0498,
+            "generation_ms": 1.319,
+            "present_ms": 15.8231,
+            "reused_procedural": true,
+            "scene_ms": 6.05,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 7.3781,
+            "generation_ms": 0.8971,
+            "present_ms": 18.2,
+            "reused_procedural": true,
+            "scene_ms": 7.3782,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 5.868,
+            "generation_ms": 1.212,
+            "present_ms": 15.1563,
+            "reused_procedural": true,
+            "scene_ms": 5.8684,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        },
+        {
+            "commit_ms": 6.0641,
+            "generation_ms": 1.1088,
+            "present_ms": 17.3201,
+            "reused_procedural": true,
+            "scene_ms": 6.0646,
+            "updated_exact": 0,
+            "updated_far": 1,
+            "worker_ms": 0
+        }
+    ],
+    "scaled_building": [
+        {
+            "commit_ms": 9.7504,
+            "generation_ms": 2.5676,
+            "present_ms": 21.8227,
+            "reused_procedural": true,
+            "scene_ms": 9.7506,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.0771,
+            "generation_ms": 2.0212,
+            "present_ms": 24.9694,
+            "reused_procedural": true,
+            "scene_ms": 9.0773,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 8.3259,
+            "generation_ms": 1.6326,
+            "present_ms": 31.5451,
+            "reused_procedural": true,
+            "scene_ms": 8.3261,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 1
+        },
+        {
+            "commit_ms": 8.6359,
+            "generation_ms": 1.8971,
+            "present_ms": 27.7545,
+            "reused_procedural": true,
+            "scene_ms": 8.636,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.9374,
+            "generation_ms": 1.7258,
+            "present_ms": 27.3317,
+            "reused_procedural": true,
+            "scene_ms": 9.9375,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.0079,
+            "generation_ms": 1.6724,
+            "present_ms": 21.2539,
+            "reused_procedural": true,
+            "scene_ms": 9.008,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 8.4731,
+            "generation_ms": 1.7014,
+            "present_ms": 19.6144,
+            "reused_procedural": true,
+            "scene_ms": 8.4733,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 1
+        },
+        {
+            "commit_ms": 8.6199,
+            "generation_ms": 1.7611,
+            "present_ms": 20.4584,
+            "reused_procedural": true,
+            "scene_ms": 8.62,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.7963,
+            "generation_ms": 2.104,
+            "present_ms": 21.9213,
+            "reused_procedural": true,
+            "scene_ms": 9.7965,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.2703,
+            "generation_ms": 1.91,
+            "present_ms": 21.2812,
+            "reused_procedural": true,
+            "scene_ms": 9.2705,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.3941,
+            "generation_ms": 2.1305,
+            "present_ms": 22.0974,
+            "reused_procedural": true,
+            "scene_ms": 9.3942,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        },
+        {
+            "commit_ms": 9.2231,
+            "generation_ms": 1.7197,
+            "present_ms": 21.6135,
+            "reused_procedural": true,
+            "scene_ms": 9.2232,
+            "updated_exact": 0,
+            "updated_far": 2,
+            "worker_ms": 2
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "range_move": {
+        "command_ms": 2399,
+        "objects": 1552,
+        "reused_original_meshes": 1542,
+        "settled_ms": 2706,
+        "updated_exact_chunks": 0,
+        "updated_far_tiles": 28
+    },
+    "shell_move": {
+        "command_ms": 100,
+        "objects": 1547,
+        "reused_original_meshes": 1546,
+        "settled_ms": 213,
+        "updated_exact_chunks": 0,
+        "updated_far_tiles": 1
+    },
+    "shell_triangles": [
+        2212,
+        618,
+        308,
+        154,
+        66,
+        24
+    ]
+}

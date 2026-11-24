@@ -1,4 +1,5 @@
 #pragma once
+#include "VoxelPages.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -215,6 +216,19 @@ QJsonArray pcgNodeCatalog();
 bool validateCreation(const CreationState &state, QString &error);
 class World;
 struct GeneratedCreation {
+    explicit GeneratedCreation(int width, int depth)
+        : objectCells(width, depth), cells(width, depth), geometryCells(width, depth), caveAir(width, depth) {
+    }
+    // World immediately after roads and scatter, before individually placed structures.
+    std::shared_ptr<const GeneratedCreation> procedural;
+    std::vector<QVector3D> reservationWitnesses;
+    std::set<int> placementPages;
+    struct PlacementStamp {
+        AssetPreset transform;
+        std::vector<std::pair<QVector3D, uint32_t>> voxels;
+        std::vector<std::pair<QVector3D, QByteArray>> blockEntities;
+    };
+    QHash<QString, std::shared_ptr<const PlacementStamp>> stamps;
     struct Object {
         QString id, ownerId;
         AssetPreset placement;
@@ -226,15 +240,14 @@ struct GeneratedCreation {
     std::shared_ptr<const std::vector<MaterialRun>> materialRuns;
     std::vector<Object> objects;
     // Ownership is derived only. Export still uses the complete cells map.
-    std::unordered_map<uint64_t, size_t> objectCells;
-    std::unordered_map<uint64_t, uint32_t> cells;
+    VoxelPages<size_t> objectCells;
+    VoxelPages<uint32_t> cells;
     std::unordered_map<int, int> heights;
     std::vector<QVector3D> scatterPoints;
     QStringList diagnostics;
     std::set<int> geometryChunks;
-    std::unordered_set<uint64_t> geometryCells;
-    std::unordered_set<uint64_t> caveAir; // Confirmed interiors and portals clip underlying edits.
-    std::unordered_map<int, std::vector<std::pair<uint64_t, uint32_t>>> byChunk;
+    VoxelPages<uint8_t> geometryCells;
+    VoxelPages<uint8_t> caveAir; // Confirmed interiors and portals clip underlying edits.
     std::vector<QRect> surfaceHoles;
     std::unordered_map<uint64_t, QByteArray> blockEntities;
     std::vector<StructureEntity> entities;
@@ -242,7 +255,9 @@ struct GeneratedCreation {
 using CreationProgress = std::function<bool(int, const QString &)>;
 std::shared_ptr<const GeneratedCreation> generateCreation(World &world, QString &error,
                                                           const CreationProgress &progress = {},
-                                                          bool reuseMaterials = false);
+                                                          bool reuseMaterials = false,
+                                                          bool reuseScatter = false);
+bool canReuseScatter(const World &, const AssetPreset &, const AssetPreset &);
 bool importStructure(const QString &path, StructureAsset &asset, QString &error);
 bool parseCreationBlock(const QString &text, struct BlockState &state, QString &error);
 struct CaveAnalysis;

@@ -421,6 +421,82 @@ MeshPtr buildInteractiveSurfaceMesh(const World &w, const FarTile &tile, const S
     mesh->center = (mesh->lower + mesh->upper) * .5f;
     return mesh;
 }
+namespace {
+void clipHoles(ChunkMesh &mesh, const World &w, const QRect &area, const QRect &exact) {
+    bool clipped = false;
+    if (w.generated)
+        for (const auto &hole : w.generated->surfaceHoles) {
+            if (!area.adjusted(-1, -1, 1, 1).intersects(hole) || exact.contains(hole))
+                continue;
+            if (!clipped && !mesh.beforeHoles)
+                mesh.beforeHoles = std::make_shared<const ChunkMesh::SurfaceBase>(
+                    ChunkMesh::SurfaceBase{mesh.opaque, mesh.opaqueIndices, mesh.referenceVertices});
+            clipped = true;
+            cutExactArea(mesh, w, hole);
+        }
+    if (!clipped)
+        mesh.beforeHoles.reset();
+    mesh.surfaceCutout = exact;
+    if (mesh.opaqueIndices.empty()) {
+        mesh.opaque.clear();
+        mesh.referenceVertices = 0;
+    }
+}
+} // namespace
+MeshPtr refreshPlacementSurface(const World &w, const FarTile &tile, const SurfaceMaterials &materials,
+                                const std::set<int> &columns, uint64_t revision) {
+    auto mesh = std::make_shared<ChunkMesh>(*tile.mesh);
+    mesh->revision = revision;
+    const auto r = tile.area;
+    if (mesh->beforeHoles) {
+        mesh->opaque = mesh->beforeHoles->vertices;
+        mesh->opaqueIndices = mesh->beforeHoles->indices;
+        mesh->referenceVertices = mesh->beforeHoles->referenceVertices;
+    }
+    for (int column : columns) {
+        const int x = w.originX + column % w.width, z = w.originZ + column / w.width;
+        const auto halo = r.adjusted(-1, -1, 2, 2);
+        if (!halo.contains(x, z))
+            continue;
+        // Border texels repeat the nearest in-world column.
+        int x0 = x == w.originX ? std::max(x - 1, halo.left()) : x;
+        int z0 = z == w.originZ ? std::max(z - 1, halo.top()) : z;
+        int x1 = x == w.originX + w.width - 1 ? halo.right() : x;
+        int z1 = z == w.originZ + w.depth - 1 ? halo.bottom() : z;
+        for (int tz = z0; tz <= z1; ++tz)
+            for (int tx = x0; tx <= x1; ++tx) {
+                // Full surface tiles sample generated road heights on their one-texel border.
+                const bool interior = tx >= r.left() && tx <= r.right() + 1 &&
+                                      tz >= r.top() && tz <= r.bottom() + 1;
+                const int h = interior ? w.heights[column] : w.height(x, z);
+                const auto c = materials.colors.at(w.blockAtHeight(x, h, z, h));
+                const auto color = QColor::fromRgbF(std::clamp(c.x(), 0.f, 1.f),
+                                                    std::clamp(c.y(), 0.f, 1.f),
+                                                    std::clamp(c.z(), 0.f, 1.f), 1.f);
+                if (mesh->surfaceColors.width() == 1) {
+                    const auto initial = mesh->surfaceColors.pixelColor(0, 0);
+                    if (initial == color)
+                        continue;
+                    mesh->surfaceColors = QImage(r.width() + 3, r.height() + 3, QImage::Format_RGBA8888);
+                    if (mesh->surfaceColors.isNull())
+                        throw std::bad_alloc();
+                    mesh->surfaceColors.fill(initial);
+                }
+                mesh->surfaceColors.setPixelColor(tx - r.x() + 1, tz - r.y() + 1, color);
+            }
+    }
+    const auto exact = mesh->surfaceCutout;
+    clipHoles(*mesh, w, r, exact);
+    mesh->lower.setY(World::MaxY);
+    mesh->upper.setY(World::MinY);
+    for (const auto *part : {&mesh->opaque, &mesh->water})
+        for (const auto &v : *part) {
+            mesh->lower.setY(std::min(mesh->lower.y(), v.y));
+            mesh->upper.setY(std::max(mesh->upper.y(), v.y));
+        }
+    mesh->center = (mesh->upper + mesh->lower) * .5f;
+    return mesh;
+}
 MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMaterials &in, uint64_t revision,
                          float tolerance, const std::atomic_bool *cancelled, const QRect &exactArea) {
     const auto r = tile.area;
@@ -579,15 +655,7 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMater
             mesh->opaqueIndices.insert(mesh->opaqueIndices.end(), {a, a + 1, a + 2, a, a + 2, a + 3});
         }
     cutExactArea(*mesh, w, exactArea);
-    if (w.generated)
-        for (const auto &hole : w.generated->surfaceHoles)
-            if (tile.area.adjusted(-1, -1, 1, 1).intersects(hole) && !exactArea.contains(hole))
-                cutExactArea(*mesh, w, hole);
-    mesh->surfaceCutout = exactArea;
-    if (mesh->opaqueIndices.empty()) {
-        mesh->opaque.clear();
-        mesh->referenceVertices = 0;
-    }
+    clipHoles(*mesh, w, tile.area, exactArea);
     if (!appendSeaSurface(*mesh, w, tile, grid, in.colors.at(Water), exactArea, cancelled))
         return {};
     mesh->lower = {float(r.x()), float(World::MaxY), float(r.y())};

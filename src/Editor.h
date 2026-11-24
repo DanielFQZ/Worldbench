@@ -22,23 +22,23 @@ class Editor : public QObject {
     Q_PROPERTY(int strength READ strength WRITE setStrength NOTIFY changed)
     Q_PROPERTY(QVariantList libraryAssets READ libraryAssets NOTIFY changed)
     Q_PROPERTY(int material READ material WRITE setMaterial NOTIFY changed)
-    Q_PROPERTY(bool modified READ modified NOTIFY changed)
-    Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
-    Q_PROPERTY(bool canRedo READ canRedo NOTIFY changed)
-    Q_PROPERTY(bool meshBusy READ meshBusy NOTIFY changed)
-    Q_PROPERTY(QString terrainUpdateStatus READ terrainUpdateStatus NOTIFY changed)
+    Q_PROPERTY(bool modified READ modified NOTIFY placementChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY placementChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY placementChanged)
+    Q_PROPERTY(bool meshBusy READ meshBusy NOTIFY placementChanged)
+    Q_PROPERTY(QString terrainUpdateStatus READ terrainUpdateStatus NOTIFY placementChanged)
     Q_PROPERTY(bool exportBusy READ exportBusy NOTIFY changed)
     Q_PROPERTY(int exportProgress READ exportProgress NOTIFY changed)
     Q_PROPERTY(QString projectName READ projectName NOTIFY changed)
     Q_PROPERTY(QString projectPath READ projectPath NOTIFY changed)
-    Q_PROPERTY(QString status READ status NOTIFY changed)
-    Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY changed)
+    Q_PROPERTY(QString status READ status NOTIFY placementChanged)
+    Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY placementChanged)
     Q_PROPERTY(Editor *assetInspector READ assetInspector CONSTANT)
     Q_PROPERTY(bool creationBusy READ creationBusy NOTIFY changed)
     Q_PROPERTY(int creationProgress READ creationProgress NOTIFY changed)
     Q_PROPERTY(bool creationCancellable READ creationCancellable NOTIFY changed)
     Q_PROPERTY(bool assetBusy READ assetBusy NOTIFY changed)
-    Q_PROPERTY(bool commandBusy READ commandBusy NOTIFY changed)
+    Q_PROPERTY(bool commandBusy READ commandBusy NOTIFY placementChanged)
     Q_PROPERTY(bool regionBusy READ regionBusy NOTIFY changed)
     Q_PROPERTY(int regionProgress READ regionProgress NOTIFY regionProgressChanged)
     Q_PROPERTY(QString regionStatus READ regionStatus NOTIFY regionProgressChanged)
@@ -48,7 +48,7 @@ class Editor : public QObject {
     Q_PROPERTY(QString assetLog READ assetLog NOTIFY assetProgressChanged)
     Q_PROPERTY(QStringList defaultResourceSources READ defaultResourceSources NOTIFY changed)
     Q_PROPERTY(QVariantMap brushOptions READ brushOptions NOTIFY changed)
-    Q_PROPERTY(QString meshUpdateSummary READ meshUpdateSummary NOTIFY changed)
+    Q_PROPERTY(QString meshUpdateSummary READ meshUpdateSummary NOTIFY placementChanged)
     Q_PROPERTY(QVariantMap selection READ selection NOTIFY changed)
     Q_PROPERTY(bool selectionOnly READ selectionOnly WRITE setSelectionOnly NOTIFY changed)
     Q_PROPERTY(QString resourceSummary READ resourceSummary NOTIFY changed)
@@ -68,15 +68,15 @@ class Editor : public QObject {
     Q_PROPERTY(QObject *cameraController READ cameraController NOTIFY changed)
     Q_PROPERTY(int exactRadiusChunks READ exactRadiusChunks WRITE setExactRadiusChunks NOTIFY changed)
     Q_PROPERTY(bool exactPreviewEnabled READ exactPreviewEnabled NOTIFY changed)
-    Q_PROPERTY(QVariantMap creationState READ creationState NOTIFY changed)
-    Q_PROPERTY(QVariantMap creationDetails READ creationDetails NOTIFY changed)
+    Q_PROPERTY(QVariantMap creationState READ creationState NOTIFY placementChanged)
+    Q_PROPERTY(QVariantMap creationDetails READ creationDetails NOTIFY placementChanged)
     Q_PROPERTY(QVariantList pcgNodeTypes READ pcgNodeTypes CONSTANT)
     Q_PROPERTY(QString placementAsset READ placementAsset NOTIFY changed)
     Q_PROPERTY(bool roadPlacement READ roadPlacement NOTIFY changed)
     Q_PROPERTY(QVariantList pcgGraphs READ pcgGraphs NOTIFY changed)
     Q_PROPERTY(QVariantList pcgVolumes READ pcgVolumes NOTIFY changed)
     Q_PROPERTY(QVariantList structureAssets READ structureAssets NOTIFY changed)
-    Q_PROPERTY(QVariantList assetPresets READ assetPresets NOTIFY changed)
+    Q_PROPERTY(QVariantList assetPresets READ assetPresets NOTIFY placementChanged)
     Q_PROPERTY(QVariantList roadNodes READ roadNodes NOTIFY changed)
     Q_PROPERTY(QVariantList roadEdges READ roadEdges NOTIFY changed)
     Q_PROPERTY(QVariantList caveMarkers READ caveMarkers NOTIFY changed)
@@ -242,6 +242,7 @@ class Editor : public QObject {
         m_cameraController = controller;
         emit changed();
     }
+    double lastPlacementGenerationMs() const { return m_placementGenerationMs; }
     uint64_t revision() const { return m_revision; }
     bool commandBusy() const {
         return bool(m_stroke) || bool(m_terrainStart) || bool(m_creationStart) || bool(m_environmentStart) ||
@@ -288,6 +289,7 @@ class Editor : public QObject {
     Q_INVOKABLE void cancelExport();
   signals:
     void changed();
+    void placementChanged();
     void shortcutsChanged();
     void sceneChanged();
     void worldReset();
@@ -308,7 +310,7 @@ class Editor : public QObject {
     bool dirtyCommand(const wb::Command &command, bool forward = true);
     void startMesh();
     void resetHistory();
-    void pushCommand(wb::Command command);
+    void pushCommand(wb::Command command, bool notify = true);
     void loadResources(const QStringList &paths, bool restoring = false, bool rememberDefault = false);
     void reportAssetProgress(int progress, const QString &message);
     static QString resourceFingerprint(const QStringList &paths);
@@ -325,6 +327,9 @@ class Editor : public QObject {
     bool m_inspectionOnly = false;
     QString m_inspectionId;
     mutable QCache<QString, QString> m_thumbnailCache{256};
+    double m_placementGenerationMs = 0;
+    mutable uint64_t m_creationSummaryRevision = 0;
+    mutable QVariantMap m_creationSummary;
     mutable uint64_t m_libraryRevision = 0;
     mutable QVariantList m_libraryRows;
     struct CreationControl {

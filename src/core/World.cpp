@@ -156,8 +156,9 @@ int World::height(int x, int z) const {
     }
     return heights[c];
 }
-bool World::rebuildCreation(QString &error, const CreationProgress &progress, bool reuseMaterials) {
-    auto next = generateCreation(*this, error, progress, reuseMaterials);
+bool World::rebuildCreation(QString &error, const CreationProgress &progress, bool reuseMaterials,
+                            bool reuseScatter) {
+    auto next = generateCreation(*this, error, progress, reuseMaterials, reuseScatter);
     if (!next)
         return false;
     generated = std::move(next);
@@ -178,9 +179,8 @@ Block World::baseBlock(int x, int y, int z) const {
     if (y == MinY)
         return Bedrock;
     if (generated) {
-        auto it = generated->cells.find(key(x, y, z));
-        if (it != generated->cells.end())
-            return it->second;
+        if (const auto *cell = generated->cells.get(key(x, y, z)))
+            return *cell;
     }
     const int h = height(x, z);
     return naturalBlock(x, y, z, h);
@@ -197,25 +197,26 @@ Block World::block(int x, int y, int z) const {
     if (edit != overrides.end() && (!generated || !terrainOverrideKeys.contains(k)))
         return edit->second;
     if (generated) {
-        auto cell = generated->cells.find(k);
-        if (cell != generated->cells.end())
-            return cell->second;
+        if (const auto *cell = generated->cells.get(k))
+            return *cell;
     }
     return edit != overrides.end() ? edit->second : naturalBlock(x, y, z, height(x, z));
 }
 Block World::blockAtHeight(int x, int y, int z, int h) const {
+    return blockAtHeight(x, y, z, h, generated.get());
+}
+Block World::blockAtHeight(int x, int y, int z, int h, const GeneratedCreation *layer) const {
     if (!contains(x, y, z))
         return Air;
     if (y == MinY)
         return Bedrock;
     auto k = key(x, y, z);
     auto edit = overrides.find(k);
-    if (edit != overrides.end() && generated && generated->caveAir.contains(k))
+    if (edit != overrides.end() && layer && layer->caveAir.contains(k))
         return Air;
-    if (generated && (edit == overrides.end() || terrainOverrideKeys.contains(k))) {
-        auto cell = generated->cells.find(k);
-        if (cell != generated->cells.end())
-            return cell->second;
+    if (layer && (edit == overrides.end() || terrainOverrideKeys.contains(k))) {
+        if (const auto *cell = layer->cells.get(k))
+            return *cell;
     }
     return edit == overrides.end() ? naturalBlock(x, y, z, h) : edit->second;
 }

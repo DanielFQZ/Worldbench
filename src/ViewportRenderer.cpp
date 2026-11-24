@@ -985,6 +985,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         if (m_frames)
             ++(*m_frames);
         if (m_metrics) {
+            m_metrics->renderedMeshRevision = m_scene ? m_scene->revision : 0;
             m_metrics->renderedSourceRevision = m_scene ? m_scene->sourceRevision : 0;
             size_t bytes = 0;
             for (const auto &[src, c] : m_chunks)

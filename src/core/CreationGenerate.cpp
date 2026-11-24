@@ -261,11 +261,96 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
     r.valid = r.diagnostics.isEmpty();
     return r;
 }
-std::shared_ptr<const GeneratedCreation>
-generateCreation(World &w, QString &error, const CreationProgress &progress, bool reuseMaterials) {
-    if (!validateCreation(w.creation, error))
+namespace {
+struct ReservedBox {
+    QVector3D min, max;
+    bool contains(QVector3D v) const {
+        for (int i = 0; i < 3; ++i)
+            if (v[i] < min[i] || v[i] > max[i])
+                return false;
+        return true;
+    }
+};
+ReservedBox reservation(const AssetPreset &p, const StructureAsset *a) {
+    ReservedBox box{{1e9f, 1e9f, 1e9f}, {-1e9f, -1e9f, -1e9f}};
+    for (int corner = 0; corner < 8; ++corner) {
+        QVector3D v((corner & 1) ? a->width - 1 : 0, (corner & 2) ? a->height - 1 : 0,
+                    (corner & 4) ? a->depth - 1 : 0);
+        v -= a->pivot;
+        v *= p.scale;
+        QVector3D padding(std::abs(p.scale.x()) - 1, std::abs(p.scale.y()) - 1, std::abs(p.scale.z()) - 1);
+        for (int i = 0; i < (int(p.rotation.y() / 90) % 4 + 4) % 4; ++i) {
+            v = {-v.z(), v.y(), v.x()};
+            padding = {padding.z(), padding.y(), padding.x()};
+        }
+        v += p.position;
+        for (int axis = 0; axis < 3; ++axis) {
+            box.min[axis] = std::min(box.min[axis], v[axis] - padding[axis]);
+            box.max[axis] = std::max(box.max[axis], v[axis] + padding[axis]);
+        }
+    }
+    return box;
+}
+void collectHoles(const World &w, GeneratedCreation &out, int id) {
+    const auto *page = out.cells.page(id);
+    if (!page)
+        return;
+    std::map<int, std::set<int>> rows;
+    for (const auto &[key, b] : *page) {
+        if (b != Air)
+            continue;
+        int x, y, z;
+        w.decode(key, x, y, z);
+        auto terrain = out.heights.find(w.column(x, z));
+        const int height = terrain == out.heights.end() ? int(w.heights[w.column(x, z)]) : terrain->second;
+        if (y == height &&
+            (out.caveAir.contains(key) || !w.explicitOverride(key) || w.isAir(w.overrides.at(key))))
+            rows[z].insert(x);
+    }
+    for (const auto &[z, xs] : rows)
+        for (auto it = xs.begin(); it != xs.end();) {
+            int first = *it++, last = first;
+            while (it != xs.end() && *it == last + 1)
+                last = *it++;
+            out.surfaceHoles.emplace_back(first, z, last - first + 1, 1);
+        }
+}
+} // namespace
+bool canReuseScatter(const World &w, const AssetPreset &before, const AssetPreset &after) {
+    if (!w.generated || !w.generated->procedural)
+        return false;
+    const auto &base = *w.generated->procedural;
+    const auto asset = std::find_if(w.creation.assets.begin(), w.creation.assets.end(),
+                                    [&](const auto &a) { return a.id == before.assetId; });
+    if (asset == w.creation.assets.end())
+        return false;
+    const auto old = reservation(before, &*asset), next = reservation(after, &*asset);
+    for (const auto &point : base.reservationWitnesses)
+        if (old.contains(point) && !next.contains(point))
+            return false;
+    const int x0 = std::max(0, floorDiv(int(std::floor(next.min.x())) - w.originX, 16));
+    const int z0 = std::max(0, floorDiv(int(std::floor(next.min.z())) - w.originZ, 16));
+    const int x1 = std::min(w.chunksX() - 1, floorDiv(int(std::ceil(next.max.x())) - w.originX, 16));
+    const int z1 = std::min(w.chunksZ() - 1, floorDiv(int(std::ceil(next.max.z())) - w.originZ, 16));
+    for (int cz = z0; cz <= z1; ++cz)
+        for (int cx = x0; cx <= x1; ++cx)
+            if (const auto *page = base.geometryCells.page(cz * w.chunksX() + cx))
+                for (const auto &[key, flag] : *page) {
+                    int x, y, z;
+                    w.decode(key, x, y, z);
+                    const QVector3D point(x, y, z);
+                    if (next.contains(point) && !old.contains(point))
+                        return false;
+                }
+    return true;
+}
+std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &error,
+                                                          const CreationProgress &progress,
+                                                          bool reuseMaterials, bool reuseScatter) {
+    if (!reuseScatter && !validateCreation(w.creation, error))
         return {};
-    auto out = std::make_shared<GeneratedCreation>();
+    auto out = std::make_shared<GeneratedCreation>(w.width, w.depth);
+    bool placingManual = false;
     if (w.creation.volumes.empty() && w.creation.presets.empty() && w.creation.roadEdges.empty())
         return out;
     try {
@@ -293,6 +378,8 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
         auto put = [&](int x, int y, int z, Block b, bool geometry = false, bool terrainPatch = true) {
             if (!w.contains(x, y, z) || y == World::MinY)
                 return;
+            if (placingManual)
+                out->placementPages.insert((z - w.originZ) / 16 * w.chunksX() + (x - w.originX) / 16);
             if ((++ticks & 2047) == 0)
                 checkpoint(40, "生成方块 / 结构");
             if (out->cells.size() >= 2000000 && !out->cells.contains(w.key(x, y, z)))
@@ -303,7 +390,7 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
             out->objectCells.erase(w.key(x, y, z));
             out->blockEntities.erase(w.key(x, y, z));
             if (geometry)
-                out->geometryCells.insert(w.key(x, y, z));
+                out->geometryCells[w.key(x, y, z)] = 1;
             if (geometry && terrainPatch)
                 for (int dz = -1; dz <= 1; ++dz)
                     for (int dx = -1; dx <= 1; ++dx) {
@@ -322,35 +409,14 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
         QHash<QString, const StructureAsset *> assets;
         for (auto &a : w.creation.assets)
             assets[a.id] = &a;
-        struct ReservedBox {
-            QVector3D min, max;
-        };
         std::vector<ReservedBox> reserved;
         for (const auto &p : w.creation.presets) {
-            const auto a = assets.value(p.assetId);
-            if (!p.enabled || !a || a->placement == "ignore")
-                continue;
-            ReservedBox box{{1e9f, 1e9f, 1e9f}, {-1e9f, -1e9f, -1e9f}};
-            for (int corner = 0; corner < 8; ++corner) {
-                QVector3D v((corner & 1) ? a->width - 1 : 0, (corner & 2) ? a->height - 1 : 0,
-                            (corner & 4) ? a->depth - 1 : 0);
-                v -= a->pivot;
-                v *= p.scale;
-                QVector3D padding(std::abs(p.scale.x()) - 1, std::abs(p.scale.y()) - 1,
-                                  std::abs(p.scale.z()) - 1);
-                for (int i = 0; i < (int(p.rotation.y() / 90) % 4 + 4) % 4; ++i) {
-                    v = {-v.z(), v.y(), v.x()};
-                    padding = {padding.z(), padding.y(), padding.x()};
-                }
-                v += p.position;
-                for (int axis = 0; axis < 3; ++axis) {
-                    box.min[axis] = std::min(box.min[axis], v[axis] - padding[axis]);
-                    box.max[axis] = std::max(box.max[axis], v[axis] + padding[axis]);
-                }
-            }
-            reserved.push_back(box);
+            const auto *asset = assets.value(p.assetId);
+            if (asset && p.enabled && asset->placement != "ignore")
+                reserved.push_back(reservation(p, asset));
         }
         QHash<QString, CaveAnalysis> caves;
+        size_t cachedStampCells = 0;
         auto place = [&](const AssetPreset &p, bool scatter, int embed = 0, QString owner = {}) -> bool {
             auto a = assets.value(p.assetId);
             if (!a || a->placement == "ignore")
@@ -378,48 +444,71 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
             };
             std::vector<std::pair<QVector3D, Block>> writes;
             std::vector<std::pair<QVector3D, QByteArray>> nbtWrites;
-            if (int64_t(a->blocks.size()) * sx * sy * sz > 2000000)
-                throw std::runtime_error("缩放结构超过生成预算");
-            writes.reserve(a->blocks.size() * sx * sy * sz);
-            for (auto &b : a->blocks) {
-                if (air(b.state))
-                    continue;
-                BlockState state;
-                QString e;
-                if (!parseCreationBlock(b.state, state, e))
-                    throw std::runtime_error(e.toStdString());
-                auto transformed = transformState(state, turn, mx, mz);
-                Block value = a->placement == "carve" ? Air : block(transformed.label());
-                for (int yy = 0; yy < sy; ++yy)
-                    for (int zz = 0; zz < sz; ++zz)
-                        for (int xx = 0; xx < sx; ++xx) {
-                            auto v = pos(b.x * sx + xx, b.y * sy + yy, b.z * sz + zz);
-                            writes.push_back({v, value});
-                            if (!b.nbt.isEmpty() && value != Air)
-                                nbtWrites.push_back(
-                                    {v, patchNbtPayload(b.nbt, {{"x", nbtInt("x", int(v.x()))},
-                                                                {"y", nbtInt("y", int(v.y()))},
-                                                                {"z", nbtInt("z", int(v.z()))}})});
-                        }
-            }
-            if (a->placement == "cave") {
-                if (!caves.contains(a->id))
-                    caves[a->id] = analyzeAssetCave(*a, w.creation.caveMarkers);
-                auto &analysis = caves[a->id];
-                if (!analysis.valid)
-                    throw std::runtime_error(
-                        ("洞穴 " + a->name + "：" + analysis.diagnostics.join("；")).toStdString());
-                for (int y = 0; y < a->height; ++y)
-                    for (int z = 0; z < a->depth; ++z)
-                        for (int x = 0; x < a->width; ++x) {
-                            auto label = analysis.labels[(y * a->depth + z) * a->width + x];
-                            if (label == 1 || label == 2)
-                                for (int yy = 0; yy < sy; ++yy)
-                                    for (int zz = 0; zz < sz; ++zz)
-                                        for (int xx = 0; xx < sx; ++xx)
-                                            writes.push_back(
-                                                {pos(x * sx + xx, y * sy + yy, z * sz + zz), Air});
-                        }
+            auto stamp = reuseScatter && !scatter ? w.generated->stamps.value(p.id) : nullptr;
+            if (stamp) {
+                writes = stamp->voxels;
+                const auto offset = p.position - stamp->transform.position;
+                for (auto &[v, block] : writes)
+                    v += offset;
+                for (const auto &[from, raw] : stamp->blockEntities) {
+                    const auto v = from + offset;
+                    nbtWrites.emplace_back(v, offset.isNull()
+                                                  ? raw
+                                                  : patchNbtPayload(raw, {{"x", nbtInt("x", int(v.x()))},
+                                                                          {"y", nbtInt("y", int(v.y()))},
+                                                                          {"z", nbtInt("z", int(v.z()))}}));
+                }
+                out->stamps.insert(p.id, stamp);
+                cachedStampCells += writes.size();
+            } else {
+                if (int64_t(a->blocks.size()) * sx * sy * sz > 2000000)
+                    throw std::runtime_error("缩放结构超过生成预算");
+                writes.reserve(a->blocks.size() * sx * sy * sz);
+                for (auto &b : a->blocks) {
+                    if (air(b.state))
+                        continue;
+                    BlockState state;
+                    QString e;
+                    if (!parseCreationBlock(b.state, state, e))
+                        throw std::runtime_error(e.toStdString());
+                    auto transformed = transformState(state, turn, mx, mz);
+                    Block value = a->placement == "carve" ? Air : block(transformed.label());
+                    for (int yy = 0; yy < sy; ++yy)
+                        for (int zz = 0; zz < sz; ++zz)
+                            for (int xx = 0; xx < sx; ++xx) {
+                                auto v = pos(b.x * sx + xx, b.y * sy + yy, b.z * sz + zz);
+                                writes.push_back({v, value});
+                                if (!b.nbt.isEmpty() && value != Air)
+                                    nbtWrites.push_back(
+                                        {v, patchNbtPayload(b.nbt, {{"x", nbtInt("x", int(v.x()))},
+                                                                    {"y", nbtInt("y", int(v.y()))},
+                                                                    {"z", nbtInt("z", int(v.z()))}})});
+                            }
+                }
+                if (a->placement == "cave") {
+                    if (!caves.contains(a->id))
+                        caves[a->id] = analyzeAssetCave(*a, w.creation.caveMarkers);
+                    auto &analysis = caves[a->id];
+                    if (!analysis.valid)
+                        throw std::runtime_error(
+                            ("洞穴 " + a->name + "：" + analysis.diagnostics.join("；")).toStdString());
+                    for (int y = 0; y < a->height; ++y)
+                        for (int z = 0; z < a->depth; ++z)
+                            for (int x = 0; x < a->width; ++x) {
+                                auto label = analysis.labels[(y * a->depth + z) * a->width + x];
+                                if (label == 1 || label == 2)
+                                    for (int yy = 0; yy < sy; ++yy)
+                                        for (int zz = 0; zz < sz; ++zz)
+                                            for (int xx = 0; xx < sx; ++xx)
+                                                writes.push_back(
+                                                    {pos(x * sx + xx, y * sy + yy, z * sz + zz), Air});
+                            }
+                }
+                if (!scatter && cachedStampCells + writes.size() <= 262144) {
+                    out->stamps.insert(p.id, std::make_shared<const GeneratedCreation::PlacementStamp>(
+                                                 GeneratedCreation::PlacementStamp{p, writes, nbtWrites}));
+                    cachedStampCells += writes.size();
+                }
             }
             if (!scatter)
                 for (auto &[v, b] : writes)
@@ -435,9 +524,10 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
                         (y <= height(x, z) - embed && !w.isAir(b)))
                         return false;
                     for (const auto &box : reserved)
-                        if (x >= box.min.x() && x <= box.max.x() && y >= box.min.y() && y <= box.max.y() &&
-                            z >= box.min.z() && z <= box.max.z())
+                        if (box.contains(v)) {
+                            out->reservationWitnesses.push_back(v);
                             return false;
+                        }
                 }
             if (a->groundBlend != 0 && !a->isOpen() && a->placement == "place" && !scatter) {
                 std::map<std::pair<int, int>, int> bottom;
@@ -472,7 +562,7 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
             for (auto &[v, b] : writes) {
                 put(int(v.x()), int(v.y()), int(v.z()), b, true, !solidInstance || b == Air);
                 if (a->placement == "cave" && b == Air)
-                    out->caveAir.insert(w.key(int(v.x()), int(v.y()), int(v.z())));
+                    out->caveAir[w.key(int(v.x()), int(v.y()), int(v.z()))] = 1;
                 if (solidInstance && b != Air)
                     out->objectCells[w.key(int(v.x()), int(v.y()), int(v.z()))] = objectIndex;
             }
@@ -517,276 +607,290 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
                     }
             return true;
         };
-        // Roads: explicit graph connections, surface-following or grade-controlled bridge/tunnel.
-        for (auto &edge : w.creation.roadEdges)
-            if (edge.enabled) {
-                auto line = buildRoadPolyline(w.creation.roadNodes, edge, .5f);
-                if (line.empty())
-                    continue;
-                auto enabled = [&](QString id) {
-                    for (auto &n : w.creation.roadNodes)
-                        if (n.id == id)
-                            return n.enabled;
-                    return false;
-                };
-                if (!enabled(edge.from) || !enabled(edge.to))
-                    continue;
-                Block road = block(edge.surface);
-                float radius = edge.width * .5f;
-                std::set<std::pair<int, int>> visited;
-                std::vector<int> grades;
-                grades.reserve(line.size());
-                for (auto p : line)
-                    grades.push_back(
-                        int(std::round(edge.bridge || edge.tunnel
-                                           ? p.y()
-                                           : .65 * baseHeight(int(p.x()), int(p.z())) + .35 * p.y())));
-                const double maxStep = std::tan(edge.maxSlope * 3.141592653589793 / 180) * .5;
-                std::vector<double> smooth(grades.begin(), grades.end());
-                for (size_t i = 1; i < smooth.size(); ++i)
-                    smooth[i] = std::clamp(smooth[i], smooth[i - 1] - maxStep, smooth[i - 1] + maxStep);
-                for (size_t i = smooth.size() - 1; i > 0; --i)
-                    smooth[i - 1] = std::clamp(smooth[i - 1], smooth[i] - maxStep, smooth[i] + maxStep);
-                size_t sampleIndex = 0;
-                for (auto p : line) {
-                    int center = baseHeight(int(p.x()), int(p.z()));
-                    int grade = int(std::round(p.y()));
-                    int target = int(std::round(smooth[sampleIndex++]));
-                    for (int z = int(std::floor(p.z() - radius)); z <= int(std::ceil(p.z() + radius)); ++z)
-                        for (int x = int(std::floor(p.x() - radius)); x <= int(std::ceil(p.x() + radius));
-                             ++x) {
-                            if (!w.contains(x, 0, z) || std::hypot(x - p.x(), z - p.z()) > radius ||
-                                !visited.insert({x, z}).second)
-                                continue;
-                            target = std::clamp(target, World::MinY + 1, World::MaxY - 8);
-                            if (!edge.bridge && !edge.tunnel) {
-                                out->heights[w.column(x, z)] = target;
-                                if (out->heights.size() > 1000000)
-                                    throw std::runtime_error("道路影响超过100万地形列");
-                            }
-                            put(x, target, z, road, edge.bridge || edge.tunnel);
-                            if (edge.tunnel)
-                                for (int y = target + 1; y <= target + edge.clearance; ++y)
-                                    put(x, y, z, Air, true);
-                        }
-                }
-            }
-        size_t columns = 0;
-        auto runs = std::make_shared<std::vector<GeneratedCreation::MaterialRun>>();
-        const auto cached = reuseMaterials && w.generated ? w.generated->materialRuns : nullptr;
-        out->materialRuns = cached ? cached : runs;
-        if (cached)
-            for (const auto &run : *cached)
-                for (int i = 0; i < run.depth; ++i)
-                    put(run.x, run.y - i, run.z, i ? run.under : run.surface);
-        for (int phase = 0; phase < 2; ++phase)
-            for (auto &volume : w.creation.volumes)
-                if (volume.enabled && volume.visible) {
-                    auto graph = std::find_if(w.creation.graphs.begin(), w.creation.graphs.end(),
-                                              [&](auto &g) { return g.id == volume.graphId; });
-                    if (graph == w.creation.graphs.end() || !graph->enabled)
+        if (reuseScatter) {
+            const auto base = w.generated->procedural;
+            *out = *base;
+            out->procedural = base;
+        } else {
+            // Roads: explicit graph connections, surface-following or grade-controlled bridge/tunnel.
+            for (auto &edge : w.creation.roadEdges)
+                if (edge.enabled) {
+                    auto line = buildRoadPolyline(w.creation.roadNodes, edge, .5f);
+                    if (line.empty())
                         continue;
-                    PcgPlan plan;
-                    if (!compileGraph(*graph, plan, error))
-                        return {};
-                    struct Output {
-                        size_t index;
-                        uint32_t seed;
-                        int spacing;
+                    auto enabled = [&](QString id) {
+                        for (auto &n : w.creation.roadNodes)
+                            if (n.id == id)
+                                return n.enabled;
+                        return false;
                     };
-                    std::vector<Output> outputs;
-                    for (size_t i = 0; i < plan.instructions.size(); ++i) {
-                        const auto &n = plan.instructions[i];
-                        if (n.type != (phase == 0 ? "output_surface" : "output_scatter"))
-                            continue;
-                        uint32_t hash = 2166136261u;
-                        for (auto c :
-                             ((volume.seedDomain.isEmpty() ? volume.id : volume.seedDomain) + "/" + n.id)
-                                 .toUtf8())
-                            hash = (hash ^ uint8_t(c)) * 16777619u;
-                        outputs.push_back(
-                            {i, volume.seed ^ hash, std::clamp(n.parameters["spacing"].toInt(12), 2, 128)});
-                    }
-                    const auto inverse = volume.orientation().inverted();
-                    const auto footprint = volume.footprint();
-                    const int x0 = std::max(w.originX, int(std::floor(footprint.left()))),
-                              z0 = std::max(w.originZ, int(std::floor(footprint.top()))),
-                              x1 = std::min(w.originX + w.width, int(std::ceil(footprint.right()))),
-                              z1 = std::min(w.originZ + w.depth, int(std::ceil(footprint.bottom())));
-                    if (x0 >= x1 || z0 >= z1)
+                    if (!enabled(edge.from) || !enabled(edge.to))
                         continue;
-                    if (phase == 0) {
-                        columns += size_t(x1 - x0) * (z1 - z0);
-                        if (columns > 1000000)
-                            throw std::runtime_error("PCG本次求值超过100万列预算，请将范围分拆或缩小");
-                    }
-                    if (outputs.empty() || (phase == 0 && cached))
-                        continue;
-                    std::vector<std::vector<int>> candidates;
-                    if (phase == 1) {
-                        candidates.resize(z1 - z0);
-                        for (const auto &o : outputs) {
-                            int step = o.spacing;
-                            for (int gz = floorDiv(z0, step); gz <= floorDiv(z1 - 1, step); ++gz)
-                                for (int gx = floorDiv(x0, step); gx <= floorDiv(x1 - 1, step); ++gx) {
-                                    int x =
-                                        gx * step + step / 4 + int(random01(gx, gz, o.seed + 5) * step * .5);
-                                    int z =
-                                        gz * step + step / 4 + int(random01(gx, gz, o.seed + 7) * step * .5);
-                                    if (x >= x0 && x < x1 && z >= z0 && z < z1)
-                                        candidates[z - z0].push_back(x);
+                    Block road = block(edge.surface);
+                    float radius = edge.width * .5f;
+                    std::set<std::pair<int, int>> visited;
+                    std::vector<int> grades;
+                    grades.reserve(line.size());
+                    for (auto p : line)
+                        grades.push_back(
+                            int(std::round(edge.bridge || edge.tunnel
+                                               ? p.y()
+                                               : .65 * baseHeight(int(p.x()), int(p.z())) + .35 * p.y())));
+                    const double maxStep = std::tan(edge.maxSlope * 3.141592653589793 / 180) * .5;
+                    std::vector<double> smooth(grades.begin(), grades.end());
+                    for (size_t i = 1; i < smooth.size(); ++i)
+                        smooth[i] = std::clamp(smooth[i], smooth[i - 1] - maxStep, smooth[i - 1] + maxStep);
+                    for (size_t i = smooth.size() - 1; i > 0; --i)
+                        smooth[i - 1] = std::clamp(smooth[i - 1], smooth[i] - maxStep, smooth[i] + maxStep);
+                    size_t sampleIndex = 0;
+                    for (auto p : line) {
+                        int center = baseHeight(int(p.x()), int(p.z()));
+                        int grade = int(std::round(p.y()));
+                        int target = int(std::round(smooth[sampleIndex++]));
+                        for (int z = int(std::floor(p.z() - radius)); z <= int(std::ceil(p.z() + radius));
+                             ++z)
+                            for (int x = int(std::floor(p.x() - radius)); x <= int(std::ceil(p.x() + radius));
+                                 ++x) {
+                                if (!w.contains(x, 0, z) || std::hypot(x - p.x(), z - p.z()) > radius ||
+                                    !visited.insert({x, z}).second)
+                                    continue;
+                                target = std::clamp(target, World::MinY + 1, World::MaxY - 8);
+                                if (!edge.bridge && !edge.tunnel) {
+                                    out->heights[w.column(x, z)] = target;
+                                    if (out->heights.size() > 1000000)
+                                        throw std::runtime_error("道路影响超过100万地形列");
                                 }
-                        }
-                        for (auto &row : candidates) {
-                            std::sort(row.begin(), row.end());
-                            row.erase(std::unique(row.begin(), row.end()), row.end());
-                        }
-                    }
-                    HeightField without = w.heights;
-                    bool bound = !volume.sourceId.isEmpty(), sourceEnabled = false;
-                    if (bound) {
-                        for (auto &i : without.instances)
-                            if (i.id == volume.sourceId) {
-                                sourceEnabled = i.enabled;
-                                i.enabled = false;
+                                put(x, target, z, road, edge.bridge || edge.tunnel);
+                                if (edge.tunnel)
+                                    for (int y = target + 1; y <= target + edge.clearance; ++y)
+                                        put(x, y, z, Air, true);
                             }
-                        if (std::none_of(without.instances.begin(), without.instances.end(),
-                                         [&](auto &i) { return i.id == volume.sourceId; }))
-                            throw std::runtime_error("PCG绑定的地貌实例不存在");
-                        if (!sourceEnabled)
-                            continue;
-                    }
-                    for (int z = z0; z < z1; ++z) {
-                        checkpoint(10 + (z - z0) * 70 / std::max(1, z1 - z0),
-                                   phase == 0 ? "计算地表字段" : "计算植被分布");
-                        const int count = phase == 1 ? int(candidates[z - z0].size()) : x1 - x0;
-                        for (int k = 0; k < count; ++k) {
-                            const int x = phase == 1 ? candidates[z - z0][k] : x0 + k;
-                            int h = height(x, z);
-                            const auto local = inverse.map(QVector3D(x + .5f, h, z + .5f));
-                            if (local.x() < volume.min.x() || local.x() >= volume.max.x() ||
-                                local.z() < volume.min.z() || local.z() >= volume.max.z() ||
-                                local.y() < volume.min.y() || local.y() >= volume.max.y())
-                                continue;
-                            double mask = volume.transition > 0
-                                              ? std::clamp(std::min({local.x() - double(volume.min.x()),
-                                                                     double(volume.max.x()) - local.x(),
-                                                                     local.z() - double(volume.min.z()),
-                                                                     double(volume.max.z()) - local.z()}) /
-                                                               volume.transition,
-                                                           0., 1.)
-                                              : 1;
-                            mask = mask * mask * (3 - 2 * mask);
-                            if (bound && volume.contributionOnly) {
-                                double change =
-                                    std::abs(int(w.heights[w.column(x, z)]) - int(without[w.column(x, z)]));
-                                mask *= std::clamp(change, 0., 1.);
-                            }
-                            if (mask <= 0)
-                                continue;
-                            double slope = std::atan(std::hypot(
-                                               (baseHeight(std::min(x + 1, w.originX + w.width - 1), z) -
-                                                baseHeight(std::max(x - 1, w.originX), z)) *
-                                                   .5,
-                                               (baseHeight(x, std::min(z + 1, w.originZ + w.depth - 1)) -
-                                                baseHeight(x, std::max(z - 1, w.originZ))) *
-                                                   .5)) *
-                                           180 / 3.141592653589793;
-                            auto values = plan.evaluateValues(
-                                {double(x), double(z), double(h), double(w.heights.base(w.column(x, z))),
-                                 slope, local.x() - .5 - volume.min.x(), local.z() - .5 - volume.min.z(),
-                                 mask, volume.seed, 1, &volume.overrides});
-                            for (const auto &output : outputs) {
-                                auto &n = plan.instructions[output.index];
-                                auto &p = n.parameters;
-                                double value = std::clamp(values[output.index], 0., 1.);
-                                uint32_t seed = output.seed;
-                                if (phase == 0 && n.type == "output_surface") {
-                                    if (out->heights.contains(w.column(x, z)))
-                                        continue;
-                                    if (value < p["threshold"].toDouble(.5) || random01(x, z, seed) > mask)
-                                        continue;
-                                    QString surface = p["block"].toString("minecraft:stone");
-                                    auto alternatives = p["alternatives"].toArray();
-                                    double total = 0;
-                                    for (auto a : alternatives)
-                                        total += std::max(0., a.toObject()["weight"].toDouble(1));
-                                    if (total > 0) {
-                                        double r = random01(x, z, seed + 3) * total;
-                                        for (auto a : alternatives) {
-                                            auto o = a.toObject();
-                                            r -= std::max(0., o["weight"].toDouble(1));
-                                            if (r <= 0) {
-                                                surface = o["block"].toString();
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    Block top = block(surface),
-                                          under = block(p["under"].toString("minecraft:dirt"));
-                                    int depth = std::clamp(p["depth"].toInt(3), 1, 64);
-                                    // Caching is optional; bound storage even when many material outputs
-                                    // overlap.
-                                    if (runs) {
-                                        if (runs->size() < 2000000)
-                                            runs->push_back({x, h, z, depth, top, under});
-                                        else {
-                                            out->materialRuns.reset();
-                                            runs.reset();
-                                        }
-                                    }
-                                    for (int y = h; y > h - depth; --y)
-                                        put(x, y, z, y == h ? top : under);
-                                } else if (phase == 1 && n.type == "output_scatter") {
-                                    int spacing = std::clamp(p["spacing"].toInt(12), 2, 128);
-                                    int gx = floorDiv(x, spacing), gz = floorDiv(z, spacing);
-                                    int px = gx * spacing + spacing / 4 +
-                                             int(random01(gx, gz, seed + 5) * spacing * .5),
-                                        pz = gz * spacing + spacing / 4 +
-                                             int(random01(gx, gz, seed + 7) * spacing * .5);
-                                    if (x != px || z != pz || h <= w.seaLevel ||
-                                        random01(gx, gz, seed + 11) >
-                                            value * mask * std::clamp(p["density"].toDouble(.5), 0., 1.))
-                                        continue;
-                                    QString id = p["assetId"].toString();
-                                    auto weighted = p["assets"].toArray();
-                                    double total = 0;
-                                    for (auto a : weighted)
-                                        total += std::max(0., a.toObject()["weight"].toDouble(1));
-                                    if (total > 0) {
-                                        double r = random01(gx, gz, seed + 13) * total;
-                                        for (auto a : weighted) {
-                                            auto o = a.toObject();
-                                            r -= std::max(0., o["weight"].toDouble(1));
-                                            if (r <= 0) {
-                                                id = o["id"].toString();
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if (id.isEmpty())
-                                        continue;
-                                    AssetPreset instance;
-                                    instance.assetId = id;
-                                    const int embed = std::clamp(p["embed"].toInt(), 0, 64);
-                                    instance.position = {float(x), float(h + 1 - embed), float(z)};
-                                    instance.rotation.setY(p["rotation"].toBool(true)
-                                                               ? int(random01(gx, gz, seed + 17) * 4) * 90.f
-                                                               : 0);
-                                    int low = std::clamp(p["minScale"].toInt(1), 1, 8),
-                                        high = std::clamp(p["maxScale"].toInt(1), low, 8);
-                                    float scale =
-                                        float(low + int(random01(gx, gz, seed + 19) * (high - low + 1)));
-                                    instance.scale = {scale, scale, scale};
-                                    instance.id = volume.id + "/" + n.id + "/" + QString::number(x) + "/" +
-                                                  QString::number(z);
-                                    if (place(instance, true, embed, volume.id))
-                                        out->scatterPoints.push_back(instance.position);
-                                }
-                            }
-                        }
                     }
                 }
+            size_t columns = 0;
+            auto runs = std::make_shared<std::vector<GeneratedCreation::MaterialRun>>();
+            const auto cached = reuseMaterials && w.generated ? w.generated->materialRuns : nullptr;
+            out->materialRuns = cached ? cached : runs;
+            if (cached)
+                for (const auto &run : *cached)
+                    for (int i = 0; i < run.depth; ++i)
+                        put(run.x, run.y - i, run.z, i ? run.under : run.surface);
+            for (int phase = 0; phase < 2; ++phase)
+                for (auto &volume : w.creation.volumes)
+                    if (volume.enabled && volume.visible) {
+                        auto graph = std::find_if(w.creation.graphs.begin(), w.creation.graphs.end(),
+                                                  [&](auto &g) { return g.id == volume.graphId; });
+                        if (graph == w.creation.graphs.end() || !graph->enabled)
+                            continue;
+                        PcgPlan plan;
+                        if (!compileGraph(*graph, plan, error))
+                            return {};
+                        struct Output {
+                            size_t index;
+                            uint32_t seed;
+                            int spacing;
+                        };
+                        std::vector<Output> outputs;
+                        for (size_t i = 0; i < plan.instructions.size(); ++i) {
+                            const auto &n = plan.instructions[i];
+                            if (n.type != (phase == 0 ? "output_surface" : "output_scatter"))
+                                continue;
+                            uint32_t hash = 2166136261u;
+                            for (auto c :
+                                 ((volume.seedDomain.isEmpty() ? volume.id : volume.seedDomain) + "/" + n.id)
+                                     .toUtf8())
+                                hash = (hash ^ uint8_t(c)) * 16777619u;
+                            outputs.push_back({i, volume.seed ^ hash,
+                                               std::clamp(n.parameters["spacing"].toInt(12), 2, 128)});
+                        }
+                        const auto inverse = volume.orientation().inverted();
+                        const auto footprint = volume.footprint();
+                        const int x0 = std::max(w.originX, int(std::floor(footprint.left()))),
+                                  z0 = std::max(w.originZ, int(std::floor(footprint.top()))),
+                                  x1 = std::min(w.originX + w.width, int(std::ceil(footprint.right()))),
+                                  z1 = std::min(w.originZ + w.depth, int(std::ceil(footprint.bottom())));
+                        if (x0 >= x1 || z0 >= z1)
+                            continue;
+                        if (phase == 0) {
+                            columns += size_t(x1 - x0) * (z1 - z0);
+                            if (columns > 1000000)
+                                throw std::runtime_error("PCG本次求值超过100万列预算，请将范围分拆或缩小");
+                        }
+                        if (outputs.empty() || (phase == 0 && cached))
+                            continue;
+                        std::vector<std::vector<int>> candidates;
+                        if (phase == 1) {
+                            candidates.resize(z1 - z0);
+                            for (const auto &o : outputs) {
+                                int step = o.spacing;
+                                for (int gz = floorDiv(z0, step); gz <= floorDiv(z1 - 1, step); ++gz)
+                                    for (int gx = floorDiv(x0, step); gx <= floorDiv(x1 - 1, step); ++gx) {
+                                        int x = gx * step + step / 4 +
+                                                int(random01(gx, gz, o.seed + 5) * step * .5);
+                                        int z = gz * step + step / 4 +
+                                                int(random01(gx, gz, o.seed + 7) * step * .5);
+                                        if (x >= x0 && x < x1 && z >= z0 && z < z1)
+                                            candidates[z - z0].push_back(x);
+                                    }
+                            }
+                            for (auto &row : candidates) {
+                                std::sort(row.begin(), row.end());
+                                row.erase(std::unique(row.begin(), row.end()), row.end());
+                            }
+                        }
+                        HeightField without = w.heights;
+                        bool bound = !volume.sourceId.isEmpty(), sourceEnabled = false;
+                        if (bound) {
+                            for (auto &i : without.instances)
+                                if (i.id == volume.sourceId) {
+                                    sourceEnabled = i.enabled;
+                                    i.enabled = false;
+                                }
+                            if (std::none_of(without.instances.begin(), without.instances.end(),
+                                             [&](auto &i) { return i.id == volume.sourceId; }))
+                                throw std::runtime_error("PCG绑定的地貌实例不存在");
+                            if (!sourceEnabled)
+                                continue;
+                        }
+                        for (int z = z0; z < z1; ++z) {
+                            checkpoint(10 + (z - z0) * 70 / std::max(1, z1 - z0),
+                                       phase == 0 ? "计算地表字段" : "计算植被分布");
+                            const int count = phase == 1 ? int(candidates[z - z0].size()) : x1 - x0;
+                            for (int k = 0; k < count; ++k) {
+                                const int x = phase == 1 ? candidates[z - z0][k] : x0 + k;
+                                int h = height(x, z);
+                                const auto local = inverse.map(QVector3D(x + .5f, h, z + .5f));
+                                if (local.x() < volume.min.x() || local.x() >= volume.max.x() ||
+                                    local.z() < volume.min.z() || local.z() >= volume.max.z() ||
+                                    local.y() < volume.min.y() || local.y() >= volume.max.y())
+                                    continue;
+                                double mask =
+                                    volume.transition > 0
+                                        ? std::clamp(std::min({local.x() - double(volume.min.x()),
+                                                               double(volume.max.x()) - local.x(),
+                                                               local.z() - double(volume.min.z()),
+                                                               double(volume.max.z()) - local.z()}) /
+                                                         volume.transition,
+                                                     0., 1.)
+                                        : 1;
+                                mask = mask * mask * (3 - 2 * mask);
+                                if (bound && volume.contributionOnly) {
+                                    double change = std::abs(int(w.heights[w.column(x, z)]) -
+                                                             int(without[w.column(x, z)]));
+                                    mask *= std::clamp(change, 0., 1.);
+                                }
+                                if (mask <= 0)
+                                    continue;
+                                double slope = std::atan(std::hypot(
+                                                   (baseHeight(std::min(x + 1, w.originX + w.width - 1), z) -
+                                                    baseHeight(std::max(x - 1, w.originX), z)) *
+                                                       .5,
+                                                   (baseHeight(x, std::min(z + 1, w.originZ + w.depth - 1)) -
+                                                    baseHeight(x, std::max(z - 1, w.originZ))) *
+                                                       .5)) *
+                                               180 / 3.141592653589793;
+                                auto values = plan.evaluateValues(
+                                    {double(x), double(z), double(h), double(w.heights.base(w.column(x, z))),
+                                     slope, local.x() - .5 - volume.min.x(), local.z() - .5 - volume.min.z(),
+                                     mask, volume.seed, 1, &volume.overrides});
+                                for (const auto &output : outputs) {
+                                    auto &n = plan.instructions[output.index];
+                                    auto &p = n.parameters;
+                                    double value = std::clamp(values[output.index], 0., 1.);
+                                    uint32_t seed = output.seed;
+                                    if (phase == 0 && n.type == "output_surface") {
+                                        if (out->heights.contains(w.column(x, z)))
+                                            continue;
+                                        if (value < p["threshold"].toDouble(.5) ||
+                                            random01(x, z, seed) > mask)
+                                            continue;
+                                        QString surface = p["block"].toString("minecraft:stone");
+                                        auto alternatives = p["alternatives"].toArray();
+                                        double total = 0;
+                                        for (auto a : alternatives)
+                                            total += std::max(0., a.toObject()["weight"].toDouble(1));
+                                        if (total > 0) {
+                                            double r = random01(x, z, seed + 3) * total;
+                                            for (auto a : alternatives) {
+                                                auto o = a.toObject();
+                                                r -= std::max(0., o["weight"].toDouble(1));
+                                                if (r <= 0) {
+                                                    surface = o["block"].toString();
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        Block top = block(surface),
+                                              under = block(p["under"].toString("minecraft:dirt"));
+                                        int depth = std::clamp(p["depth"].toInt(3), 1, 64);
+                                        // Caching is optional; bound storage even when many material outputs
+                                        // overlap.
+                                        if (runs) {
+                                            if (runs->size() < 2000000)
+                                                runs->push_back({x, h, z, depth, top, under});
+                                            else {
+                                                out->materialRuns.reset();
+                                                runs.reset();
+                                            }
+                                        }
+                                        for (int y = h; y > h - depth; --y)
+                                            put(x, y, z, y == h ? top : under);
+                                    } else if (phase == 1 && n.type == "output_scatter") {
+                                        int spacing = std::clamp(p["spacing"].toInt(12), 2, 128);
+                                        int gx = floorDiv(x, spacing), gz = floorDiv(z, spacing);
+                                        int px = gx * spacing + spacing / 4 +
+                                                 int(random01(gx, gz, seed + 5) * spacing * .5),
+                                            pz = gz * spacing + spacing / 4 +
+                                                 int(random01(gx, gz, seed + 7) * spacing * .5);
+                                        if (x != px || z != pz || h <= w.seaLevel ||
+                                            random01(gx, gz, seed + 11) >
+                                                value * mask * std::clamp(p["density"].toDouble(.5), 0., 1.))
+                                            continue;
+                                        QString id = p["assetId"].toString();
+                                        auto weighted = p["assets"].toArray();
+                                        double total = 0;
+                                        for (auto a : weighted)
+                                            total += std::max(0., a.toObject()["weight"].toDouble(1));
+                                        if (total > 0) {
+                                            double r = random01(gx, gz, seed + 13) * total;
+                                            for (auto a : weighted) {
+                                                auto o = a.toObject();
+                                                r -= std::max(0., o["weight"].toDouble(1));
+                                                if (r <= 0) {
+                                                    id = o["id"].toString();
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (id.isEmpty())
+                                            continue;
+                                        AssetPreset instance;
+                                        instance.assetId = id;
+                                        const int embed = std::clamp(p["embed"].toInt(), 0, 64);
+                                        instance.position = {float(x), float(h + 1 - embed), float(z)};
+                                        instance.rotation.setY(p["rotation"].toBool(true)
+                                                                   ? int(random01(gx, gz, seed + 17) * 4) *
+                                                                         90.f
+                                                                   : 0);
+                                        int low = std::clamp(p["minScale"].toInt(1), 1, 8),
+                                            high = std::clamp(p["maxScale"].toInt(1), low, 8);
+                                        float scale =
+                                            float(low + int(random01(gx, gz, seed + 19) * (high - low + 1)));
+                                        instance.scale = {scale, scale, scale};
+                                        instance.id = volume.id + "/" + n.id + "/" + QString::number(x) +
+                                                      "/" + QString::number(z);
+                                        if (place(instance, true, embed, volume.id))
+                                            out->scatterPoints.push_back(instance.position);
+                                    }
+                                }
+                            }
+                        }
+                    }
+            for (const auto &[id, page] : out->cells.pages())
+                collectHoles(w, *out, id);
+            out->procedural = std::make_shared<const GeneratedCreation>(*out);
+        }
+        placingManual = true;
         for (auto &p : w.creation.presets)
             if (p.enabled)
                 place(p, false);
@@ -794,31 +898,12 @@ generateCreation(World &w, QString &error, const CreationProgress &progress, boo
         error = QString::fromUtf8(e.what());
         return {};
     }
-    std::map<int, std::set<int>> holes;
-    for (auto [key, b] : out->cells) {
-        int x, y, z;
-        w.decode(key, x, y, z);
-        const int id = (z - w.originZ) / 16 * w.chunksX() + (x - w.originX) / 16;
-        out->byChunk[id].push_back({key, b});
-        const auto changedHeight = out->heights.find(w.column(x, z));
-        const int surface =
-            changedHeight == out->heights.end() ? int(w.heights[w.column(x, z)]) : changedHeight->second;
-        if (b == Air &&
-            (out->caveAir.contains(key) || !w.explicitOverride(key) || w.isAir(w.overrides.at(key))) &&
-            y == surface)
-            holes[z].insert(x);
-    }
-    for (auto &[z, xs] : holes) {
-        for (auto i = xs.begin(); i != xs.end();) {
-            int first = *i, last = first;
-            ++i;
-            while (i != xs.end() && *i == last + 1) {
-                last = *i;
-                ++i;
-            }
-            out->surfaceHoles.emplace_back(first, z, last - first + 1, 1);
-        }
-    }
+    std::erase_if(out->surfaceHoles, [&](const QRect &r) {
+        return out->placementPages.contains((r.y() - w.originZ) / 16 * w.chunksX() +
+                                            (r.x() - w.originX) / 16);
+    });
+    for (const int id : out->placementPages)
+        collectHoles(w, *out, id);
     if (progress)
         progress(100, "创作结果完成");
     return out;
