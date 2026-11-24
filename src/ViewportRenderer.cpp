@@ -115,14 +115,14 @@ class Renderer final : public QQuickRhiItemRenderer {
             if (v.id == object.ownerId)
                 for (const auto &old : m_scene->creation.volumes)
                     if (old.id == v.id) {
-                        if (v.min == old.min && v.max == old.max)
+                        if (v.min == old.min && v.max == old.max && v.rotation == old.rotation)
                             return {};
                         QMatrix4x4 m;
                         m.translate(v.min);
                         const auto a = v.max - v.min, b = old.max - old.min;
                         m.scale(a.x() / b.x(), a.y() / b.y(), a.z() / b.z());
                         m.translate(-old.min);
-                        return m;
+                        return v.orientation() * m * old.orientation().inverted();
                     }
         return {};
     }
@@ -303,11 +303,12 @@ class Renderer final : public QQuickRhiItemRenderer {
     }
     void updateBounds(const Viewport &viewport) {
         std::vector<wb::Vertex> vertices;
-        auto box = [&](QVector3D lo, QVector3D hi, bool selected, float opacity) {
+        auto box = [&](QVector3D lo, QVector3D hi, bool selected, float opacity, const QMatrix4x4 &pose) {
             auto vertex = [&](int i) {
-                vertices.push_back({i & 1 ? hi.x() : lo.x(), i & 2 ? hi.y() : lo.y(), i & 4 ? hi.z() : lo.z(),
-                                    0, 1, 0, selected ? .52f : .41f, selected ? .87f : .55f,
-                                    selected ? .77f : .60f, opacity, -1, -1});
+                auto p = pose.map(
+                    QVector3D(i & 1 ? hi.x() : lo.x(), i & 2 ? hi.y() : lo.y(), i & 4 ? hi.z() : lo.z()));
+                vertices.push_back({p.x(), p.y(), p.z(), 0, 1, 0, selected ? 1.f : .41f,
+                                    selected ? .64f : .55f, selected ? .15f : .60f, opacity, -1, -1});
             };
             for (int i = 0; i < 8; ++i)
                 for (int bit : {1, 2, 4})
@@ -318,15 +319,15 @@ class Renderer final : public QQuickRhiItemRenderer {
         };
         for (const auto &v : m_creation.volumes)
             if (v.visible) {
-                box(v.min, v.max, v.id == m_selectedId, .85f);
+                box(v.min, v.max, v.id == m_selectedId, v.id == m_selectedId ? 1.f : .85f, v.orientation());
                 const float inset = std::min(
                     {v.transition, (v.max.x() - v.min.x()) * .475f, (v.max.z() - v.min.z()) * .475f});
                 if (inset > 0)
                     box(v.min + QVector3D(inset, 0, inset), v.max - QVector3D(inset, 0, inset),
-                        v.id == m_selectedId, .45f);
+                        v.id == m_selectedId, .45f, v.orientation());
             }
         if (viewport.hasGhostBounds())
-            box(viewport.ghostMin(), viewport.ghostMax(), true, .85f);
+            box(viewport.ghostMin(), viewport.ghostMax(), true, .85f, viewport.ghostBoundsPose());
         if (vertices.size() != m_boundsVertices.size() ||
             (!vertices.empty() && std::memcmp(vertices.data(), m_boundsVertices.data(),
                                               vertices.size() * sizeof(wb::Vertex)) != 0)) {
@@ -671,7 +672,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             for (const auto &p : m_creation.presets)
                 if (p.id == m_selectedId && p.enabled)
                     for (const auto &a : m_creation.assets)
-                        if (a.id == p.assetId && a.placement != "place") {
+                        if (a.id == p.assetId && a.placement == "carve") {
                             selected = m_proxy;
                             selectedTransform = placementMatrix(p);
                             selectedTransform.translate(-a.pivot);

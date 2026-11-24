@@ -223,6 +223,7 @@ class Editor : public QObject {
     QVariantList roadNodes() const;
     QVariantList roadEdges() const;
     QVariantList caveMarkers() const;
+    Q_INVOKABLE bool splitMixedGraph(const QString &id);
     Q_INVOKABLE bool createPcgGraph(const QString &name = QString(), bool surfaceMaterial = false);
     Q_INVOKABLE bool addPcgVolume(const QString &graphId = QString());
     Q_INVOKABLE bool connectPcgNodes(const QString &graphId, const QString &fromNode, const QString &fromPort,
@@ -332,7 +333,8 @@ class Editor : public QObject {
     };
     std::shared_ptr<CreationControl> m_creationControl;
     bool m_creationBusy = false, m_creationCancellable = false;
-    bool prepareCreation(wb::World &candidate, QString &error, bool cancellable = true);
+    bool prepareCreation(wb::World &candidate, QString &error, bool cancellable = true,
+                         bool reuseMaterials = false);
     static wb::TerrainInstance importedTerrain(const wb::World &world, const QString &fileName,
                                                std::shared_ptr<const wb::HeightmapData> image);
     bool commitCreation(wb::CreationState next, const QString &label,

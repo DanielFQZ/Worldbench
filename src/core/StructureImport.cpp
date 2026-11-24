@@ -320,6 +320,10 @@ bool importStructure(const QString &path, StructureAsset &asset, QString &error)
             }
             if (!asset.entities.empty())
                 asset.diagnostic = "包含实体：保留数据并导出；编辑视口当前只显示结构方块。";
+            const bool foliage = std::any_of(asset.blocks.begin(), asset.blocks.end(), [](const auto &b) {
+                return b.state.section('[', 0, 0).endsWith("_leaves");
+            });
+            asset.category = foliage ? "open" : "closed";
             asset.pivot = {float(asset.width / 2), 0, float(asset.depth / 2)};
         } catch (const std::exception &e) {
             error = QString::fromUtf8(e.what());

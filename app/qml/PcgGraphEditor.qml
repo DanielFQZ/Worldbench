@@ -33,7 +33,8 @@ Item {
   RowLayout {
    Layout.fillWidth:true;Layout.margins:8
    WorkbenchTextField {id:search;placeholderText:"搜索节点…";Layout.preferredWidth:120}
-   WorkbenchComboBox {id:nodeType;Layout.preferredWidth:180;model:editor.pcgNodeTypes.filter(n=>!search.text||n.name.indexOf(search.text)>=0||n.type.indexOf(search.text)>=0);textRole:"name";valueRole:"type"}
+   WorkbenchComboBox {id:nodeType;Layout.preferredWidth:180;model:editor.pcgNodeTypes.filter(n=>n.type!==(root.graph.surfaceMaterial?"output_scatter":"output_surface")).filter(n=>!search.text||n.name.indexOf(search.text)>=0||n.type.indexOf(search.text)>=0);textRole:"name";valueRole:"type"}
+   WorkbenchButton {text:"拆分旧混合图";visible:root.graph.version===1 && (root.graph.nodes||[]).some(n=>n.type==="output_surface") && (root.graph.nodes||[]).some(n=>n.type==="output_scatter");onClicked:editor.splitMixedGraph(root.graphId)}
    WorkbenchButton {text:"添加节点";enabled:!!root.graph.id;onClicked:root.addNode()}
    WorkbenchButton {text:"删除节点";enabled:!!root.selected;onClicked:root.remove()}
    Item {Layout.fillWidth:true}
@@ -96,7 +97,7 @@ Item {
       source:{root.signature;return root.selected?editor.pcgPreview(root.graphId,root.selected):""}
 
       MouseArea {anchors.fill:parent;enabled:!!root.node(root.selected)&&root.node(root.selected).type==="paint_mask"
-       function paint(m){let vols=editor.pcgVolumes.filter(v=>v.graphId===root.graphId),v=vols.length?vols[0]:{min:[-32,0,-32],max:[32,320,32]};let size=Math.min(width,height),left=(width-size)/2,top=(height-size)/2;if(m.x<left||m.x>left+size||m.y<top||m.y>top+size)return;let pts=(root.node(root.selected).parameters.points||[]).slice();pts.push([v.min[0]+(m.x-left)/size*(v.max[0]-v.min[0]),v.min[2]+(m.y-top)/size*(v.max[2]-v.min[2])]);root.patchParam("points",pts)}
+       function paint(m){let vols=editor.pcgVolumes.filter(v=>v.graphId===root.graph.id),v=vols.length?vols[0]:{footprint:[-32,-32,64,64]};let size=Math.min(width,height),left=(width-size)/2,top=(height-size)/2;if(m.x<left||m.x>left+size||m.y<top||m.y>top+size)return;let pts=(root.node(root.selected).parameters.points||[]).slice();pts.push([v.footprint[0]+(m.x-left)/size*v.footprint[2],v.footprint[1]+(m.y-top)/size*v.footprint[3]]);root.patchParam("points",pts)}
        onClicked:function(m){paint(m)}
       }
      }

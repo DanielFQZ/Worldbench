@@ -21,7 +21,8 @@ void Editor::setSelectedNode(const QString &id) {
     for (auto value : sceneNodes())
         if (value.toMap()["id"].toString() == id)
             creationNode = true;
-    if (!creationNode && !id.startsWith("environment") && m_world.heights.layerIndex(id) < 0 &&
+    if (!id.isEmpty() && !creationNode && !id.startsWith("environment") &&
+        m_world.heights.layerIndex(id) < 0 &&
         std::none_of(m_world.heights.instances.begin(), m_world.heights.instances.end(),
                      [&](const auto &i) { return i.id == id; }))
         return;

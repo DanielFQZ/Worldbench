@@ -49,6 +49,7 @@ struct MeshScene {
         AssetPreset placement;
         MeshPtr mesh;
         std::vector<MeshPtr> lods;
+        std::shared_ptr<const std::vector<std::pair<int64_t, Block>>> shape;
     };
     struct Cluster {
         MeshPtr mesh;
@@ -86,7 +87,8 @@ struct MeshScene {
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision,
                        bool creationOnly = false, bool isolatedAsset = false, bool omitObjects = false);
 std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision,
-                                                   std::vector<MeshScene::Cluster> *clusters = nullptr);
+                                                   std::vector<MeshScene::Cluster> *clusters = nullptr,
+                                                   const MeshScene *previous = nullptr);
 MeshPtr buildTerrainAssetPreview(const TerrainInstance &terrain, int maxSamples = 129);
 MeshPtr buildAssetGhost(World world, const StructureAsset &asset);
 } // namespace wb

@@ -9,7 +9,8 @@ Pane {
  property var controller:editor
  property var asset:({})
  readonly property string kind:asset.kind || ""
- readonly property bool graph:["graph","material","range"].includes(kind)
+ readonly property bool rangePreset:kind==="range" || kind==="materialRange"
+ readonly property bool graph:rangePreset || ["graph","material"].includes(kind)
  signal placeRequested()
  signal assetRequested(string id)
  background:Rectangle{color:Theme.panel}
@@ -19,20 +20,20 @@ Pane {
   Loader {
    Layout.fillWidth:true;Layout.fillHeight:true
    sourceComponent:panel.graph?graphPage:panel.kind==="terrain"?terrainPage:panel.kind==="road"?roadPage:
-                   ["plant","building","cave"].includes(panel.kind)?structurePage:null
+                   ["open","closed"].includes(panel.kind)?structurePage:null
   }
  }
  Component {
   id:graphPage
   ColumnLayout {
    RowLayout {Layout.fillWidth:true;Layout.margins:8
-    Label{text:panel.kind==="material"?"地表材质":panel.kind==="range"?"PCG 范围预设":"PCG 节点图";color:Theme.secondary}
+    Label{text:panel.kind==="materialRange"?"地表材质范围预设":panel.kind==="material"?"地表材质":panel.kind==="range"?"PCG 范围预设":"PCG 节点图";color:Theme.secondary}
     WorkbenchTextField {Layout.fillWidth:true;text:panel.asset.name||"";maximumLength:128
      onEditingFinished:if(text!==panel.asset.name && !editor.renameLibraryAsset(panel.asset.id,text))text=panel.asset.name
     }
     WorkbenchButton {text:"在地表放置范围";onClicked:{editor.beginPlacement(panel.asset.id);panel.placeRequested()}}
    }
-   PcgGraphEditor {Layout.fillWidth:true;Layout.fillHeight:true;graphId:panel.asset.id||"";rangePreset:panel.kind==="range";onGraphImported:id=>panel.assetRequested(id)}
+   PcgGraphEditor {Layout.fillWidth:true;Layout.fillHeight:true;graphId:panel.asset.id||"";rangePreset:panel.rangePreset;onGraphImported:id=>panel.assetRequested(id)}
   }
  }
  Component {id:structurePage;AssetEditor {assetId:panel.asset.id||"";kind:panel.kind;onPlaceRequested:panel.placeRequested()}}

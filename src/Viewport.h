@@ -51,6 +51,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     wb::MeshPtr selectionProxy() const { return m_selectionProxy; }
     void refreshSelectionProxy();
     wb::MeshPtr ghostMesh() const { return m_ghostVisible ? m_ghostMesh : wb::MeshPtr{}; }
+    QMatrix4x4 ghostBoundsPose() const { return m_ghostBoundsPose; }
     bool hasGhostBounds() const { return m_ghostVolume && (!m_ghostVisible || !m_ghostMesh); }
     QVector3D ghostMin() const { return m_ghostMin; }
     QVector3D ghostMax() const { return m_ghostMax; }
@@ -113,7 +114,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     const void *m_proxyBlocks = nullptr;
     std::shared_ptr<const wb::AssetLibrary> m_proxyLibrary;
     wb::MeshPtr m_ghostMesh;
-    QMatrix4x4 m_ghostTransform;
+    QMatrix4x4 m_ghostTransform, m_ghostBoundsPose;
     bool m_ghostVisible = false;
     bool m_ghostVolume = false;
     QVector3D m_ghostMin, m_ghostMax;
@@ -143,6 +144,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     QVector3D m_gizmoVolumeSize;
     QVector3D forward() const;
     QVector3D right() const;
+    QString pickCreation(QPointF position) const;
     void pick(QPointF pos);
     void stopInput();
     void tick();

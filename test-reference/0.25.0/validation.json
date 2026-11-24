@@ -1,0 +1,24 @@
+{
+  "version": "0.25.0",
+  "date": "2026-11-24",
+  "baseline": "6f02173",
+  "ctest": {
+    "total": 15,
+    "passed": 15,
+    "core_checks": 434,
+    "creation_ui_checks": 3552
+  },
+  "packaged_open": {
+    "dimensions": [
+      2520,
+      1575
+    ],
+    "source_copy_sha256": "0dc7efb773abd5cf89cf51add35c1296d70c44f141e3c21d0f4150ab7ccb02b7"
+  },
+  "move_measurement_file": "move-review.json",
+  "scene_capture": "closed-shell.png",
+  "binary_sha256": {
+    "Worldbench.exe": "a7ef102e8a75378349817f78728803270c092a044b8ab43f133dbcebc98d7f50",
+    "WorldbenchMcp.exe": "6c83a1daa5b6dccc20f6b9d9889fe268f5083fb97af4103a22a16ca542e40f43"
+  }
+}

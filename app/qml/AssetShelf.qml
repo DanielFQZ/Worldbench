@@ -20,7 +20,7 @@ Rectangle {
     signal importRequested()
     signal graphRequested(bool material)
     function kindName(kind) {
-        return ({graph:"PCG 图",range:"PCG 范围预设",plant:"植物",building:"建筑",cave:"洞穴",material:"地表材质",terrain:"地形实例"})[kind] || kind
+        return ({graph:"PCG 图",range:"PCG 范围预设",materialRange:"地表材质范围预设",open:"开放结构",closed:"封闭结构",material:"地表材质",terrain:"地形实例"})[kind] || kind
     }
     color:Theme.window
     property string saveId:""
@@ -170,7 +170,7 @@ Rectangle {
             }
             Column {
                 anchors.centerIn:parent;spacing:10;visible:grid.count===0
-                Label {anchors.horizontalCenter:parent.horizontalCenter;text:search.text?"没有匹配的资产":root.folder!==null?"文件夹为空":"将结构、树木和洞穴收纳到资产库";color:Theme.secondary}
+                Label {anchors.horizontalCenter:parent.horizontalCenter;text:search.text?"没有匹配的资产":root.folder!==null?"文件夹为空":"从资源管理器拖入资产";color:Theme.secondary}
                 WorkbenchButton {anchors.horizontalCenter:parent.horizontalCenter;visible:!search.text && root.folder===null;text:"导入第一个资产";onClicked:root.importRequested()}
             }
         }

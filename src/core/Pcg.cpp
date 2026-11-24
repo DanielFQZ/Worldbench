@@ -114,7 +114,8 @@ static bool compileGraphDepth(const PcgGraph &g, PcgPlan &plan, QString &error, 
     };
     if (depth > 8)
         return fail("子图嵌套不能超过8层");
-    if (!validId(g.id) || g.version != 1 || g.nodes.size() > 256 || g.connections.size() > 1024)
+    if (!validId(g.id) || (g.version != 1 && g.version != 2) || g.nodes.size() > 256 ||
+        g.connections.size() > 1024)
         return fail("PCG 图版本、ID或预算无效（最多256节点/1024连线）");
     QHash<QString, int> ids;
     std::vector<std::vector<int>> incoming(g.nodes.size());
@@ -122,6 +123,9 @@ static bool compileGraphDepth(const PcgGraph &g, PcgPlan &plan, QString &error, 
         auto &n = g.nodes[i];
         if (!validId(n.id) || ids.contains(n.id) || !spec(n.type))
             return fail("未知节点类型或重复节点ID：" + n.id + " / " + n.type);
+        if (g.version == 2 && ((g.surfaceMaterial && n.type == "output_scatter") ||
+                               (!g.surfaceMaterial && n.type == "output_surface")))
+            return fail("地表材质和实例 PCG 使用各自的输出节点");
         ids[n.id] = i;
         for (auto v : n.parameters)
             if (v.isDouble() && (!std::isfinite(v.toDouble()) || std::abs(v.toDouble()) > 1e9))
@@ -387,7 +391,7 @@ bool validateCreation(const CreationState &s, QString &error) {
     for (auto &a : s.assets) {
         assets.insert(a.id);
         if (!a.category.isEmpty() && a.category != "plant" && a.category != "building" &&
-            a.category != "cave")
+            a.category != "cave" && a.category != "open" && a.category != "closed")
             return fail("结构资产分类无效");
         if (!validTransform(a.defaultRotation, a.defaultScale) || a.groundBlend < 0 || a.groundBlend > 2)
             return fail("资产默认变换或地基模式无效");
@@ -446,9 +450,9 @@ bool validateCreation(const CreationState &s, QString &error) {
         for (auto val : v.overrides)
             if (!val.isDouble() || !std::isfinite(val.toDouble()) || std::abs(val.toDouble()) > 1e9)
                 return fail("实例参数覆盖必须为有限标量");
-        if (!graphs.contains(v.graphId) || !finite(v.min) || !finite(v.max) || v.min.x() >= v.max.x() ||
-            v.min.y() >= v.max.y() || v.min.z() >= v.max.z() || !std::isfinite(v.transition) ||
-            v.transition < 0)
+        if (!graphs.contains(v.graphId) || !finite(v.min) || !finite(v.max) || !finite(v.rotation) ||
+            v.min.x() >= v.max.x() || v.min.y() >= v.max.y() || v.min.z() >= v.max.z() ||
+            !std::isfinite(v.transition) || v.transition < 0)
             return fail("PCG范围或图引用无效");
         return true;
     };

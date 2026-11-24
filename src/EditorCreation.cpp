@@ -168,6 +168,10 @@ QVariantMap Editor::creationDetails() const {
             auto row = value.toMap();
             if (row["id"].toString() == m_selectedNode) {
                 row["kind"] = key;
+                if (row.contains("graphId")) {
+                    const auto *graph = wb::libraryGraph(m_world.creation, row["graphId"].toString());
+                    row["surfaceMaterial"] = graph && graph->surfaceMaterial;
+                }
                 row["valid"] = true;
                 return row;
             }
@@ -188,7 +192,14 @@ QVariantList Editor::pcgGraphs() const {
     return creationState()["graphs"].toList();
 }
 QVariantList Editor::pcgVolumes() const {
-    return creationState()["volumes"].toList();
+    QVariantList rows;
+    for (const auto &volume : m_world.creation.volumes) {
+        auto row = volume.toJson().toVariantMap();
+        const auto r = volume.footprint();
+        row["footprint"] = QVariantList{r.x(), r.y(), r.width(), r.height()};
+        rows.append(row);
+    }
+    return rows;
 }
 QVariantList Editor::structureAssets() const {
     return creationState()["assets"].toList();
@@ -212,15 +223,15 @@ QVariantList Editor::libraryAssets() const {
             {"depth", depth}});
     };
     for (const auto &a : m_world.creation.assets) {
-        const auto kind = a.placement == "cave"  ? QStringLiteral("cave")
-                          : a.category.isEmpty() ? QStringLiteral("building")
-                                                 : a.category;
+        const auto kind = a.isOpen() ? QStringLiteral("open") : QStringLiteral("closed");
         add(a.id, a.name, kind, "assets", a.width, a.height, a.depth,
             qHashMulti(0, quintptr(a.blocks.identity()), a.width, a.height, a.depth));
     }
     for (const auto &a : m_world.creation.pcgAssets) {
         const auto size = a.volume.max - a.volume.min;
-        add(a.id, a.name, "range", "pcgAssets", size.x(), size.y(), size.z(),
+        const auto *graph = wb::libraryGraph(m_world.creation, a.volume.graphId);
+        add(a.id, a.name, graph && graph->surfaceMaterial ? "materialRange" : "range", "pcgAssets", size.x(),
+            size.y(), size.z(),
             qHashMulti(0, QJsonObject::fromVariantMap(graphData(a.id)), a.volume.toJson()));
     }
     for (const auto &g : m_world.creation.graphs)
@@ -560,12 +571,70 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
     }
     return commitCreation(std::move(next), "编辑创作对象");
 }
+bool Editor::splitMixedGraph(const QString &id) {
+    auto next = m_world.creation;
+    const auto *source = wb::libraryGraph(next, id);
+    if (!source)
+        return false;
+    const auto sourceId = source->id;
+    auto &scatter = next.graphs[size_t(source - next.graphs.data())];
+    auto material = scatter;
+    auto separate = [](wb::PcgGraph &graph, const QString &remove) {
+        QSet<QString> removed;
+        std::erase_if(graph.nodes, [&](const auto &n) {
+            if (n.type != remove)
+                return false;
+            removed.insert(n.id);
+            return true;
+        });
+        std::erase_if(graph.connections, [&](const auto &c) { return removed.contains(c.toNode); });
+        graph.version = 2;
+        return !removed.empty();
+    };
+    if (!separate(scatter, "output_surface") || !separate(material, "output_scatter"))
+        return false;
+    scatter.surfaceMaterial = false;
+    material.surfaceMaterial = true;
+    material.id = fresh("material");
+    material.name = material.name.left(116) + " · 地表材质";
+    next.graphs.push_back(material);
+    if (next.assetFolders.contains(sourceId))
+        next.assetFolders[material.id] = next.assetFolders.value(sourceId);
+    // Preserve order, volume identity for the scatter pass and the material random seed.
+    for (size_t i = 0; i < next.volumes.size(); ++i) {
+        auto volume = next.volumes[i];
+        if (volume.graphId != sourceId)
+            continue;
+        if (volume.seedDomain.isEmpty())
+            volume.seedDomain = volume.id;
+        volume.graphId = material.id;
+        volume.id = fresh("material-range");
+        volume.name += " · 地表材质";
+        next.volumes.insert(next.volumes.begin() + i + 1, volume);
+        ++i;
+    }
+    const auto presets = next.pcgAssets;
+    for (auto asset : presets) {
+        if (asset.volume.graphId != sourceId)
+            continue;
+        const auto oldId = asset.id;
+        asset.id = fresh("material-preset");
+        asset.name = asset.name.left(114) + " · 地表材质";
+        asset.volume.graphId = material.id;
+        if (next.assetFolders.contains(oldId))
+            next.assetFolders[asset.id] = next.assetFolders.value(oldId);
+        next.pcgAssets.push_back(std::move(asset));
+    }
+    return commitCreation(std::move(next), "拆分实例 PCG 和地表材质");
+}
+
 bool Editor::createPcgGraph(const QString &name, bool surfaceMaterial) {
     auto next = m_world.creation;
     wb::PcgGraph graph;
     graph.id = fresh("pcg");
     graph.surfaceMaterial = surfaceMaterial;
-    graph.name = name.isEmpty() ? (surfaceMaterial ? "地表材质" : "地表 PCG 图") : name.left(128);
+    graph.version = 2;
+    graph.name = name.isEmpty() ? (surfaceMaterial ? "地表材质" : "实例 PCG 图") : name.left(128);
     graph.nodes = {{"constant", "constant", {{"value", 1}, {"uiX", 40}, {"uiY", 80}}},
                    {"surface",
                     "output_surface",
@@ -575,6 +644,11 @@ bool Editor::createPcgGraph(const QString &name, bool surfaceMaterial) {
                      {"uiX", 350},
                      {"uiY", 80}}}};
     graph.connections = {{"constant", "value", "surface", "value"}};
+    if (!surfaceMaterial) {
+        graph.nodes.back() = {
+            "scatter", "output_scatter", {{"spacing", 12}, {"density", .5}, {"uiX", 350}, {"uiY", 80}}};
+        graph.connections.front().toNode = "scatter";
+    }
     next.graphs.push_back(graph);
     return commitCreation(std::move(next), "新增PCG图");
 }
@@ -665,10 +739,6 @@ bool stageLibraryFile(const QString &path, wb::CreationState &next, QString &res
     if (!wb::importStructure(path, asset, error)) {
         return false;
     }
-    if (asset.category.isEmpty() && std::any_of(asset.blocks.begin(), asset.blocks.end(), [](const auto &b) {
-            return b.state.section('[', 0, 0).endsWith("_leaves");
-        }))
-        asset.category = "plant";
     if (asset.id.isEmpty() || asset.id == "imported-asset" ||
         std::any_of(next.assets.begin(), next.assets.end(), [&](const auto &a) { return a.id == asset.id; }))
         asset.id = fresh("asset");
@@ -1027,6 +1097,10 @@ void Editor::previewCreationTransform(const QVariantMap &changes) {
     for (auto &v : next.volumes)
         if (v.id == m_selectedNode) {
             found = true;
+            for (int axis = 0; axis < 3; ++axis) {
+                const QString key = QStringLiteral("rotation") + QStringLiteral("XYZ")[axis];
+                v.rotation[axis] += changes.value(key, 0).toFloat();
+            }
             const auto center = (v.min + v.max) * .5f;
             for (int axis = 0; axis < 3; ++axis) {
                 if (changes.contains(scales[axis])) {
@@ -1087,7 +1161,7 @@ void Editor::endCreationTransform(bool cancel) {
 // The snapshot is computed on a worker. A guarded event loop keeps the native
 // synchronous GUI/MCP command contract while allowing progress and cancellation.
 // All mutating entry points see assetBusy; revision is checked again at publish.
-bool Editor::prepareCreation(wb::World &candidate, QString &error, bool cancellable) {
+bool Editor::prepareCreation(wb::World &candidate, QString &error, bool cancellable, bool reuseMaterials) {
     if (candidate.creation.volumes.empty() && candidate.creation.presets.empty() &&
         candidate.creation.roadEdges.empty())
         return candidate.rebuildCreation(error);
@@ -1103,11 +1177,14 @@ bool Editor::prepareCreation(wb::World &candidate, QString &error, bool cancella
     timer.setInterval(80);
     connect(&timer, &QTimer::timeout, this, &Editor::changed);
     connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
-    watcher.setFuture(QtConcurrent::run([&candidate, &error, control] {
-        return candidate.rebuildCreation(error, [control](int percent, const QString &) {
-            control->progress = percent;
-            return !control->cancelled.load();
-        });
+    watcher.setFuture(QtConcurrent::run([&candidate, &error, control, reuseMaterials] {
+        return candidate.rebuildCreation(
+            error,
+            [control](int percent, const QString &) {
+                control->progress = percent;
+                return !control->cancelled.load();
+            },
+            reuseMaterials);
     }));
     timer.start();
     loop.exec();
@@ -1141,7 +1218,7 @@ QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const 
     volume.min = {-32, 0, -32};
     volume.max = {32, 320, 32};
     for (auto &v : m_world.creation.volumes)
-        if ((volumeId.isEmpty() && v.graphId == graphId) || v.id == volumeId) {
+        if ((volumeId.isEmpty() && v.graphId == graph->id) || v.id == volumeId) {
             volume = v;
             break;
         }
@@ -1160,22 +1237,26 @@ QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const 
         z = std::clamp(z, m_world.originZ, m_world.originZ + m_world.depth - 1);
         return int(m_world.heights[m_world.column(x, z)]);
     };
+    const auto footprint = volume.footprint();
+    const auto inverse = volume.orientation().inverted();
     QImage image(128, 128, QImage::Format_RGB32);
     image.fill(Qt::black);
     for (int z = 0; z < 128; ++z)
         for (int x = 0; x < 128; ++x) {
-            int wx = int(std::floor(volume.min.x() + (x + .5) * (volume.max.x() - volume.min.x()) / 128)),
-                wz = int(std::floor(volume.min.z() + (z + .5) * (volume.max.z() - volume.min.z()) / 128));
+            int wx = int(std::floor(footprint.x() + (x + .5) * footprint.width() / 128)),
+                wz = int(std::floor(footprint.y() + (z + .5) * footprint.height() / 128));
             if (!m_world.contains(wx, 0, wz) || !sourceEnabled || !volume.visible || !volume.enabled)
                 continue;
             int h = m_world.height(wx, wz), column = m_world.column(wx, wz);
-            if (h < volume.min.y() || h >= volume.max.y())
+            auto local = inverse.map(QVector3D(wx + .5f, h, wz + .5f));
+            if (local.x() < volume.min.x() || local.x() >= volume.max.x() || local.y() < volume.min.y() ||
+                local.y() >= volume.max.y() || local.z() < volume.min.z() || local.z() >= volume.max.z())
                 continue;
             double mask =
                 volume.transition > 0
                     ? std::clamp(
-                          std::min({wx + .5 - double(volume.min.x()), double(volume.max.x()) - wx - .5,
-                                    wz + .5 - double(volume.min.z()), double(volume.max.z()) - wz - .5}) /
+                          std::min({local.x() - double(volume.min.x()), double(volume.max.x()) - local.x(),
+                                    local.z() - double(volume.min.z()), double(volume.max.z()) - local.z()}) /
                               volume.transition,
                           0., 1.)
                     : 1.;
@@ -1187,9 +1268,10 @@ QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const 
                 std::atan(std::hypot((terrainHeight(wx + 1, wz) - terrainHeight(wx - 1, wz)) * .5,
                                      (terrainHeight(wx, wz + 1) - terrainHeight(wx, wz - 1)) * .5)) *
                 180 / 3.141592653589793;
-            double v = plan.evaluateValues(
-                {double(wx), double(wz), double(h), double(m_world.heights.base(column)), slope,
-                 wx - volume.min.x(), wz - volume.min.z(), mask, volume.seed, 1, &volume.overrides})[index];
+            double v =
+                plan.evaluateValues({double(wx), double(wz), double(h), double(m_world.heights.base(column)),
+                                     slope, local.x() - .5 - volume.min.x(), local.z() - .5 - volume.min.z(),
+                                     mask, volume.seed, 1, &volume.overrides})[index];
             int c = int(std::clamp(v, 0., 1.) * 255);
             image.setPixel(x, z, qRgb(c, c, c));
         }

@@ -153,7 +153,7 @@ class World {
     std::shared_ptr<const AssetLibrary> assets;
     CreationState creation;
     std::shared_ptr<const GeneratedCreation> generated;
-    bool rebuildCreation(QString &error, const CreationProgress &progress = {});
+    bool rebuildCreation(QString &error, const CreationProgress &progress = {}, bool reuseMaterials = false);
     QStringList resourcePaths;
     QString resourceVersion;
     Block intern(const BlockState &state);

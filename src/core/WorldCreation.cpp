@@ -107,15 +107,51 @@ bool PcgGraph::fromJson(const QJsonObject &o, PcgGraph &out, QString &error) {
         out.connections.push_back({c["fromNode"].toString(), c["fromPort"].toString(), c["toNode"].toString(),
                                    c["toPort"].toString()});
     }
+    if (out.version == 1) {
+        const auto has = [&](QStringView type) {
+            return std::any_of(out.nodes.begin(), out.nodes.end(),
+                               [&](const auto &n) { return n.type == type; });
+        };
+        bool material = has(u"output_surface"), scatter = has(u"output_scatter");
+        if (material != scatter)
+            out.surfaceMaterial = material;
+    }
     return out.validate(error);
 }
 
+QMatrix4x4 PcgVolume::orientation() const {
+    QMatrix4x4 m;
+    if (!rotation.isNull()) {
+        const auto center = (min + max) * .5f;
+        m.translate(center);
+        m.rotate(rotation.y(), 0, 1, 0);
+        m.rotate(rotation.x(), 1, 0, 0);
+        m.rotate(rotation.z(), 0, 0, 1);
+        m.translate(-center);
+    }
+    return m;
+}
+QRectF PcgVolume::footprint() const {
+    const auto pose = orientation();
+    auto lo = pose.map(min), hi = lo;
+    for (int i = 0; i < 8; ++i) {
+        auto p = pose.map(
+            QVector3D(i & 1 ? max.x() : min.x(), i & 2 ? max.y() : min.y(), i & 4 ? max.z() : min.z()));
+        lo.setX(std::min(lo.x(), p.x()));
+        lo.setZ(std::min(lo.z(), p.z()));
+        hi.setX(std::max(hi.x(), p.x()));
+        hi.setZ(std::max(hi.z(), p.z()));
+    }
+    return {lo.x(), lo.z(), hi.x() - lo.x(), hi.z() - lo.z()};
+}
 QJsonObject PcgVolume::toJson() const {
     return {{"id", id},
             {"name", name},
             {"graphId", graphId},
             {"min", vec3(min)},
             {"max", vec3(max)},
+            {"rotation", vec3(rotation)},
+            {"seedDomain", seedDomain},
             {"transition", transition},
             {"seed", double(seed)},
             {"enabled", enabled},
@@ -127,7 +163,10 @@ QJsonObject PcgVolume::toJson() const {
 bool PcgVolume::fromJson(const QJsonObject &o, PcgVolume &out, QString &error) {
     if (!text(o, "id", out.id) || !text(o, "name", out.name, false) ||
         !text(o, "graphId", out.graphId, false) || !readVec3(o["min"], out.min) ||
-        !readVec3(o["max"], out.max) || !o["transition"].isDouble()) {
+        !readVec3(o["max"], out.max) ||
+        !readVec3(o.contains("rotation") ? o.value("rotation") : QJsonValue(QJsonArray{0, 0, 0}),
+                  out.rotation) ||
+        !o["transition"].isDouble()) {
         error = "PCG 范围数据无效";
         return false;
     }
@@ -138,6 +177,7 @@ bool PcgVolume::fromJson(const QJsonObject &o, PcgVolume &out, QString &error) {
         return false;
     }
     out.seed = uint32_t(seed);
+    out.seedDomain = o["seedDomain"].toString();
     out.overrides = o["overrides"].toObject();
     out.enabled = o["enabled"].toBool(true);
     out.visible = o["visible"].toBool(true);
@@ -209,10 +249,13 @@ bool StructureAsset::fromJson(const QJsonObject &o, StructureAsset &out, QString
         out.entities.push_back(entity);
     }
     out.category = o["category"].toString();
-    if (!o.contains("category") && std::any_of(out.blocks.begin(), out.blocks.end(), [](const auto &b) {
+    if (out.category.isEmpty() && std::any_of(out.blocks.begin(), out.blocks.end(), [](const auto &b) {
             return b.state.section('[', 0, 0).endsWith("_leaves");
         }))
         out.category = "plant";
+    if (out.category == "plant" || out.category == "building" || out.category == "cave" ||
+        out.category.isEmpty())
+        out.category = out.isOpen() ? "open" : "closed";
     out.diagnostic = o["diagnostic"].toString();
     if (o.contains("defaultRotation") && !readVec3(o["defaultRotation"], out.defaultRotation)) {
         error = "资产默认旋转无效";

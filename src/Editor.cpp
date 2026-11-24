@@ -265,9 +265,24 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
     metadataOnly.pcgAssets = candidate.creation.pcgAssets;
     metadataOnly.folders = candidate.creation.folders;
     metadataOnly.assetFolders = candidate.creation.assetFolders;
+    auto materialVolumes = [](const wb::CreationState &state) {
+        std::vector<wb::PcgVolume> result;
+        for (const auto &v : state.volumes) {
+            const auto *g = wb::libraryGraph(state, v.graphId);
+            if (g && std::any_of(g->nodes.begin(), g->nodes.end(),
+                                 [](const auto &n) { return n.type == "output_surface"; }))
+                result.push_back(v);
+        }
+        return result;
+    };
+    const auto &before = m_world.creation;
+    const auto &after = candidate.creation;
+    const bool reuseMaterials = !terrainChanged && before.graphs == after.graphs &&
+                                before.roadNodes == after.roadNodes && before.roadEdges == after.roadEdges &&
+                                materialVolumes(before) == materialVolumes(after);
     const bool prepared = !terrainChanged && metadataOnly == candidate.creation
                               ? wb::validateCreation(candidate.creation, error)
-                              : prepareCreation(candidate, error);
+                              : prepareCreation(candidate, error, true, reuseMaterials);
     if (!prepared) {
         m_creationPending.reset();
         emit failure(error);
@@ -924,12 +939,27 @@ void Editor::dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &b
                     changed.insert(cz * m_world.chunksX() + cx);
             }
     };
+    std::unordered_map<int, int> surfaceHeights;
     auto compare = [&](const auto &a, const auto &b) {
         if (!a)
             return;
-        for (auto [key, value] : a->cells)
-            if (!b || !b->cells.contains(key) || b->cells.at(key) != value)
-                add(key);
+        for (auto [key, value] : a->cells) {
+            if (b && b->cells.contains(key) && b->cells.at(key) == value &&
+                a->objectCells.contains(key) == b->objectCells.contains(key) &&
+                a->caveAir.contains(key) == b->caveAir.contains(key))
+                continue;
+            if (a->objectCells.contains(key)) {
+                int x, y, z;
+                m_world.decode(key, x, y, z);
+                // Ordinary above-ground contact faces are retained by the terrain mesh.
+                auto [top, added] = surfaceHeights.try_emplace(m_world.column(x, z));
+                if (added)
+                    top->second = std::max(m_world.height(x, z), m_world.seaLevel);
+                if (y > top->second)
+                    continue;
+            }
+            add(key);
+        }
         for (auto [column, h] : a->heights)
             if (!b || !b->heights.contains(column) || b->heights.at(column) != h)
                 add(m_world.key(m_world.originX + column % m_world.width, 0,
@@ -1074,7 +1104,7 @@ void Editor::startMesh() {
                 next->clusters = old->clusters;
                 next->editedBounds = old->editedBounds;
             } else {
-                next->objects = wb::buildCreationMeshes(snapshot, serial, &next->clusters);
+                next->objects = wb::buildCreationMeshes(snapshot, serial, &next->clusters, old.get());
                 for (auto [key, block] : snapshot.overrides) {
                     if (snapshot.isAir(block))
                         continue;

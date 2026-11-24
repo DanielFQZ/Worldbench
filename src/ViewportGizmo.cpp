@@ -68,6 +68,9 @@ bool Viewport::creationGizmo(wb::TerrainInstance &t, QVector3D &anchor, QString 
     for (const auto &v : state.volumes)
         if (v.id == id && v.visible) {
             kind = "volume";
+            t.rotationX = qRound(v.rotation.x());
+            t.rotationY = qRound(v.rotation.y());
+            t.rotationZ = qRound(v.rotation.z());
             t.name = v.name;
             anchor = (v.min + v.max) * .5f;
         }
@@ -147,7 +150,7 @@ QVariantMap Viewport::gizmoOverlay() const {
         }
     }
     QVariantMap result{{"markers", markers}, {"axes", axes}, {"mode", m_gizmoMode}};
-    if ((kind == "road" && m_gizmoMode != 0) || (kind == "volume" && m_gizmoMode == 1))
+    if (kind == "road" && m_gizmoMode != 0)
         return result;
     if (!selected || m_editor->tool() != -1)
         return result;
@@ -464,8 +467,10 @@ void Viewport::moveGizmo(QPointF p) {
             if (changes.contains(scaleKeys[k]))
                 delta[scaleKeys[k]] = changes[scaleKeys[k]].toDouble() / scales[k];
         }
-        if (changes.contains("rotationY"))
-            delta["rotationY"] = -(changes["rotationY"].toInt() - i.rotationY);
+        for (const auto &[key, start] :
+             {std::pair{"rotationX", i.rotationX}, {"rotationY", i.rotationY}, {"rotationZ", i.rotationZ}})
+            if (changes.contains(key))
+                delta[key] = (changes[key].toInt() - start) * (m_gizmoKind == "asset" ? -1 : 1);
         m_editor->previewCreationTransform(delta);
         wb::TerrainInstance current;
         QVector3D anchor;

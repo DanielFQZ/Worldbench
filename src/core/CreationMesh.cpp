@@ -201,7 +201,8 @@ MeshPtr nextLevel(const MeshPtr &previous, float ratio, float tolerance) {
 } // namespace
 
 std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revision,
-                                                   std::vector<MeshScene::Cluster> *clusters) {
+                                                   std::vector<MeshScene::Cluster> *clusters,
+                                                   const MeshScene *previousScene) {
     std::vector<MeshScene::Object> result;
     if (!w.generated)
         return result;
@@ -230,12 +231,59 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
             it->second = w.height(x, z);
         return w.blockAtHeight(x, y, z, it->second);
     };
+    QHash<QString, const MeshScene::Object *> cached;
+    if (previousScene && previousScene->assets == w.assets &&
+        previousScene->worldArea == QRect(w.originX, w.originZ, w.width, w.depth))
+        for (const auto &object : previousScene->objects)
+            cached.insert(object.id, &object);
+    std::map<size_t, const MeshScene::Object *> reused;
+    auto translate = [](MeshPtr src, QVector3D offset) -> MeshPtr {
+        if (offset.isNull())
+            return src;
+        auto mesh = std::make_shared<ChunkMesh>(*src);
+        for (auto *part : {&mesh->opaque, &mesh->transparent, &mesh->water})
+            for (auto &v : *part) {
+                v.x += offset.x();
+                v.y += offset.y();
+                v.z += offset.z();
+            }
+        mesh->center += offset;
+        mesh->lower += offset;
+        mesh->upper += offset;
+        return mesh;
+    };
     for (size_t i = 0; i < keys.size(); ++i) {
         if (keys[i].empty())
             continue;
         auto mesh = std::make_shared<ChunkMesh>();
         mesh->revision = revision;
         std::sort(keys[i].begin(), keys[i].end());
+        const auto &object = w.generated->objects[i];
+        const auto root = object.placement.position;
+        const int64_t origin =
+            (int64_t(qRound(root.y())) * w.depth + qRound(root.z())) * w.width + qRound(root.x());
+        auto shape = std::make_shared<std::vector<std::pair<int64_t, Block>>>();
+        shape->reserve(keys[i].size());
+        for (auto key : keys[i])
+            shape->emplace_back(int64_t(key) - origin, w.generated->cells.at(key));
+        const auto *old = cached.value(object.id);
+        if (old && old->shape && *shape == *old->shape &&
+            old->placement.assetId == object.placement.assetId) {
+            auto entry = *old;
+            entry.ownerId = object.ownerId;
+            entry.placement = object.placement;
+            auto delta = root - old->placement.position;
+            if (delta == QVector3D(qRound(delta.x()), qRound(delta.y()), qRound(delta.z()))) {
+                entry.mesh = translate(entry.mesh, delta);
+                account(entry.mesh);
+                entry.lods.resize(1);
+                entry.lods.front() = translate(entry.lods.front(), delta);
+                account(entry.lods.front());
+                reused.emplace(result.size(), old);
+                result.push_back(std::move(entry));
+                continue;
+            }
+        }
         for (auto key : keys[i]) {
             int x, y, z;
             w.decode(key, x, y, z);
@@ -258,8 +306,7 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
             continue;
         bounds(*mesh);
         account(mesh);
-        const auto &object = w.generated->objects[i];
-        MeshScene::Object entry{object.id, object.ownerId, object.placement, mesh, {}};
+        MeshScene::Object entry{object.id, object.ownerId, object.placement, mesh, {}, std::move(shape)};
         auto first = simplify(w, mesh, .28f, .027f);
         account(first);
         entry.lods.push_back(std::move(first));
@@ -269,7 +316,20 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
     // spending the remaining preview budget on optional finer LOD transitions.
     constexpr std::array<float, 5> ratios{.28f, .14f, .07f, .032f, .012f};
     constexpr std::array<float, 5> tolerances{.027f, .05f, .10f, .20f, .42f};
-    for (auto &entry : result) {
+    for (size_t i = 0; i < result.size(); ++i) {
+        auto &entry = result[i];
+        if (auto found = reused.find(i); found != reused.end()) {
+            const auto &old = *found->second;
+            const auto delta = entry.placement.position - old.placement.position;
+            for (size_t level = 1; level < old.lods.size(); ++level) {
+                if (bytes(old.lods[level]) > objectBudget - meshBytes)
+                    continue;
+                auto lod = translate(old.lods[level], delta);
+                account(lod);
+                entry.lods.push_back(std::move(lod));
+            }
+            continue;
+        }
         size_t previousLevel = 0;
         for (size_t level = 1; level < ratios.size(); ++level) {
             const auto &previous = entry.lods.back();

@@ -199,6 +199,73 @@ int main(int argc, char **argv) {
                   "MCP screenshot decoded");
             check(image.save(out + "/" + name + ".png"), "screenshot saved");
         };
+        if (args.contains("--move-review")) {
+            check(!source.isEmpty() && editor.open(QUrl::fromLocalFile(source)),
+                  "open the user project copy");
+            settle();
+            auto state = editor.world().creation;
+            auto placed = std::find_if(state.presets.begin(), state.presets.end(), [&](const auto &p) {
+                return std::any_of(state.assets.begin(), state.assets.end(), [&](const auto &a) {
+                    return a.id == p.assetId && a.placement == "cave" && p.enabled;
+                });
+            });
+            check(placed != state.presets.end(), "review includes an imported closed shell");
+            auto oldScene = editor.scene();
+            const auto row = std::find_if(oldScene->objects.begin(), oldScene->objects.end(),
+                                          [&](const auto &o) { return o.id == placed->id; });
+            check(row != oldScene->objects.end() && !row->lods.empty(), "user shell has derived meshes");
+            QJsonArray triangles{int(row->mesh->opaque.size() / 3)};
+            for (const auto &lod : row->lods)
+                triangles.append(int(lod->opaqueIndices.size() / 3));
+            check(triangles.last().toInt() < triangles.first().toInt(), "closed shell reduces triangles");
+            auto pos = placed->position;
+            editor.setSelectedNode(placed->id);
+            call("camera", {{"position", QJsonArray{pos.x() + 58, pos.y() + 40, pos.z() + 90}},
+                            {"yaw", -32},
+                            {"pitch", -18}});
+            editor.setExactRadiusChunks(1);
+            capture("closed-shell");
+            auto profile = [&](QString kind, QString id, QJsonObject changes) {
+                settle();
+                auto baseline = editor.scene();
+                QElapsedTimer timer;
+                timer.start();
+                patch(kind, id, changes);
+                auto commit = timer.elapsed();
+                settle();
+                int stable = 0;
+                QSet<const wb::ChunkMesh *> meshes;
+                for (const auto &o : baseline->objects)
+                    meshes.insert(o.mesh.get());
+                for (const auto &o : editor.scene()->objects)
+                    stable += meshes.contains(o.mesh.get());
+                auto data = QJsonObject{{"command_ms", commit},
+                                        {"settled_ms", timer.elapsed()},
+                                        {"reused_original_meshes", stable},
+                                        {"objects", int(editor.scene()->objects.size())},
+                                        {"updated_far_tiles", editor.scene()->updatedFarTiles},
+                                        {"updated_exact_chunks", editor.scene()->updatedChunks}};
+                write("undo", {});
+                settle();
+                return data;
+            };
+            auto moved =
+                profile("presets", placed->id, {{"position", QJsonArray{pos.x() + 4, pos.y() + 5, pos.z()}}});
+            QJsonObject volumeTime;
+            if (!state.volumes.empty()) {
+                auto vol = *std::max_element(
+                    state.volumes.begin(), state.volumes.end(), [](const auto &a, const auto &b) {
+                        return (a.max - a.min).lengthSquared() < (b.max - b.min).lengthSquared();
+                    });
+                volumeTime = profile("volumes", vol.id,
+                                     {{"min", QJsonArray{vol.min.x() + 4, vol.min.y(), vol.min.z()}},
+                                      {"max", QJsonArray{vol.max.x() + 4, vol.max.y(), vol.max.z()}}});
+            }
+            jsonFile("move-review.json",
+                     {{"shell_triangles", triangles}, {"shell_move", moved}, {"range_move", volumeTime}});
+            check(digest(source) == sourceHash, "preserve review project");
+            return 0;
+        }
         if (args.contains("--forest-review")) {
             check(!source.isEmpty() && editor.open(QUrl::fromLocalFile(source)), "open review project copy");
             settle();
@@ -356,7 +423,9 @@ int main(int argc, char **argv) {
                     if ((x - 3) * (x - 3) + (z - 3) * (z - 3) <= (y == 9 ? 4 : 10) &&
                         !(x == 3 && z == 3 && y < 7))
                         tree.blocks.push_back({x, y, z, "minecraft:oak_leaves[persistent=true]"});
-        auto treePath = jsonFile("tree.wbasset", {{"version", 1}, {"asset", tree.toJson()}});
+        auto legacyTree = tree.toJson();
+        legacyTree.remove("category");
+        auto treePath = jsonFile("tree.wbasset", {{"version", 1}, {"asset", legacyTree}});
         write("creation", {{"action", "import_asset"}, {"path", treePath}});
         QString treeId = editor.world().creation.assets.back().id;
         if (editor.world().assets) {
@@ -444,6 +513,22 @@ int main(int argc, char **argv) {
             write("undo", {});
             patch("volumes", bounds.id, {{"min", QJsonArray{-8, 27, -8}}, {"max", QJsonArray{8, 38, 8}}});
             check(changedPixels(crop()) > 50, "the same bounds appear above ground");
+            auto clickWorld = [&](QVector3D worldPoint) {
+                const auto clip = (viewport->viewProjection() * QVector4D(worldPoint, 1)).toVector3DAffine();
+                const auto pos = viewport
+                                     ->mapToScene({(clip.x() + 1) * viewport->width() / 2,
+                                                   (1 - clip.y()) * viewport->height() / 2})
+                                     .toPoint();
+                QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, pos);
+            };
+            editor.setSelectedNode({});
+            clickWorld({0, 38, 8});
+            check(editor.selectedNode() == bounds.id, "click a visible PCG edge away from its badge");
+            QTest::keyClick(window, Qt::Key_Escape);
+            check(editor.selectedNode().isEmpty(), "Escape clears scene selection");
+            clickWorld({0, 38, 8});
+            clickWorld({20, 25, 15});
+            check(editor.selectedNode().isEmpty(), "empty terrain click clears instance selection");
             write("undo", {});
             write("undo", {});
             editor.setEnvironment({{"enabled", lighting}});
@@ -697,7 +782,7 @@ int main(int argc, char **argv) {
         QTest::qWait(250);
         check(window->grabWindow().save(out + "/02-node-graph.png"), "node editor reference capture");
         openCard(treeId);
-        check(panel->property("kind") == "plant", "tree opens root-pivot editor");
+        check(panel->property("kind") == "open", "tree opens root-pivot editor");
         check(window->property("openAssetCount").toInt() == 2, "tree opens alongside graph");
         auto *inspector = editor.assetInspector();
         check(QTest::qWaitFor([&] { return !inspector->meshBusy() && inspector->scene()->vertices > 0; },
@@ -891,7 +976,7 @@ int main(int argc, char **argv) {
         check(editor.world().block(0, 15, 50) == wb::Air && editor.world().block(0, 15, 44) == wb::Stone,
               "cave carves interior preserves exterior");
         openCard(caveId);
-        check(panel->property("kind") == "cave", "cave opens marker editor");
+        check(panel->property("kind") == "closed", "cave opens marker editor");
         QTest::qWait(250);
         auto *assetEditor = window->findChild<QObject *>("assetEditor");
         auto *sliceY = window->findChild<QObject *>("assetSliceY");
@@ -997,10 +1082,18 @@ int main(int argc, char **argv) {
         capture("08-pcg-unified-gizmo");
         write("undo", {});
         viewport->setGizmoMode(1);
-        check(!viewport->gizmoOverlay()["active"].toBool(),
-              "axis-aligned volume does not advertise rotation");
+        check(viewport->gizmoOverlay()["active"].toBool() &&
+                  viewport->gizmoOverlay()["axes"].toList().size() == 3,
+              "PCG volume exposes rotation on three axes");
         editor.setSelectedNode(placedId);
         viewport->setGizmoMode(0);
+        call("camera", {{"position", QJsonArray{52.5, 28.5, 19}}, {"yaw", 0}, {"pitch", 0}});
+        settle();
+        editor.setSelectedNode({});
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          viewport->mapToScene({viewport->width() / 2, viewport->height() / 2}).toPoint());
+        check(editor.selectedNode() == placedId, "clicking tree trunk selects the placed structure");
+        call("camera", {{"position", QJsonArray{105, 100, 140}}, {"yaw", -36}, {"pitch", -27}});
         const auto worldX = direction(viewport->gizmoOverlay(), 0);
         viewport->setGizmoMode(2);
         const auto localZ = direction(viewport->gizmoOverlay(), 2);
@@ -1068,6 +1161,13 @@ int main(int argc, char **argv) {
         write("creation", {{"action", "store_pcg_asset"}, {"id", volume.id}});
         auto project = out + "/creation-demo.wbench";
         check(editor.save(QUrl::fromLocalFile(project)), "save creation project");
+        const auto mixedCells = editor.world().generated->cells;
+        auto graphCount = editor.world().creation.graphs.size();
+        write("creation", {{"action", "split_graph"}, {"id", graph.id}});
+        check(editor.world().creation.graphs.size() == graphCount + 1 &&
+                  editor.world().generated->cells == mixedCells,
+              "split legacy graph preserves all generated voxels");
+        write("undo", {});
         auto beforeOpen = editor.world().generated->cells;
         check(editor.open(QUrl::fromLocalFile(project)), "reopen creation project");
         settle();

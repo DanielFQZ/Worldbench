@@ -7,7 +7,7 @@ Item {
  id:root;objectName:"assetEditor"
  property var controller:editor
  property string assetId:""
- property string kind:"building"
+ property string kind:"closed"
  property var asset:({})
  property var analysis:({})
  property var sliceData:({blocks:[],labels:[]})
@@ -61,19 +61,19 @@ Item {
      width:assetDetailsScroll.availableWidth;spacing:8
      WorkbenchComboBox {
       Layout.fillWidth:true
-      model:[{id:"plant",name:"植物"},{id:"building",name:"建筑"},{id:"cave",name:"洞穴"}]
+      model:[{id:"open",name:"开放结构"},{id:"closed",name:"封闭结构"}]
       textRole:"name";valueRole:"id";currentIndex:model.findIndex(a=>a.id===root.kind)
       onActivated:editor.creationEdit("patch",{kind:"assets",id:root.assetId,changes:{category:currentValue,
-                   placement:currentValue!=="cave" && root.asset.placement==="cave"?"place":root.asset.placement}})
+                   placement:currentValue==="open" && root.asset.placement==="cave"?"place":root.asset.placement}})
      }
      Label{text:"资产写入 / 地基";font.bold:true;Layout.margins:8}
-     WorkbenchComboBox {Layout.fillWidth:true;model:[{id:"place",name:"Place · 仅放实体块"},{id:"carve",name:"Carve · 实体形状挖空"},{id:"ignore",name:"Ignore · 保留目标"},{id:"cave",name:"洞穴 · 壳体 + 内部挖空"}];textRole:"name";valueRole:"id";currentIndex:Math.max(0,model.findIndex(x=>x.id===root.asset.placement));onActivated:root.patch("placement",currentValue)}
-     WorkbenchComboBox {Layout.fillWidth:true;model:["刚性放置","切填地形","支撑地基（2格）"];currentIndex:root.asset.groundBlend||0;onActivated:root.patch("groundBlend",currentIndex)}
-     Label{text:root.kind==="plant"?"树根枢轴 XYZ":root.kind==="cave"?"洞穴放置枢轴 XYZ":"底座枢轴 XYZ";color:Theme.secondary}
+     WorkbenchComboBox {Layout.fillWidth:true;model:[{id:"place",name:"Place · 仅放实体块"},{id:"carve",name:"Carve · 实体形状挖空"},{id:"ignore",name:"Ignore · 保留目标"},{id:"cave",name:"壳体 + 已标记内部挖空"}].filter(x=>x.id!=="cave"||root.kind==="closed");textRole:"name";valueRole:"id";currentIndex:Math.max(0,model.findIndex(x=>x.id===root.asset.placement));onActivated:root.patch("placement",currentValue)}
+     WorkbenchComboBox {Layout.fillWidth:true;visible:root.kind==="closed";model:["刚性放置","切填地形","支撑地基（2格）"];currentIndex:root.asset.groundBlend||0;onActivated:root.patch("groundBlend",currentIndex)}
+     Label{text:root.kind==="open"?"根部 / 放置枢轴 XYZ":"底座 / 放置枢轴 XYZ";color:Theme.secondary}
      RowLayout {Layout.fillWidth:true;Repeater{model:3;delegate:WorkbenchSpinBox{required property int index;Layout.fillWidth:true;Layout.minimumWidth:0;Layout.preferredWidth:1;compact:true;from:-512;to:512;value:(root.asset.pivot||[0,0,0])[index];onValueModified:{let v=root.asset.pivot.slice();v[index]=value;root.patch("pivot",v)}}}}
      WorkbenchButton {text:"将剖面起点设为枢轴";onClicked:root.patch("pivot",root.markStart)}
-     ColumnLayout { Layout.fillWidth:true; visible:root.kind==="cave"
-     Label{text:"洞穴标记";font.bold:true;Layout.topMargin:12}
+     ColumnLayout { Layout.fillWidth:true; visible:root.kind==="closed"
+     Label{text:"内部和入口标记";font.bold:true;Layout.topMargin:12}
      WorkbenchComboBox {id:markerKind;Layout.fillWidth:true;model:[{id:"portal",name:"入口虚拟封口面"},{id:"exit",name:"出口虚拟封口面"},{id:"seal",name:"辅助封口面"},{id:"interior",name:"内部种子"}];textRole:"name";valueRole:"id"}
      Repeater {model:2;delegate:ColumnLayout{required property int index;property int endpoint:index
       Label{text:parent.endpoint===0?"起点 XYZ":"终点 XYZ（面/盒范围）";color:Theme.secondary}
@@ -83,7 +83,7 @@ Item {
      Repeater {model:editor.caveMarkers.filter(m=>m.assetId===root.assetId);delegate:RowLayout{required property var modelData;Layout.fillWidth:true;Label{Layout.fillWidth:true;text:modelData.kind+" "+modelData.position.join(",");elide:Text.ElideRight}WorkbenchButton {text:"×";onClicked:editor.creationEdit("remove",{kind:"caveMarkers",id:modelData.id})}}}
      WorkbenchCheckBox {id:showAnalysis;objectName:"assetShowAnalysis";Layout.fillWidth:true;text:"剖面分类：蓝内部 / 黄入口\n红漏口 / 紫待确认";onToggled:root.refreshSlice()}
      WorkbenchButton {text:"分析内外 / 检查泄漏";onClicked:{root.analysis=editor.caveAnalysis(root.assetId);showAnalysis.checked=true;root.refreshSlice()}}
-     Label {Layout.fillWidth:true;wrapMode:Text.WordWrap;color:root.analysis.valid?"#8bd7b9":"#e5ba83";text:root.analysis.valid?"内部 "+root.analysis.interior+" 格；入口/出口 "+root.analysis.portals+" 格。可切换到洞穴模式试放。":(root.analysis.diagnostics||[]).join("\n")}
+     Label {Layout.fillWidth:true;wrapMode:Text.WordWrap;color:root.analysis.valid?"#8bd7b9":"#e5ba83";text:root.analysis.valid?"内部 "+root.analysis.interior+" 格；入口/出口 "+root.analysis.portals+" 格。可使用壳体 + 已标记内部挖空试放。":(root.analysis.diagnostics||[]).join("\n")}
      }
      Label{Layout.fillWidth:true;wrapMode:Text.WordWrap;color:"#d5ac78";text:root.asset.diagnostic||""}
     }

@@ -23,6 +23,7 @@ static void check(bool v, const char *m) {
 static PcgGraph surface() {
     PcgGraph g;
     g.id = "surface";
+    g.surfaceMaterial = true;
     g.nodes = {
         {"constant", "constant", {{"value", 1}}},
         {"out", "output_surface", {{"block", "minecraft:stone"}, {"under", "minecraft:sand"}, {"depth", 3}}}};
@@ -32,6 +33,7 @@ static PcgGraph surface() {
 static StructureAsset tree() {
     StructureAsset a;
     a.id = "tree";
+    a.category = "open";
     a.name = "Tree";
     a.width = 3;
     a.depth = 3;
@@ -362,6 +364,32 @@ int main(int argc, char **argv) {
                 working.decode(key, x, y, z);
                 check(working.block(x, y, z) == block, "subsurface cave shell and carved air are protected");
             }
+        }
+        {
+            auto rotated = World::create(options);
+            rotated.creation.graphs = {graph};
+            PcgVolume bar;
+            bar.id = "bar";
+            bar.graphId = graph.id;
+            bar.min = {-12, 20, -2};
+            bar.max = {12, 30, 2};
+            bar.transition = 0;
+            rotated.creation.volumes = {bar};
+            check(rotated.rebuildCreation(error) && rotated.block(8, 24, 0) == Stone &&
+                      rotated.block(0, 24, 8) == Grass,
+                  "unrotated rectangular material footprint");
+            rotated.creation.volumes.front().rotation.setY(90);
+            check(rotated.rebuildCreation(error) && rotated.block(8, 24, 0) == Grass &&
+                      rotated.block(0, 24, 8) == Stone,
+                  "rotated footprint evaluates in local space");
+            PcgVolume saved;
+            check(PcgVolume::fromJson(rotated.creation.volumes.front().toJson(), saved, error) &&
+                      saved.rotation.y() == 90,
+                  "volume orientation round trip");
+            auto shell = buildCreationMeshes(caveWorld, 1);
+            check(shell.size() == 1 && !shell.front().lods.empty() &&
+                      shell.front().lods.front()->opaqueIndices.size() < shell.front().mesh->opaque.size(),
+                  "closed structure shell generates an asset-specific simplified mesh");
         }
         // Minimal real Minecraft NBT asset (one block, palette, size, no JSON shortcut).
         QByteArray nbt;

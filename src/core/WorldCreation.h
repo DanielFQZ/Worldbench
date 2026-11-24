@@ -57,6 +57,10 @@ struct PcgVolume {
     QString sourceId;
     bool contributionOnly = true;
     QJsonObject overrides;
+    QVector3D rotation;
+    QString seedDomain; // Preserve random field identity when separating a legacy mixed graph.
+    QRectF footprint() const;
+    QMatrix4x4 orientation() const; // Rotate world-aligned min/max around their midpoint.
     bool operator==(const PcgVolume &) const = default;
     QJsonObject toJson() const;
     static bool fromJson(const QJsonObject &, PcgVolume &, QString &error);
@@ -109,7 +113,8 @@ struct StructureAsset {
     QStringList markers;
     SharedValues<StructureBlock> blocks;
     SharedValues<StructureEntity> entities;
-    QString category; // plant, building or cave. Empty legacy values follow placement.
+    QString category = "closed"; // open or closed; historical files may use plant/building/cave.
+    bool isOpen() const { return placement != "cave" && (category == "open" || category == "plant"); }
     QString diagnostic;
     QVector3D defaultRotation, defaultScale{1, 1, 1};
     bool operator==(const StructureAsset &) const = default;
@@ -214,6 +219,11 @@ struct GeneratedCreation {
         QString id, ownerId;
         AssetPreset placement;
     };
+    struct MaterialRun {
+        int x, y, z, depth;
+        uint32_t surface, under;
+    };
+    std::shared_ptr<const std::vector<MaterialRun>> materialRuns;
     std::vector<Object> objects;
     // Ownership is derived only. Export still uses the complete cells map.
     std::unordered_map<uint64_t, size_t> objectCells;
@@ -231,7 +241,8 @@ struct GeneratedCreation {
 };
 using CreationProgress = std::function<bool(int, const QString &)>;
 std::shared_ptr<const GeneratedCreation> generateCreation(World &world, QString &error,
-                                                          const CreationProgress &progress = {});
+                                                          const CreationProgress &progress = {},
+                                                          bool reuseMaterials = false);
 bool importStructure(const QString &path, StructureAsset &asset, QString &error);
 bool parseCreationBlock(const QString &text, struct BlockState &state, QString &error);
 struct CaveAnalysis;

@@ -165,7 +165,7 @@ void Viewport::refreshSelectionProxy() {
     for (const auto &p : world.creation.presets)
         if (p.id == m_editor->selectedNode() && p.enabled)
             for (const auto &a : world.creation.assets)
-                if (a.id == p.assetId && a.placement != "place")
+                if (a.id == p.assetId && a.placement == "carve")
                     source = &a;
     const auto identity = source ? source->blocks.identity() : nullptr;
     if (identity == m_proxyBlocks && world.assets == m_proxyLibrary)
@@ -222,6 +222,69 @@ QMatrix4x4 Viewport::viewProjection() const {
     }
     p.perspective(60, float(std::max(1., width()) / std::max(1., height())), nearPlane, farPlane);
     return p * v;
+}
+QString Viewport::pickCreation(QPointF position) const {
+    const auto &world = m_editor->world();
+    QString selected;
+    float limit = std::numeric_limits<float>::max();
+    if (m_hit.valid) {
+        limit = (m_hit.position - m_camera).length() + .05f;
+        if (world.generated) {
+            const auto key = world.key(m_hit.x, m_hit.y, m_hit.z);
+            const auto found = world.generated->objectCells.find(key);
+            if (found != world.generated->objectCells.end() && !world.explicitOverride(key))
+                selected = world.generated->objects[found->second].ownerId;
+        }
+    }
+    const auto view = viewProjection();
+    for (const auto &volume : m_editor->renderCreation().volumes) {
+        if (!volume.visible)
+            continue;
+        const auto pose = volume.orientation();
+        const float inset = std::min({volume.transition, (volume.max.x() - volume.min.x()) * .475f,
+                                      (volume.max.z() - volume.min.z()) * .475f});
+        for (float margin : {0.f, inset}) {
+            const auto lo = volume.min + QVector3D(margin, 0, margin),
+                       hi = volume.max - QVector3D(margin, 0, margin);
+            auto corner = [&](int i) {
+                return pose.map(
+                    QVector3D(i & 1 ? hi.x() : lo.x(), i & 2 ? hi.y() : lo.y(), i & 4 ? hi.z() : lo.z()));
+            };
+            for (int i = 0; i < 8; ++i)
+                for (int bit : {1, 2, 4}) {
+                    if (i & bit)
+                        continue;
+                    auto a = corner(i), b = corner(i | bit);
+                    float wa = (view * QVector4D(a, 1)).w(), wb = (view * QVector4D(b, 1)).w();
+                    if (wa <= .15f && wb <= .15f)
+                        continue;
+                    if (wa <= .15f) {
+                        a += (b - a) * ((.15f - wa) / (wb - wa));
+                        wa = .15f;
+                    }
+                    if (wb <= .15f) {
+                        b += (a - b) * ((.15f - wb) / (wa - wb));
+                        wb = .15f;
+                    }
+                    auto p = projectPoint(a), line = projectPoint(b) - p;
+                    const double length2 = QPointF::dotProduct(line, line);
+                    if (length2 < 1e-6)
+                        continue;
+                    const auto t = std::clamp(QPointF::dotProduct(position - p, line) / length2, 0., 1.);
+                    if (QLineF(position, p + line * t).length() > 5.)
+                        continue;
+                    const auto hit = a + (b - a) * float(t * wa / ((1 - t) * wb + t * wa));
+                    const float distance = (hit - m_camera).length();
+                    if (distance < limit) {
+                        limit = distance;
+                        selected = volume.id;
+                    }
+                }
+            if (inset <= 0)
+                break;
+        }
+    }
+    return selected;
 }
 void Viewport::pick(QPointF pos) {
     if (m_sculpting && pos == m_pointer && m_editor &&
@@ -491,6 +554,9 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_editor->beginStroke();
         m_editor->stamp(m_hit, m_reverse);
         m_stampClock.restart();
+    } else if (e->button() == Qt::LeftButton && m_editor && m_editor->tool() == -1 &&
+               !m_editor->inspectionOnly() && m_editor->placementAsset().isEmpty()) {
+        m_editor->setSelectedNode(pickCreation(e->position()));
     }
     e->accept();
 }
@@ -610,6 +676,8 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         return;
     }
     if (e->key() == Qt::Key_Escape) {
+        if (!m_gizmoDragging && m_editor->placementAsset().isEmpty() && !m_sculpting && !m_altNav)
+            m_editor->setSelectedNode({});
         m_editor->beginPlacement("");
         m_editor->endCreationTransform(true);
         if (m_gizmoDragging)
@@ -911,18 +979,24 @@ void Viewport::previewAsset(const QString &id, double x, double y) {
     }
     auto &state = m_editor->world().creation;
     const QVector3D at(m_hit.x, m_hit.y + 1, m_hit.z);
-    auto showBox = [&](const QVector3D &low, const QVector3D &high, const QString &name) {
+    auto showBox = [&](const QVector3D &low, const QVector3D &high, const QString &name,
+                       QVector3D angles = {}) {
         m_ghostVisible = false;
         m_ghostVolume = true;
         m_ghostName = name;
         m_ghostMin = low + at;
         m_ghostMax = high + at;
+        wb::PcgVolume volume;
+        volume.min = m_ghostMin;
+        volume.max = m_ghostMax;
+        volume.rotation = angles;
+        m_ghostBoundsPose = volume.orientation();
         update();
         emit cameraChanged();
     };
     for (const auto &a : state.pcgAssets)
         if (a.id == id)
-            return showBox(a.volume.min, a.volume.max, "PCG 范围预览");
+            return showBox(a.volume.min, a.volume.max, "PCG 范围预览", a.volume.rotation);
     for (const auto &g : state.graphs)
         if (g.id == id)
             return showBox({-32, -32, -32}, {32, 32, 32}, "PCG 范围预览");
@@ -949,6 +1023,7 @@ void Viewport::previewAsset(const QString &id, double x, double y) {
         }));
     }
     m_ghostVisible = m_ghostId == id;
+    m_ghostBoundsPose.setToIdentity();
     m_ghostTransform.setToIdentity();
     m_ghostTransform.translate(QVector3D(m_hit.x + .5f, m_hit.y + 1.5f, m_hit.z + .5f));
     m_ghostTransform.rotate(-a->defaultRotation.y(), 0, 1, 0);

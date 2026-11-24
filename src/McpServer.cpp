@@ -35,7 +35,8 @@ QJsonArray toolList() {
         {}, {}, true);
     add("creation",
         "Inspect or edit the shared PCG/asset/road/cave creation state. "
-        "action=inspect/new_graph/new_volume/store_pcg_asset/import_asset/place_asset/road_node/edit/file/"
+        "action=inspect/new_graph/split_graph/new_volume/store_pcg_asset/import_asset/place_asset/road_node/"
+        "edit/file/"
         "cave_analysis. "
         "Mutations require expected_revision. edit operation=add/patch/remove/graph/replace; data uses the "
         "inspect schema. file operation=save_graph/load_graph/save_asset/load_asset. All edits are one undo "

@@ -156,8 +156,8 @@ int World::height(int x, int z) const {
     }
     return heights[c];
 }
-bool World::rebuildCreation(QString &error, const CreationProgress &progress) {
-    auto next = generateCreation(*this, error, progress);
+bool World::rebuildCreation(QString &error, const CreationProgress &progress, bool reuseMaterials) {
+    auto next = generateCreation(*this, error, progress, reuseMaterials);
     if (!next)
         return false;
     generated = std::move(next);
