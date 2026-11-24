@@ -2,7 +2,7 @@
   "version": "0.26.1",
   "date": "2026-11-25",
   "baseline": "8999bc2",
-  "commit": "working-tree",
+  "commit": "c50adcb",
   "ctest": "15/15 passed",
   "terrain_latency": {
     "max_set_option_ms": 0.9854,
