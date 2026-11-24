@@ -168,9 +168,40 @@ MeshPtr simplify(const World &w, const MeshPtr &source, float ratio, float error
     }
     return mesh;
 }
+// Subsequent opaque levels decimate the welded, tinted mesh from the previous
+// level. No atlas lookup or seam welding is repeated. Error is in world units.
+MeshPtr nextLevel(const MeshPtr &previous, float ratio, float tolerance) {
+    auto &src = previous->opaque;
+    auto &indices = previous->opaqueIndices;
+    if (indices.size() <= 24)
+        return previous;
+    auto mesh = std::make_shared<ChunkMesh>();
+    mesh->lower = previous->lower;
+    mesh->upper = previous->upper;
+    mesh->center = previous->center;
+    mesh->revision = previous->revision;
+    mesh->opaqueIndices.resize(indices.size());
+    float error = 0;
+    auto count = meshopt_simplify(
+        mesh->opaqueIndices.data(), indices.data(), indices.size(), &src[0].x, src.size(), sizeof(Vertex),
+        std::max(size_t(24), size_t(indices.size() * ratio) / 3 * 3), tolerance, 0, &error);
+    if (count < 3 || count >= indices.size())
+        return previous;
+    mesh->opaqueIndices.resize(count);
+    mesh->opaque.resize(src.size());
+    auto used = meshopt_optimizeVertexFetch(mesh->opaque.data(), mesh->opaqueIndices.data(), count,
+                                            src.data(), src.size(), sizeof(Vertex));
+    mesh->opaque.resize(used);
+    mesh->opaque.shrink_to_fit();
+    mesh->opaqueIndices.shrink_to_fit();
+    mesh->surfaceError =
+        previous->surfaceError + error * meshopt_simplifyScale(&src[0].x, src.size(), sizeof(Vertex));
+    return mesh;
+}
 } // namespace
 
-std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revision) {
+std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revision,
+                                                   std::vector<MeshScene::Cluster> *clusters) {
     std::vector<MeshScene::Object> result;
     if (!w.generated)
         return result;
@@ -181,9 +212,12 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
     std::unordered_map<int, int> heights;
     size_t meshBytes = 0;
     constexpr size_t objectBudget = 256ull * 1024 * 1024;
+    auto bytes = [](const MeshPtr &mesh) {
+        return (mesh->opaque.size() + mesh->transparent.size() + mesh->water.size()) * sizeof(Vertex) +
+               mesh->opaqueIndices.size() * sizeof(uint32_t);
+    };
     auto account = [&](const MeshPtr &mesh) {
-        meshBytes += (mesh->opaque.size() + mesh->transparent.size() + mesh->water.size()) * sizeof(Vertex) +
-                     mesh->opaqueIndices.size() * sizeof(uint32_t);
+        meshBytes += bytes(mesh);
         if (meshBytes > objectBudget)
             throw std::runtime_error("资产显示网格超过256MiB预算；请减小散布范围或密度");
     };
@@ -220,16 +254,84 @@ std::vector<MeshScene::Object> buildCreationMeshes(const World &w, uint64_t revi
             // the contact faces in the committed scene.
             cellMesh(w, *mesh, x, y, z, sample(x, y, z), ownNeighbor);
         }
+        if (mesh->opaque.empty() && mesh->transparent.empty() && mesh->water.empty())
+            continue;
         bounds(*mesh);
         account(mesh);
-        const auto medium = simplify(w, mesh, .35f, .035f);
-        if (medium != mesh)
-            account(medium);
-        const auto distant = simplify(w, mesh, .10f, .09f);
-        if (distant != mesh && distant != medium)
-            account(distant);
         const auto &object = w.generated->objects[i];
-        result.push_back({object.id, object.ownerId, object.placement, mesh, {medium, distant}});
+        MeshScene::Object entry{object.id, object.ownerId, object.placement, mesh, {}};
+        auto first = simplify(w, mesh, .28f, .027f);
+        account(first);
+        entry.lods.push_back(std::move(first));
+        result.push_back(std::move(entry));
+    }
+    // Reserve the original mesh and first distant mesh for every object before
+    // spending the remaining preview budget on optional finer LOD transitions.
+    constexpr std::array<float, 5> ratios{.28f, .14f, .07f, .032f, .012f};
+    constexpr std::array<float, 5> tolerances{.027f, .05f, .10f, .20f, .42f};
+    for (auto &entry : result) {
+        size_t previousLevel = 0;
+        for (size_t level = 1; level < ratios.size(); ++level) {
+            const auto &previous = entry.lods.back();
+            auto lod = entry.mesh->transparent.empty() && entry.mesh->water.empty()
+                           ? nextLevel(previous, ratios[level] / ratios[previousLevel], tolerances[level])
+                           : simplify(w, entry.mesh, ratios[level], tolerances[level]);
+            if (lod == previous || bytes(lod) >= bytes(previous))
+                continue;
+            if (bytes(lod) > objectBudget - meshBytes)
+                continue;
+            account(lod);
+            entry.lods.push_back(std::move(lod));
+            previousLevel = level;
+        }
+    }
+    if (clusters) {
+        // One far draw per occupied cell of a PCG volume. Do not merge
+        // independently selectable placements or transparent sorting domains.
+        std::map<std::tuple<QString, int, int>, std::vector<size_t>> groups;
+        for (size_t i = 0; i < result.size(); ++i) {
+            const auto &o = result[i];
+            if (o.id == o.ownerId || o.lods.empty() || !o.mesh->transparent.empty() || !o.mesh->water.empty())
+                continue;
+            groups[{o.ownerId, int(std::floor(o.mesh->center.x() / 64)),
+                    int(std::floor(o.mesh->center.z() / 64))}]
+                .push_back(i);
+        }
+        for (auto &[key, members] : groups) {
+            if (members.size() < 2)
+                continue;
+            // Prefer the cheapest acceptable level at draw time. The middle
+            // band also batches forests whose outer silhouette is still visible.
+            for (size_t level : {size_t(4), size_t(1)}) {
+                size_t batchBytes = 0;
+                for (auto i : members) {
+                    const auto &levels = result[i].lods;
+                    batchBytes += bytes(levels[std::min(level, levels.size() - 1)]);
+                }
+                if (batchBytes > objectBudget - meshBytes)
+                    continue;
+                auto batch = std::make_shared<ChunkMesh>();
+                batch->revision = revision;
+                batch->lower = result[members.front()].mesh->lower;
+                batch->upper = result[members.front()].mesh->upper;
+                for (auto i : members) {
+                    const auto &o = result[i];
+                    auto &src = *o.lods[std::min(level, o.lods.size() - 1)];
+                    uint32_t offset = uint32_t(batch->opaque.size());
+                    batch->opaque.insert(batch->opaque.end(), src.opaque.begin(), src.opaque.end());
+                    for (auto idx : src.opaqueIndices)
+                        batch->opaqueIndices.push_back(offset + idx);
+                    for (int axis = 0; axis < 3; ++axis) {
+                        batch->lower[axis] = std::min(batch->lower[axis], o.mesh->lower[axis]);
+                        batch->upper[axis] = std::max(batch->upper[axis], o.mesh->upper[axis]);
+                    }
+                    batch->surfaceError = std::max(batch->surfaceError, src.surfaceError);
+                }
+                batch->center = (batch->lower + batch->upper) * .5f;
+                account(batch);
+                clusters->push_back({batch, members});
+            }
+        }
     }
     return result;
 }

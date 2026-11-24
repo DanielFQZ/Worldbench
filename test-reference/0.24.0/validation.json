@@ -1,0 +1,105 @@
+{
+  "version": "0.24.0",
+  "baseline": "41ba0ce",
+  "ctest": {
+    "passed": 15,
+    "total": 15
+  },
+  "packaged_smoke_exit": 0,
+  "project_sha256": "7c670007ee1defab887d849a50c99f0a6ea96aaa5d1c3d80bf6f73de3ee37a7d",
+  "forest_before": {
+    "caves": [
+      {
+        "asset": "岩洞 · 入口标记",
+        "interior_and_portal": 606,
+        "solid": 2
+      }
+    ],
+    "objects": 1482,
+    "render": {
+      "cpu_submit_ms": 7.728,
+      "frame_p50_ms": 24.9304,
+      "frame_p95_ms": 25.6981,
+      "gpu_ms": 2.191,
+      "gpu_p50_ms": 2.276,
+      "object_lods": 1482,
+      "object_triangles": 210652,
+      "pixel_height": 1244,
+      "pixel_width": 1885,
+      "render_scale": 100,
+      "shadow_quality": 2
+    }
+  },
+  "forest_after": [
+    {
+      "caves": [
+        {
+          "asset": "岩洞 · 入口标记",
+          "interior_and_portal": 606,
+          "solid": 0
+        }
+      ],
+      "objects": 1482,
+      "render": {
+        "cluster_candidates": 242,
+        "cpu_p50_ms": 1.312,
+        "cpu_submit_ms": 1.387,
+        "draws": 512,
+        "far_batches": 99,
+        "frame_p50_ms": 12.6232,
+        "frame_p95_ms": 25.1251,
+        "gpu_ms": 1.691,
+        "gpu_p50_ms": 2.051,
+        "object_lods": 1482,
+        "object_triangles": 186739,
+        "pixel_height": 1244,
+        "pixel_width": 1885,
+        "render_scale": 100,
+        "shadow_quality": 2
+      }
+    },
+    {
+      "caves": [
+        {
+          "asset": "岩洞 · 入口标记",
+          "interior_and_portal": 606,
+          "solid": 0
+        }
+      ],
+      "objects": 1482,
+      "render": {
+        "cluster_candidates": 242,
+        "cpu_p50_ms": 0.956,
+        "cpu_submit_ms": 1.075,
+        "draws": 512,
+        "far_batches": 99,
+        "frame_p50_ms": 9.3243,
+        "frame_p95_ms": 20.3608,
+        "gpu_ms": 1.169,
+        "gpu_p50_ms": 1.342,
+        "object_lods": 1482,
+        "object_triangles": 186739,
+        "pixel_height": 1244,
+        "pixel_width": 1885,
+        "render_scale": 100,
+        "shadow_quality": 2
+      }
+    }
+  ],
+  "summit_fixture": {
+    "camera": [
+      38,
+      242,
+      30
+    ],
+    "under_camera_height": 24,
+    "summit_height": 238,
+    "near_exact": true,
+    "away_camera": [
+      210,
+      242,
+      30
+    ],
+    "away_exact": false
+  }
+}

@@ -435,6 +435,7 @@ QJsonObject Editor::worldInfo() const {
                      {"render_scale", viewport->renderScale()},
                      {"shadow_quality", viewport->shadowQuality()},
                      {"object_triangles", m->objectTriangles.load()},
+                     {"far_batches", m->objectBatches.load()},
                      {"object_lods", m->objectLods.load()}};
     }
     return {

@@ -104,7 +104,7 @@ struct StructureAsset {
     QString id, name, sourcePath, format;
     int width = 0, height = 0, depth = 0;
     QVector3D pivot{0, 0, 0};
-    int groundBlend = 2;
+    int groundBlend = 0;
     QString placement = "place"; // place, carve, ignore
     QStringList markers;
     SharedValues<StructureBlock> blocks;
@@ -223,6 +223,7 @@ struct GeneratedCreation {
     QStringList diagnostics;
     std::set<int> geometryChunks;
     std::unordered_set<uint64_t> geometryCells;
+    std::unordered_set<uint64_t> caveAir; // Confirmed interiors and portals clip underlying edits.
     std::unordered_map<int, std::vector<std::pair<uint64_t, uint32_t>>> byChunk;
     std::vector<QRect> surfaceHoles;
     std::unordered_map<uint64_t, QByteArray> blockEntities;

@@ -290,7 +290,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
             palette[text] = b;
             return b;
         };
-        auto put = [&](int x, int y, int z, Block b, bool geometry = false) {
+        auto put = [&](int x, int y, int z, Block b, bool geometry = false, bool terrainPatch = true) {
             if (!w.contains(x, y, z) || y == World::MinY)
                 return;
             if ((++ticks & 2047) == 0)
@@ -298,11 +298,13 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
             if (out->cells.size() >= 2000000 && !out->cells.contains(w.key(x, y, z)))
                 throw std::runtime_error("生成结果超过200万方块预算，请缩小范围/降低密度");
             out->cells[w.key(x, y, z)] = b;
+            if (!out->caveAir.empty())
+                out->caveAir.erase(w.key(x, y, z));
             out->objectCells.erase(w.key(x, y, z));
             out->blockEntities.erase(w.key(x, y, z));
             if (geometry)
                 out->geometryCells.insert(w.key(x, y, z));
-            if (geometry)
+            if (geometry && terrainPatch)
                 for (int dz = -1; dz <= 1; ++dz)
                     for (int dx = -1; dx <= 1; ++dx) {
                         int cx = (x - w.originX) / 16 + dx, cz = (z - w.originZ) / 16 + dz;
@@ -437,7 +439,7 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                             z >= box.min.z() && z <= box.max.z())
                             return false;
                 }
-            if (a->groundBlend != 0 && a->placement == "place" && !scatter) {
+            if (a->groundBlend != 0 && a->category != "plant" && a->placement == "place" && !scatter) {
                 std::map<std::pair<int, int>, int> bottom;
                 // Only the marked base/root plane may grow a foundation.
                 // Canopies, overhangs and balconies must never sprout stone.
@@ -452,6 +454,10 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                     }
                 for (auto [xz, y] : bottom) {
                     int h = height(xz.first, xz.second);
+                    // Foundation fill must connect to real ground. Never suspend stone
+                    // below a floating base, and keep plant roots exactly as authored.
+                    if (y - h - 1 > a->groundBlend)
+                        continue;
                     if (a->groundBlend == 1 && h >= y)
                         for (int yy = y; yy <= h; ++yy)
                             put(xz.first, yy, xz.second, Air, true);
@@ -463,7 +469,9 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
             if (a->placement == "place")
                 out->objects.push_back({p.id, owner.isEmpty() ? p.id : owner, p});
             for (auto &[v, b] : writes) {
-                put(int(v.x()), int(v.y()), int(v.z()), b, true);
+                put(int(v.x()), int(v.y()), int(v.z()), b, true, a->placement != "place" || b == Air);
+                if (a->placement == "cave" && b == Air)
+                    out->caveAir.insert(w.key(int(v.x()), int(v.y()), int(v.z())));
                 if (a->placement == "place" && b != Air)
                     out->objectCells[w.key(int(v.x()), int(v.y()), int(v.z()))] = objectIndex;
             }
@@ -732,7 +740,9 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
         const auto changedHeight = out->heights.find(w.column(x, z));
         const int surface =
             changedHeight == out->heights.end() ? int(w.heights[w.column(x, z)]) : changedHeight->second;
-        if (b == Air && (!w.explicitOverride(key) || w.isAir(w.overrides.at(key))) && y == surface)
+        if (b == Air &&
+            (out->caveAir.contains(key) || !w.explicitOverride(key) || w.isAir(w.overrides.at(key))) &&
+            y == surface)
             holes[z].insert(x);
     }
     for (auto &[z, xs] : holes) {

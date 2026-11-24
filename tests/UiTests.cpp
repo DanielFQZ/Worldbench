@@ -1530,8 +1530,11 @@ int main(int argc, char **argv) {
         const auto remoteMatrix = v->viewProjection();
         const auto remoteBefore = editor.world().heights;
         const int remoteHeight = editor.world().height(remoteHit.x, remoteHit.z);
+        // This can be the same native pointer position as the earlier double-click.
+        QTest::mouseMove(win, remotePoint + QPoint(5, 0), 20);
         QTest::mouseMove(win, remotePoint, 20);
-        check(v->hitText().contains("远处精确落点"), "surface brush reports exact remote target");
+        check(QTest::qWaitFor([&] { return v->hitText().contains("远处精确落点"); }, 2000),
+              "surface brush reports exact remote target");
         QTest::mousePress(win, Qt::LeftButton, Qt::NoModifier, remotePoint);
         QTest::qWait(230);
         QTest::mouseRelease(win, Qt::LeftButton, Qt::NoModifier, remotePoint);

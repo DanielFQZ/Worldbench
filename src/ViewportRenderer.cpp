@@ -67,7 +67,10 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_reflectionSkyBindings, m_waterBindings;
     std::array<std::unique_ptr<QRhiShaderResourceBindings>, 2> m_shadowBindings, m_shadowSurfaceBindings;
     std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha, m_water, m_sky, m_reflectOpaque, m_reflectSky,
-        m_shadow;
+        m_shadow, m_boundsPipe;
+    std::unique_ptr<QRhiBuffer> m_boundsBuffer;
+    std::vector<wb::Vertex> m_boundsVertices;
+    bool m_boundsDirty = true;
     std::array<Target, 2> m_shadows;
     Target m_reflection, m_selectionMask;
     std::unique_ptr<QRhiBuffer> m_maskUniform;
@@ -102,12 +105,18 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_lastObjectTransforms;
     QMatrix4x4 objectTransform(const wb::MeshScene::Object &object) const {
         for (const auto &p : m_creation.presets)
-            if (p.id == object.ownerId)
+            if (p.id == object.ownerId) {
+                if (p.position == object.placement.position && p.scale == object.placement.scale &&
+                    p.rotation == object.placement.rotation)
+                    return {};
                 return placementMatrix(p) * placementMatrix(object.placement).inverted();
+            }
         for (const auto &v : m_creation.volumes)
             if (v.id == object.ownerId)
                 for (const auto &old : m_scene->creation.volumes)
                     if (old.id == v.id) {
+                        if (v.min == old.min && v.max == old.max)
+                            return {};
                         QMatrix4x4 m;
                         m.translate(v.min);
                         const auto a = v.max - v.min, b = old.max - old.min;
@@ -179,7 +188,7 @@ class Renderer final : public QQuickRhiItemRenderer {
     }
     std::unique_ptr<QRhiGraphicsPipeline> pipeline(const char *vert, const char *frag,
                                                    QRhiShaderResourceBindings *srb, QRhiRenderTarget *rt,
-                                                   bool alpha = false, bool sky = false) {
+                                                   bool alpha = false, bool sky = false, bool lines = false) {
         auto p = std::unique_ptr<QRhiGraphicsPipeline>(rhi()->newGraphicsPipeline());
         p->setShaderStages(
             {{QRhiShaderStage::Vertex, shader(vert)}, {QRhiShaderStage::Fragment, shader(frag)}});
@@ -192,7 +201,7 @@ class Renderer final : public QQuickRhiItemRenderer {
                                   {0, 3, QRhiVertexInputAttribute::Float2, 40}});
             p->setVertexInputLayout(layout);
         }
-        p->setTopology(QRhiGraphicsPipeline::Triangles);
+        p->setTopology(lines ? QRhiGraphicsPipeline::Lines : QRhiGraphicsPipeline::Triangles);
         p->setCullMode(QRhiGraphicsPipeline::None);
         p->setDepthTest(!sky);
         p->setDepthWrite(!alpha && !sky);
@@ -283,12 +292,47 @@ class Renderer final : public QQuickRhiItemRenderer {
         }
         m_opaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
                             renderTarget());
+        m_boundsPipe = pipeline(":/shaders/bounds.vert.qsb", ":/shaders/bounds.frag.qsb", m_mainBindings.get(),
+                                renderTarget(), true, false, true);
         m_alpha = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
                            renderTarget(), true);
         m_sky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb", m_skyBindings.get(),
                          renderTarget(), false, true);
         m_water = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/water.frag.qsb", m_waterBindings.get(),
                            renderTarget(), true);
+    }
+    void updateBounds(const Viewport &viewport) {
+        std::vector<wb::Vertex> vertices;
+        auto box = [&](QVector3D lo, QVector3D hi, bool selected, float opacity) {
+            auto vertex = [&](int i) {
+                vertices.push_back({i & 1 ? hi.x() : lo.x(), i & 2 ? hi.y() : lo.y(), i & 4 ? hi.z() : lo.z(),
+                                    0, 1, 0, selected ? .52f : .41f, selected ? .87f : .55f,
+                                    selected ? .77f : .60f, opacity, -1, -1});
+            };
+            for (int i = 0; i < 8; ++i)
+                for (int bit : {1, 2, 4})
+                    if (!(i & bit)) {
+                        vertex(i);
+                        vertex(i | bit);
+                    }
+        };
+        for (const auto &v : m_creation.volumes)
+            if (v.visible) {
+                box(v.min, v.max, v.id == m_selectedId, .85f);
+                const float inset = std::min(
+                    {v.transition, (v.max.x() - v.min.x()) * .475f, (v.max.z() - v.min.z()) * .475f});
+                if (inset > 0)
+                    box(v.min + QVector3D(inset, 0, inset), v.max - QVector3D(inset, 0, inset),
+                        v.id == m_selectedId, .45f);
+            }
+        if (viewport.hasGhostBounds())
+            box(viewport.ghostMin(), viewport.ghostMax(), true, .85f);
+        if (vertices.size() != m_boundsVertices.size() ||
+            (!vertices.empty() && std::memcmp(vertices.data(), m_boundsVertices.data(),
+                                              vertices.size() * sizeof(wb::Vertex)) != 0)) {
+            m_boundsVertices = std::move(vertices);
+            m_boundsDirty = true;
+        }
     }
     bool m_inspection = false;
     void synchronize(QQuickRhiItem *item) override {
@@ -307,6 +351,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_selectedId = v->editor()->selectedNode();
             m_proxy = v->selectionProxy();
             m_creation = v->editor()->renderCreation();
+            updateBounds(*v);
             m_environment = v->editor()->world().environment;
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
@@ -557,8 +602,37 @@ class Renderer final : public QQuickRhiItemRenderer {
         QMatrix4x4 selectedTransform;
         m_objectTransforms.clear();
         int objectTriangles = 0, objectLods = 0;
+        int batches = 0;
+        std::vector<bool> grouped(m_scene ? m_scene->objects.size() : 0);
+        if (m_scene && !m_inspection)
+            for (const auto &cluster : m_scene->clusters) {
+                if (grouped[cluster.members.front()])
+                    continue;
+                const auto &mesh = cluster.mesh;
+                auto transform = objectTransform(m_scene->objects[cluster.members.front()]);
+                if (!transform.isIdentity())
+                    continue; // Live PCG transforms use individual meshes.
+                const QRectF footprint(mesh->lower.x(), mesh->lower.z(), mesh->upper.x() - mesh->lower.x(),
+                                       mesh->upper.z() - mesh->lower.z());
+                if (footprint.intersects(QRectF(m_scene->exactArea)))
+                    continue;
+                const float distance = std::max(1.f, (mesh->center - m_camera).length() -
+                                                         (mesh->upper - mesh->lower).length() * .5f);
+                const float pixels = renderTarget()->pixelSize().height() * .866f / distance;
+                if (distance < 80.f || mesh->surfaceError * pixels > std::clamp(distance / 120.f, 1.5f, 5.f))
+                    continue;
+                for (auto i : cluster.members)
+                    grouped[i] = true;
+                m_objectTransforms[mesh] = transform;
+                objectTriangles += int(mesh->opaqueIndices.size() / 3);
+                objectLods += int(cluster.members.size());
+                ++batches;
+            }
         if (m_scene)
-            for (const auto &object : m_scene->objects) {
+            for (size_t i = 0; i < m_scene->objects.size(); ++i) {
+                if (grouped[i])
+                    continue;
+                const auto &object = m_scene->objects[i];
                 QMatrix4x4 transform = objectTransform(object);
                 auto mesh = object.mesh;
                 const float distance = std::max(1.f, (transform.map(mesh->center) - m_camera).length());
@@ -580,7 +654,7 @@ class Renderer final : public QQuickRhiItemRenderer {
                 if (!exact && !object.lods.empty()) {
                     mesh = object.lods.front();
                     for (const auto &lod : object.lods)
-                        if (lod->surfaceError * pixels * scaling < 1.5f)
+                        if (lod->surfaceError * pixels * scaling < std::clamp(distance / 120.f, 1.5f, 5.f))
                             mesh = lod;
                 }
                 objectTriangles += int(mesh->opaqueIndices.empty() ? mesh->opaque.size() / 3
@@ -772,15 +846,30 @@ class Renderer final : public QQuickRhiItemRenderer {
             objectUniform[165] = 1;
             std::memcpy(objectUniform.data() + 168, transform.constData(), 64);
             updates->updateDynamicBuffer(c.objectUniform.get(), 0, UniformFloats * 4, objectUniform.data());
-            auto reflectedUniform = sceneUniform(reflectedView, reflectedCamera, true, shadows, shadowViews);
-            reflectedUniform[165] = 1;
-            std::memcpy(reflectedUniform.data() + 168, transform.constData(), 64);
-            updates->updateDynamicBuffer(c.objectReflectionUniform.get(), 0, UniformFloats * 4,
-                                         reflectedUniform.data());
+            if (updateReflection) {
+                auto reflectedUniform =
+                    sceneUniform(reflectedView, reflectedCamera, true, shadows, shadowViews);
+                reflectedUniform[165] = 1;
+                std::memcpy(reflectedUniform.data() + 168, transform.constData(), 64);
+                updates->updateDynamicBuffer(c.objectReflectionUniform.get(), 0, UniformFloats * 4,
+                                             reflectedUniform.data());
+            }
             for (int i = 0; i < 2; ++i) {
+                if (!updateShadow || !updateCascades[i])
+                    continue;
                 auto matrix = rhi()->clipSpaceCorrMatrix() * m_shadowView[i] * transform;
                 updates->updateDynamicBuffer(c.objectShadowUniform[i].get(), 0, 64, matrix.constData());
             }
+        }
+        if (m_boundsDirty && !m_boundsVertices.empty()) {
+            const int bytes = int(m_boundsVertices.size() * sizeof(wb::Vertex));
+            if (!m_boundsBuffer || m_boundsBuffer->size() < bytes) {
+                m_boundsBuffer.reset(rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, bytes));
+                if (!m_boundsBuffer->create())
+                    qFatal("Unable to create PCG bounds buffer");
+            }
+            updates->updateDynamicBuffer(m_boundsBuffer.get(), 0, bytes, m_boundsVertices.data());
+            m_boundsDirty = false;
         }
         cb->resourceUpdate(updates);
         if (updateShadow) {
@@ -852,6 +941,14 @@ class Renderer final : public QQuickRhiItemRenderer {
             ++m_draws;
         }
         opaquePass(visible, false);
+        if (!m_boundsVertices.empty()) {
+            cb->setGraphicsPipeline(m_boundsPipe.get());
+            cb->setShaderResources(m_mainBindings.get());
+            draw(cb, m_boundsBuffer.get(), int(m_boundsVertices.size()));
+        }
+        std::erase_if(visible, [](const wb::MeshPtr &mesh) {
+            return mesh->transparent.empty() && mesh->water.empty();
+        });
         auto displayedCenter = [&](const wb::MeshPtr &mesh) {
             const auto found = m_objectTransforms.find(mesh);
             return found == m_objectTransforms.end() ? mesh->center : found->second.map(mesh->center);
@@ -906,6 +1003,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_metrics->gpuMicros = int(cb->lastCompletedGpuTime() * 1e6);
             m_metrics->pixelWidth = renderTarget()->pixelSize().width();
             m_metrics->pixelHeight = renderTarget()->pixelSize().height();
+            m_metrics->objectBatches = batches;
             m_metrics->objectTriangles = objectTriangles;
             m_metrics->objectLods = objectLods;
             m_metrics->submitMicros = int(timer.nsecsElapsed() / 1000);

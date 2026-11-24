@@ -128,6 +128,7 @@ int main(int argc, char **argv) {
             auto placed = World::create(options);
             auto asset = tree();
             asset.groundBlend = 2;
+            asset.category = "plant";
             placed.creation.assets = {asset};
             AssetPreset instance;
             instance.id = "root-test";
@@ -137,6 +138,16 @@ int main(int argc, char **argv) {
             check(placed.rebuildCreation(error), "tree ground blend fixture");
             check(placed.block(1, 28, 0) == Air && placed.block(1, 27, 0) == Air,
                   "canopy must not create floating stone foundation");
+            auto raised = placed;
+            raised.creation.presets.front().position.setY(27);
+            check(raised.rebuildCreation(error) && raised.block(0, 26, 0) == Air,
+                  "legacy two-block foundation leaves a hovering plant root untouched");
+            raised.creation.assets.front().category = "building";
+            check(raised.rebuildCreation(error) && raised.block(0, 26, 0) == Stone &&
+                      raised.block(0, 25, 0) == Stone, "requested building foundation reaches ground");
+            raised.creation.presets.front().position.setY(40);
+            check(raised.rebuildCreation(error) && raised.block(0, 39, 0) == Air &&
+                      raised.block(0, 38, 0) == Air, "floating building has no hanging foundation");
             const auto ground = placed.raycast({.5f, 55, .5f}, {0, -1, 0}, 100, true);
             check(ground.valid && ground.y == 24 && placed.raycast({.5f, 55, .5f}, {0, -1, 0}).y == 29,
                   "terrain pick passes through the canopy and trunk");
@@ -331,7 +342,13 @@ int main(int argc, char **argv) {
         cp.assetId = "cave";
         cp.position = {0, 8, 0};
         caveWorld.creation.presets.push_back(cp);
+        caveWorld.setBlock(2, 10, 2, Planks);
         check(caveWorld.rebuildCreation(error), "underground cave place");
+        auto movedCave = caveWorld;
+        movedCave.creation.presets.front().position.setX(8);
+        check(movedCave.rebuildCreation(error) && movedCave.block(2, 10, 2) == Planks &&
+                  caveWorld.blockAtHeight(2, 10, 2, 24) == Air,
+              "confirmed chamber masks explicit edit until cave moves away");
         check(caveWorld.block(2, 10, 2) == Air && caveWorld.block(0, 10, 2) == Air,
               "internal and entrance air carved");
         check(caveWorld.block(-1, 10, 2) == Stone, "external terrain preserved");

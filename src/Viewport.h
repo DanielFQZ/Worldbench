@@ -11,7 +11,8 @@ struct RenderMetrics {
     std::atomic_uint64_t renderedSourceRevision{0};
     std::atomic_int submitMicros{0}, uploadKiB{0}, residentKiB{0}, draws{0};
     std::atomic_int effectKiB{0}, shadowUpdates{0}, reflectionUpdates{0};
-    std::atomic_int gpuMicros{0}, pixelWidth{0}, pixelHeight{0}, objectTriangles{0}, objectLods{0};
+    std::atomic_int gpuMicros{0}, pixelWidth{0}, pixelHeight{0}, objectTriangles{0}, objectLods{0},
+        objectBatches{0};
     std::atomic_bool visibleWater{false};
 };
 
@@ -50,6 +51,9 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     wb::MeshPtr selectionProxy() const { return m_selectionProxy; }
     void refreshSelectionProxy();
     wb::MeshPtr ghostMesh() const { return m_ghostVisible ? m_ghostMesh : wb::MeshPtr{}; }
+    bool hasGhostBounds() const { return m_ghostVolume && (!m_ghostVisible || !m_ghostMesh); }
+    QVector3D ghostMin() const { return m_ghostMin; }
+    QVector3D ghostMax() const { return m_ghostMax; }
     QMatrix4x4 ghostTransform() const { return m_ghostTransform; }
     double sensitivity() const { return m_sensitivity; }
     void setRawInput(bool value);
@@ -143,6 +147,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void stopInput();
     void tick();
     void changedCamera();
+    void updatePreviewDetail();
+    uint64_t m_detailRevision = ~uint64_t(0);
     void navigate(float dx, float dy);
     void beginRawInput();
     void endRawInput();

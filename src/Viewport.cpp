@@ -128,9 +128,16 @@ void Viewport::setEditor(Editor *e) {
         connect(e, &Editor::sceneChanged, this, [this] {
             if (m_ghostUntilRevision && m_editor->scene()->sourceRevision >= m_ghostUntilRevision)
                 clearAssetPreview();
+            const auto scene = m_editor->scene();
+            if (!scene->provisional && !scene->farTiles.empty() &&
+                m_detailRevision != scene->sourceRevision) {
+                m_detailRevision = scene->sourceRevision;
+                updatePreviewDetail();
+            }
             update();
         });
         connect(e, &Editor::worldReset, this, [this] {
+            m_detailRevision = ~uint64_t(0);
             clearAssetPreview();
             m_ghostId.clear();
         });
@@ -253,18 +260,56 @@ void Viewport::pick(QPointF pos) {
 }
 void Viewport::changedCamera() {
     m_pitch = std::clamp(m_pitch, -89.f, 89.f);
+    updatePreviewDetail();
+    pick(m_pointer);
+    update();
+}
+void Viewport::updatePreviewDetail() {
     if (m_editor && !m_editor->inspectionOnly()) {
         const auto &w = m_editor->world();
         const float px = std::clamp(m_camera.x(), float(w.originX), float(w.originX + w.width - 1));
         const float pz = std::clamp(m_camera.z(), float(w.originZ), float(w.originZ + w.depth - 1));
-        const float distance = (m_camera - QVector3D(px, float(w.height(int(px), int(pz)) + 1), pz)).length();
+        QVector3D nearest(px, float(w.height(int(px), int(pz)) + 1), pz);
+        float best = (nearest - m_camera).lengthSquared();
         const float range = m_editor->exactRadiusChunks() * 16.f + 32.f;
-        m_editor->setExactPreviewEnabled(distance < range);
-        m_editor->setPreviewCenter(int(m_camera.x()), int(m_camera.z()));
+        if (best >= range * range) {
+            auto consider = [&](QVector3D lo, QVector3D hi) {
+                QVector3D q;
+                for (int i = 0; i < 3; ++i)
+                    q[i] = std::clamp(m_camera[i], lo[i], hi[i]);
+                float d = (q - m_camera).lengthSquared();
+                if (d < best) {
+                    best = d;
+                    nearest = q;
+                }
+            };
+            const auto scene = m_editor->scene();
+            for (const auto &tile : scene->farTiles) {
+                if (!tile.mesh ||
+                    !tile.area.adjusted(-range, -range, range, range).contains(int(px), int(pz)))
+                    continue;
+                const int stride = (tile.area.width() + 15) / 16;
+                for (size_t i = 0; i < tile.mesh->terrainRanges.size(); ++i) {
+                    auto heights = tile.mesh->terrainRanges[i];
+                    float x = tile.area.x() + int(i % stride) * 16, z = tile.area.y() + int(i / stride) * 16;
+                    consider({x, float(heights.low), z}, {x + 16, float(heights.high), z + 16});
+                }
+            }
+            for (const auto &obj : scene->objects)
+                consider(obj.mesh->lower, obj.mesh->upper);
+            for (int z = wb::floorDiv(int(std::floor(m_camera.z() - range)), 16);
+                 z <= wb::floorDiv(int(std::floor(m_camera.z() + range)), 16); ++z)
+                for (int x = wb::floorDiv(int(std::floor(m_camera.x() - range)), 16);
+                     x <= wb::floorDiv(int(std::floor(m_camera.x() + range)), 16); ++x) {
+                    auto chunk = scene->editedBounds.find({x, z});
+                    if (chunk != scene->editedBounds.end())
+                        for (const auto &[section, box] : chunk->second)
+                            consider(box.first, box.second);
+                }
+        }
+        m_editor->setExactPreviewEnabled(best < range * range);
+        m_editor->setPreviewCenter(int(nearest.x()), int(nearest.z()));
     }
-    // pick() already publishes camera/overlay changes once.
-    pick(m_pointer);
-    update();
 }
 void Viewport::resetCamera() {
     stopInput();
@@ -931,74 +976,28 @@ QVariantList Viewport::creationOverlay() const {
     QVariantList objects;
     if (!m_editor)
         return objects;
-    const auto &world = m_editor->world();
-    auto add = [&](const QString &id, const QString &name, QVector3D lo, QVector3D hi, float transition,
-                   QString kind, QVector3D anchor = QVector3D()) {
-        QVector3D center = kind == "asset" ? anchor : (lo + hi) * .5f;
+    const auto &creation = m_editor->renderCreation();
+    auto add = [&](const QString &id, const QString &name, QVector3D center, const QString &kind) {
         bool visible;
-        auto c = projectPoint(center, &visible);
-        if (!visible)
-            return;
-        QVariantList edges;
-        auto box = [&](QVector3D a, QVector3D b, bool inner) {
-            QVector3D corners[8];
-            for (int i = 0; i < 8; ++i)
-                corners[i] = {i & 1 ? b.x() : a.x(), i & 2 ? b.y() : a.y(), i & 4 ? b.z() : a.z()};
-            for (int i = 0; i < 8; ++i)
-                for (int axis = 0; axis < 3; ++axis)
-                    if (!(i & (1 << axis))) {
-                        bool va, vb;
-                        auto pa = projectPoint(corners[i], &va),
-                             pb = projectPoint(corners[i | (1 << axis)], &vb);
-                        if (va && vb)
-                            edges << QVariantMap{{"x1", pa.x()},
-                                                 {"y1", pa.y()},
-                                                 {"x2", pb.x()},
-                                                 {"y2", pb.y()},
-                                                 {"inner", inner}};
-                    }
-        };
-        if (kind == "volume")
-            box(lo, hi, false);
-        if (transition > 0) {
-            auto size = (hi - lo) * .5f;
-            float t = std::min({transition, size.x() * .95f, size.z() * .95f});
-            box(lo + QVector3D(t, 0, t), hi - QVector3D(t, 0, t), true);
-        }
-        objects << QVariantMap{{"id", id},    {"name", name},   {"x", c.x()},
-                               {"y", c.y()},  {"edges", edges}, {"selected", id == m_editor->selectedNode()},
-                               {"kind", kind}};
+        const auto c = projectPoint(center, &visible);
+        if (visible)
+            objects << QVariantMap{{"id", id},
+                                   {"name", name},
+                                   {"x", c.x()},
+                                   {"y", c.y()},
+                                   {"selected", id == m_editor->selectedNode()},
+                                   {"kind", kind}};
     };
     if (m_ghostVolume && (!m_ghostVisible || !m_ghostMesh))
-        add("placement-preview", m_ghostName, m_ghostMin, m_ghostMax, 0, "volume");
-    for (auto &v : world.creation.volumes)
+        add("placement-preview", m_ghostName, (m_ghostMin + m_ghostMax) * .5f, "volume");
+    for (const auto &v : creation.volumes)
         if (v.visible)
-            add(v.id, v.name, v.min, v.max, v.transition, "volume");
-    for (auto &p : world.creation.presets)
-        if (p.enabled) {
-            auto a = std::find_if(world.creation.assets.begin(), world.creation.assets.end(),
-                                  [&](auto &a) { return a.id == p.assetId; });
-            if (a != world.creation.assets.end()) {
-                QVector3D lo(1e8, 1e8, 1e8), hi(-1e8, -1e8, -1e8);
-                int turn = (int(p.rotation.y() / 90) % 4 + 4) % 4;
-                for (int i = 0; i < 8; ++i) {
-                    QVector3D v =
-                        (QVector3D(i & 1 ? a->width : 0, i & 2 ? a->height : 0, i & 4 ? a->depth : 0) -
-                         a->pivot) *
-                        p.scale;
-                    for (int j = 0; j < turn; ++j)
-                        v = {-v.z(), v.y(), v.x()};
-                    v += p.position;
-                    for (int j = 0; j < 3; ++j) {
-                        lo[j] = std::min(lo[j], v[j]);
-                        hi[j] = std::max(hi[j], v[j]);
-                    }
-                }
-                add(p.id, p.name, lo, hi, 0, "asset", p.position);
-            }
-        }
-    for (auto &n : world.creation.roadNodes)
+            add(v.id, v.name, (v.min + v.max) * .5f, "volume");
+    for (const auto &p : creation.presets)
+        if (p.enabled)
+            add(p.id, p.name, p.position, "asset");
+    for (const auto &n : creation.roadNodes)
         if (n.enabled)
-            add(n.id, n.name, n.position - QVector3D(1, 0, 1), n.position + QVector3D(1, 2, 1), 0, "road");
+            add(n.id, n.name, n.position + QVector3D(0, 1, 0), "road");
     return objects;
 }

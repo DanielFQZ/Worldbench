@@ -51,7 +51,7 @@ void Viewport::setGizmoMode(int mode) {
 }
 QVector3D Viewport::gizmoScaleSigns(const QString &id) const {
     if (m_editor)
-        for (const auto &p : m_editor->world().creation.presets)
+        for (const auto &p : m_editor->renderCreation().presets)
             if (p.id == id)
                 return {p.scale.x() < 0 ? -1.f : 1.f, 1.f, p.scale.z() < 0 ? -1.f : 1.f};
     return {1, 1, 1};
@@ -61,7 +61,7 @@ QVector3D Viewport::gizmoScaleSigns(const QString &id) const {
 bool Viewport::creationGizmo(wb::TerrainInstance &t, QVector3D &anchor, QString &kind) const {
     if (!m_editor)
         return false;
-    const auto &state = m_editor->world().creation;
+    const auto &state = m_editor->renderCreation();
     const auto id = m_editor->selectedNode();
     t = wb::TerrainInstance{};
     t.id = id;
@@ -303,7 +303,7 @@ bool Viewport::pressGizmo(QPointF p) {
         m_gizmoCenter = gizmoAnchor(m_gizmoInitial);
     }
     if (m_gizmoKind == "volume")
-        for (const auto &v : m_editor->world().creation.volumes)
+        for (const auto &v : m_editor->renderCreation().volumes)
             if (v.id == m_gizmoInitial.id)
                 m_gizmoVolumeSize = v.max - v.min;
     m_gizmoAxis = axis;
@@ -475,7 +475,7 @@ void Viewport::moveGizmo(QPointF p) {
                {"scaleX", current.scaleX}, {"scaleY", current.scaleY}, {"scaleZ", current.scaleZ}};
         // Report the accepted dimensions, including clamping or rejected generation.
         if (m_gizmoKind == "volume" && m_gizmoMode == 2)
-            for (const auto &v : m_editor->world().creation.volumes)
+            for (const auto &v : m_editor->renderCreation().volumes)
                 if (v.id == i.id)
                     for (int k = 0; k < 3; ++k)
                         now[scaleKeys[k]] =

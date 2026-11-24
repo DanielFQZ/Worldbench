@@ -1038,8 +1038,12 @@ void Editor::startMesh() {
                 next->chunkIds.push_back(id);
                 next->chunks.push_back(exactCache.at(id));
             }
-            if (snapshot.generated)
-                for (int id : snapshot.generated->geometryChunks)
+            if (snapshot.generated) {
+                auto patchIds = snapshot.generated->geometryChunks;
+                if (inspection)
+                    for (const auto &[id, cells] : snapshot.generated->byChunk)
+                        patchIds.insert(id);
+                for (int id : patchIds)
                     if (!wanted.contains(id)) {
                         const int cacheId = -id - 1;
                         auto found = exactCache.find(cacheId);
@@ -1053,6 +1057,7 @@ void Editor::startMesh() {
                         next->chunkIds.push_back(cacheId);
                         next->chunks.push_back(mesh);
                     }
+            }
             next->updatedChunks = int(exactJobs.size());
             if (inspection) {
                 for (auto &mesh : next->chunks) {
@@ -1063,10 +1068,28 @@ void Editor::startMesh() {
                 next->buildMilliseconds = timer.elapsed();
                 return next;
             }
-            next->objects = old->generated == snapshot.generated && old->assets == snapshot.assets &&
-                                    !allFar && old->sourceRevision == sourceRevision
-                                ? old->objects
-                                : wb::buildCreationMeshes(snapshot, serial);
+            if (old->generated == snapshot.generated && old->assets == snapshot.assets && !allFar &&
+                old->sourceRevision == sourceRevision) {
+                next->objects = old->objects;
+                next->clusters = old->clusters;
+                next->editedBounds = old->editedBounds;
+            } else {
+                next->objects = wb::buildCreationMeshes(snapshot, serial, &next->clusters);
+                for (auto [key, block] : snapshot.overrides) {
+                    if (snapshot.isAir(block))
+                        continue;
+                    int x, y, z;
+                    snapshot.decode(key, x, y, z);
+                    auto &sections = next->editedBounds[{wb::floorDiv(x, 16), wb::floorDiv(z, 16)}];
+                    QVector3D lo(x, y, z), hi(x + 1, y + 1, z + 1);
+                    auto [it, added] = sections.try_emplace(wb::floorDiv(y, 16), lo, hi);
+                    if (!added)
+                        for (int axis = 0; axis < 3; ++axis) {
+                            it->second.first[axis] = std::min(it->second.first[axis], lo[axis]);
+                            it->second.second[axis] = std::max(it->second.second[axis], hi[axis]);
+                        }
+                }
+            }
             QElapsedTimer surfaceTimer;
             surfaceTimer.start();
             next->farTiles = wb::planSurfaceTiles(snapshot, patchSize);
@@ -1106,6 +1129,8 @@ void Editor::startMesh() {
                                     sizeof(wb::Vertex) +
                                 m.opaqueIndices.size() * sizeof(uint32_t) + m.surfaceColorBytes());
             };
+            for (const auto &c : next->clusters)
+                bytes += cost(*c.mesh);
             for (const auto &m : next->chunks)
                 bytes += cost(*m);
             for (const auto &object : next->objects) {
@@ -1158,14 +1183,15 @@ void Editor::startMesh() {
                     m.opaqueIndices.size() * sizeof(uint32_t);
                 next->colorBytes += m.surfaceColorBytes();
             };
+            for (const auto &c : next->clusters)
+                next->bufferBytes += cost(*c.mesh);
             for (const auto &mesh : next->chunks)
                 account(*mesh, false);
             for (const auto &object : next->objects) {
                 account(*object.mesh, false);
                 for (const auto &lod : object.lods)
                     if (lod != object.mesh)
-                        next->bufferBytes += lod->opaque.size() * sizeof(wb::Vertex) +
-                                             lod->opaqueIndices.size() * sizeof(uint32_t);
+                        next->bufferBytes += cost(*lod);
             }
             for (const auto &tile : next->farTiles) {
                 account(*tile.mesh, true);

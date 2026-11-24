@@ -453,6 +453,15 @@ MeshPtr buildSurfaceMesh(const World &w, const FarTile &tile, const SurfaceMater
         return {};
     auto mesh = std::make_shared<ChunkMesh>();
     mesh->revision = revision;
+    const int chunksWide = (r.width() + 15) / 16;
+    mesh->terrainRanges.resize(chunksWide * ((r.height() + 15) / 16));
+    for (int z = 0; z < r.height(); ++z)
+        for (int x = 0; x < r.width(); ++x) {
+            auto &range = mesh->terrainRanges[(z / 16) * chunksWide + x / 16];
+            const auto y = short(grid.heights[z * side + x]);
+            range.low = std::min(range.low, y);
+            range.high = std::max(range.high, y);
+        }
     mesh->provisional = tolerance > 1.f;
     mesh->surfaceError = topology.certifiedError;
     mesh->sampleCount = uint64_t(r.width() + 1) * (r.height() + 1);

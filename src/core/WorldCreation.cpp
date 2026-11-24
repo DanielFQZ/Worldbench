@@ -188,7 +188,7 @@ bool StructureAsset::fromJson(const QJsonObject &o, StructureAsset &out, QString
     out.width = o["width"].toInt();
     out.height = o["height"].toInt();
     out.depth = o["depth"].toInt();
-    out.groundBlend = o["groundBlend"].toInt(2);
+    out.groundBlend = o["groundBlend"].toInt(0);
     out.placement = o["placement"].toString("place");
     for (const auto &v : o["markers"].toArray())
         out.markers << v.toString();

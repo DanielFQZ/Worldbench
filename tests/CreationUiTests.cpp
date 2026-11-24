@@ -2,6 +2,7 @@
 #include "Viewport.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
+#include "core/Project.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDragEnterEvent>
@@ -198,6 +199,148 @@ int main(int argc, char **argv) {
                   "MCP screenshot decoded");
             check(image.save(out + "/" + name + ".png"), "screenshot saved");
         };
+        if (args.contains("--forest-review")) {
+            check(!source.isEmpty() && editor.open(QUrl::fromLocalFile(source)), "open review project copy");
+            settle();
+            auto inspect = call("creation", {{"action", "inspect"}});
+            auto state = QJsonDocument::fromJson(
+                             inspect["content"].toArray()[0].toObject()["text"].toString().toUtf8())
+                             .object()["creation"]
+                             .toObject();
+            QJsonArray results;
+            QVector3D caveEye, caveDirection;
+            for (const auto value : state["presets"].toArray()) {
+                wb::AssetPreset placement;
+                QString error;
+                check(wb::AssetPreset::fromJson(value.toObject(), placement, error), "read MCP placement");
+                for (const auto &asset : editor.world().creation.assets) {
+                    if (asset.id != placement.assetId || asset.placement != "cave")
+                        continue;
+                    const auto analysis = wb::analyzeAssetCave(asset, editor.world().creation.caveMarkers);
+                    // Audit the interior cells of a unit-scale, quarter-turn placement.
+                    if (placement.scale != QVector3D(1, 1, 1))
+                        continue;
+                    const auto matrix = wb::placementMatrix(placement);
+                    QVector3D lo(1e8, 1e8, 1e8), hi(-1e8, -1e8, -1e8);
+                    std::vector<QVector3D> cells;
+                    QVector3D chamber, portals;
+                    int inside = 0, openings = 0;
+                    for (int y = 0; y < asset.height; ++y)
+                        for (int z = 0; z < asset.depth; ++z)
+                            for (int x = 0; x < asset.width; ++x) {
+                                auto label = analysis.labels[(y * asset.depth + z) * asset.width + x];
+                                if (label != 1 && label != 2)
+                                    continue;
+                                auto pos = matrix.map(QVector3D(x + .5f, y + .5f, z + .5f) - asset.pivot);
+                                for (int i = 0; i < 3; ++i) {
+                                    pos[i] = std::floor(pos[i]);
+                                    lo[i] = std::min(lo[i], pos[i]);
+                                    hi[i] = std::max(hi[i], pos[i]);
+                                }
+                                cells.push_back(pos);
+                                if (label == 2) {
+                                    portals += pos;
+                                    ++openings;
+                                } else {
+                                    chamber += pos;
+                                    ++inside;
+                                }
+                            }
+                    if (inside && openings) {
+                        const auto portal = portals / openings + QVector3D(.5f, .5f, .5f);
+                        caveDirection = (chamber / inside + QVector3D(.5f, .5f, .5f) - portal).normalized();
+                        caveEye = portal + caveDirection * .25f;
+                    }
+                    if (cells.empty())
+                        continue;
+                    auto region = call("read_region", {{"min", QJsonArray{lo.x(), lo.y(), lo.z()}},
+                                                       {"max", QJsonArray{hi.x(), hi.y(), hi.z()}}});
+                    auto blocks = QJsonDocument::fromJson(
+                                      region["content"].toArray()[0].toObject()["text"].toString().toUtf8())
+                                      .object();
+                    const auto values = blocks["blocks"].toArray(), palette = blocks["palette"].toArray();
+                    int solids = 0;
+                    for (auto pos : cells) {
+                        auto v = pos - lo;
+                        int idx =
+                            (int(v.y()) * int(hi.z() - lo.z() + 1) + int(v.z())) * int(hi.x() - lo.x() + 1) +
+                            int(v.x());
+                        if (!palette[values[idx].toInt()].toString().endsWith("air"))
+                            ++solids;
+                    }
+                    results.append(QJsonObject{{"asset", asset.name},
+                                               {"interior_and_portal", int(cells.size())},
+                                               {"solid", solids}});
+                }
+            }
+            call("camera", {{"position", QJsonArray{100, 235, -225}}, {"yaw", -32}, {"pitch", -25}});
+            capture("forest");
+            std::vector<double> frameTimes, gpuTimes, cpuTimes;
+            QElapsedTimer timer;
+            timer.start();
+            qint64 last = 0;
+            auto connection = QObject::connect(
+                window, &QQuickWindow::frameSwapped, &app,
+                [&] {
+                    auto now = timer.nsecsElapsed();
+                    if (last)
+                        frameTimes.push_back((now - last) / 1e6);
+                    last = now;
+                    gpuTimes.push_back(viewport->renderMetrics()->gpuMicros.load() / 1000.);
+                    cpuTimes.push_back(viewport->renderMetrics()->submitMicros.load() / 1000.);
+                },
+                Qt::QueuedConnection);
+            while (frameTimes.size() < 120 && timer.elapsed() < 45000) {
+                viewport->update();
+                QTest::qWait(4);
+            }
+            QObject::disconnect(connection);
+            check(frameTimes.size() >= 100, "measure forest frames");
+            std::sort(frameTimes.begin(), frameTimes.end());
+            std::sort(gpuTimes.begin(), gpuTimes.end());
+            std::sort(cpuTimes.begin(), cpuTimes.end());
+            auto render = info()["rendering"].toObject();
+            render["cpu_p50_ms"] = cpuTimes[cpuTimes.size() / 2];
+            render["draws"] = viewport->renderMetrics()->draws.load();
+            render["cluster_candidates"] = int(editor.scene()->clusters.size());
+            render["frame_p50_ms"] = frameTimes[frameTimes.size() / 2];
+            render["frame_p95_ms"] = frameTimes[frameTimes.size() * 95 / 100];
+            render["gpu_p50_ms"] = gpuTimes[gpuTimes.size() / 2];
+            jsonFile(
+                "review.json",
+                {{"caves", results}, {"render", render}, {"objects", int(editor.scene()->objects.size())}});
+            if (!caveDirection.isNull()) {
+                call("camera", {{"position", QJsonArray{caveEye.x(), caveEye.y(), caveEye.z()}},
+                                {"yaw", qRadiansToDegrees(std::atan2(caveDirection.x(), -caveDirection.z()))},
+                                {"pitch", qRadiansToDegrees(std::asin(caveDirection.y()))}});
+                capture("cave");
+            }
+            // A known narrow summit exercises the case where the ground directly
+            // below the camera is hundreds of blocks lower than the nearest cliff.
+            wb::WorldOptions options;
+            options.flat = true;
+            options.width = options.depth = 512;
+            options.baseHeight = 24;
+            auto pillar = wb::World::create(options);
+            for (int z = -12; z <= 12; ++z)
+                for (int x = -12; x <= 12; ++x)
+                    if (x * x + z * z <= 144)
+                        pillar.heights.set(pillar.column(x, z), 238 - (x * x + z * z) / 28);
+            QString error;
+            const auto path = out + "/cliff-fixture.wbench";
+            check(wb::saveProject(path, pillar, error) && editor.open(QUrl::fromLocalFile(path)),
+                  "open isolated elevated terrain fixture");
+            settle();
+            call("camera", {{"position", QJsonArray{38, 242, 30}}, {"yaw", -52}, {"pitch", -13}});
+            capture("cliff");
+            check(editor.previewContains(0, 0) && editor.world().height(38, 30) == 24,
+                  "lateral approach at summit altitude activates exact terrain");
+            call("camera", {{"position", QJsonArray{210, 242, 30}}, {"yaw", -90}, {"pitch", -10}});
+            settle();
+            check(editor.scene()->exactArea.isEmpty(), "moving away at the same altitude releases exact terrain");
+            check(digest(source) == sourceHash, "review leaves the supplied project intact");
+            return 0;
+        }
         wb::StructureAsset tree;
         tree.id = "fixture-tree";
         tree.name = "验收树 · 根部枢轴";
@@ -263,6 +406,48 @@ int main(int argc, char **argv) {
         volume.max = {48, 60, 48};
         volume.transition = 8;
         volume.seed = 21;
+        {
+            auto bounds = volume;
+            bounds.id = "occlusion-fixture";
+            bounds.enabled = false;
+            bounds.min = {-8, 4, -8};
+            bounds.max = {8, 16, 8};
+            bounds.transition = 0;
+            call("camera", {{"position", QJsonArray{0, 60, 46}}, {"yaw", 0}, {"pitch", -35}});
+            editor.setSelectedNode("base");
+            auto crop = [&] {
+                settle();
+                auto grab = viewport->grabToImage();
+                check(grab && QTest::qWaitFor([&] { return !grab->image().isNull(); }), "read bounds depth test");
+                auto image = grab->image().convertToFormat(QImage::Format_RGB32);
+                return image.copy(image.width() / 3, image.height() / 3, image.width() / 3, image.height() / 3);
+            };
+            const bool lighting = editor.world().environment.enabled;
+            editor.setEnvironment({{"enabled", false}});
+            add("volumes", bounds.toJson());
+            const auto buried = crop();
+            patch("volumes", bounds.id, {{"visible", false}});
+            const auto original = crop();
+            auto changedPixels = [&](const QImage &other) {
+                check(other.size() == original.size(), "compare identical viewport crops");
+                int count = 0;
+                for (int y = 0; y < original.height(); ++y)
+                    for (int x = 0; x < original.width(); ++x) {
+                        const QColor a = original.pixelColor(x, y), b = other.pixelColor(x, y);
+                        if (std::max({std::abs(a.red() - b.red()), std::abs(a.green() - b.green()),
+                                      std::abs(a.blue() - b.blue())}) > 4)
+                            ++count;
+                    }
+                return count;
+            };
+            check(changedPixels(buried) == 0, "opaque ground completely occludes a buried PCG box");
+            write("undo", {});
+            patch("volumes", bounds.id, {{"min", QJsonArray{-8, 27, -8}}, {"max", QJsonArray{8, 38, 8}}});
+            check(changedPixels(crop()) > 50, "the same bounds appear above ground");
+            write("undo", {});
+            write("undo", {});
+            editor.setEnvironment({{"enabled", lighting}});
+        }
         add("volumes", volume.toJson());
         settle();
         check(editor.world().generated->scatterPoints.size() > 5, "MCP graph scatters real structures");
@@ -465,6 +650,36 @@ int main(int argc, char **argv) {
         openCard(graph.id);
         check(window->property("openAssetCount").toInt() == 1, "same graph reuses its tab");
         QTest::qWait(350);
+        {
+            auto *label = viewport->window()->contentItem()->findChild<QQuickItem *>("openTab-" + graph.id);
+            // A ListView delegate is in the visual tree and may have a different QObject parent.
+            std::function<QQuickItem *(QQuickItem *, const QString &)> findVisual =
+                [&](QQuickItem *item, const QString &name) -> QQuickItem * {
+                    if (item->objectName() == name)
+                        return item;
+                    for (auto *child : item->childItems())
+                        if (auto *result = findVisual(child, name))
+                            return result;
+                    return nullptr;
+                };
+            if (!label)
+                label = findVisual(window->contentItem(), "openTab-" + graph.id);
+            auto *close = findVisual(window->contentItem(), "closeTab-" + graph.id);
+            check(label && close, "workspace tab controls present");
+            auto *tab = label->parentItem()->parentItem();
+            const auto point = [](QQuickItem *item) {
+                return item->mapToScene({item->width() / 2, item->height() / 2}).toPoint();
+            };
+            QTest::mouseMove(window, QPoint(2, 2));
+            QTest::qWait(50);
+            const auto resting = tab->property("color");
+            QTest::mouseMove(window, point(label));
+            check(QTest::qWaitFor([&] { return tab->property("color") != resting; }), "tab title highlights entire tab");
+            const auto hover = tab->property("color");
+            QTest::mouseMove(window, point(close));
+            check(QTest::qWaitFor([&] { return close->property("hovered").toBool(); }) && tab->property("color") == hover,
+                  "close button shares the whole-tab hover background");
+        }
         auto *graphUi = window->findChild<QObject *>("pcgGraphEditor");
         check(graphUi, "node editor exists");
         graphUi->setProperty("selected", "noise");
@@ -738,9 +953,22 @@ int main(int argc, char **argv) {
             QTest::mouseMove(window, b, 40);
             check(!viewport->gizmoOverlay()["readout"].toString().isEmpty(),
                   "creation drag reports actual change");
+            const auto beforeRelease = viewport->gizmoOverlay();
+            bool observedPending = false, steady = true;
+            const auto connection = QObject::connect(&editor, &Editor::changed, &app, [&] {
+                if (editor.renderCreation() == editor.world().creation)
+                    return;
+                observedPending = true;
+                const auto current = viewport->gizmoOverlay();
+                for (auto key : {"cx", "cy"})
+                    steady &= std::abs(current[key].toDouble() - beforeRelease[key].toDouble()) < 1.;
+            });
             if (cancel)
                 QTest::keyClick(window, Qt::Key_Escape);
             QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, b);
+            QObject::disconnect(connection);
+            if (!cancel && mode == 0)
+                check(observedPending && steady, "released translation stays at the pending world position");
         };
         editor.setSelectedNode(volume.id);
         const auto baseline = editor.world().creation;
@@ -850,6 +1078,15 @@ int main(int argc, char **argv) {
         settle();
         check(editor.scene()->exactArea.isEmpty(), "high camera has no screen-centre precision island");
         capture("07-high-altitude");
+        write("set_blocks", {{"blocks", QJsonArray{QJsonObject{{"position", QJsonArray{20, 250, 20}},
+                                                               {"block", "minecraft:stone"}}}}});
+        settle();
+        call("camera", {{"position", QJsonArray{34, 253, 20}}, {"yaw", -90}, {"pitch", -10}});
+        settle();
+        check(editor.previewContains(20, 20), "approaching an elevated voxel horizontally enables exact detail");
+        write("undo", {});
+        settle();
+        check(editor.scene()->exactArea.isEmpty(), "removing the elevated voxel releases precision at fixed altitude");
         call("camera", {{"position", QJsonArray{0, 30, 35}}, {"yaw", 0}, {"pitch", -20}});
         settle();
         check(!editor.scene()->exactArea.isEmpty(), "close camera restores exact detail");

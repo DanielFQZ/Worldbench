@@ -192,6 +192,8 @@ Block World::block(int x, int y, int z) const {
         return Bedrock;
     const auto k = key(x, y, z);
     auto edit = overrides.find(k);
+    if (edit != overrides.end() && generated && generated->caveAir.contains(k))
+        return Air;
     if (edit != overrides.end() && (!generated || !terrainOverrideKeys.contains(k)))
         return edit->second;
     if (generated) {
@@ -208,6 +210,8 @@ Block World::blockAtHeight(int x, int y, int z, int h) const {
         return Bedrock;
     auto k = key(x, y, z);
     auto edit = overrides.find(k);
+    if (edit != overrides.end() && generated && generated->caveAir.contains(k))
+        return Air;
     if (generated && (edit == overrides.end() || terrainOverrideKeys.contains(k))) {
         auto cell = generated->cells.find(k);
         if (cell != generated->cells.end())

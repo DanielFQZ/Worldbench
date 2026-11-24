@@ -28,6 +28,10 @@ struct ChunkMesh {
     bool provisional = false; // Rebuild this tile at full quality after a gesture.
     uint64_t sampleCount = 0;
     uint64_t revision = 0;
+    struct HeightRange {
+        short low = 32767, high = -32768;
+    };
+    std::vector<HeightRange> terrainRanges; // One range per 16x16 columns, before the exact cutout.
     QRect surfaceCutout;
     size_t referenceVertices = 0;
     QVector3D center;
@@ -46,6 +50,13 @@ struct MeshScene {
         MeshPtr mesh;
         std::vector<MeshPtr> lods;
     };
+    struct Cluster {
+        MeshPtr mesh;
+        std::vector<size_t> members;
+    };
+    std::vector<Cluster> clusters;
+    // Tight occupied bounds per edited 16-cube, indexed first by horizontal chunk.
+    std::map<std::pair<int, int>, std::map<int, std::pair<QVector3D, QVector3D>>> editedBounds;
     std::vector<Object> objects;
     std::shared_ptr<const GeneratedCreation> generated;
     CreationState creation;
@@ -74,7 +85,8 @@ struct MeshScene {
 };
 MeshPtr buildChunkMesh(const World &world, int chunkX, int chunkZ, uint64_t revision,
                        bool creationOnly = false, bool isolatedAsset = false, bool omitObjects = false);
-std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision);
+std::vector<MeshScene::Object> buildCreationMeshes(const World &world, uint64_t revision,
+                                                   std::vector<MeshScene::Cluster> *clusters = nullptr);
 MeshPtr buildTerrainAssetPreview(const TerrainInstance &terrain, int maxSamples = 129);
 MeshPtr buildAssetGhost(World world, const StructureAsset &asset);
 } // namespace wb
