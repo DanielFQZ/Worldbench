@@ -13,6 +13,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
     const int normals[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
     const int tri[6] = {0, 1, 2, 0, 2, 3};
     const auto waterColor = surfaceColor(w, Water);
+    const bool distantPatch = creationOnly && omitObjects && !isolatedAsset && w.generated;
+    std::unordered_map<Block, QVector4D> distantColors;
     // Evaluate procedural heights once for this chunk and its face-neighbour border.
     int heights[18][18];
     for (int z = 0; z < 18; ++z)
@@ -54,6 +56,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
         for (auto [k, v] : cells) {
             if (creationOnly && w.generated && !w.generated->geometryCells.contains(k))
                 continue;
+            if (distantPatch && w.generated->geometryCells.contains(k))
+                continue; // Far assets and their foundations are represented by LOD/surface tiles.
             int x, y, z;
             w.decode(k, x, y, z);
             if (floorDiv(x, 16) == cx && floorDiv(z, 16) == cz)
@@ -94,13 +98,39 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                 const Block b = blockAt(x, y, z);
                 if (b == Air)
                     continue;
-                if (omitObjects && w.generated && w.generated->objectCells.contains(w.key(x, y, z)) &&
-                    !w.explicitOverride(w.key(x, y, z)))
+                const auto cellKey = w.key(x, y, z);
+                if (omitObjects && w.generated && w.generated->objectCells.contains(cellKey) &&
+                    !w.explicitOverride(cellKey))
+                    continue;
+                // Contact foundations are generated geometry used by the
+                // surface layer. They are intentionally absent from the
+                // independent structure mesh and must not become a second
+                // voxel copy in the terrain chunk.
+                if (omitObjects && w.generated && w.generated->geometryCells.contains(cellKey) &&
+                    !w.generated->objectCells.contains(cellKey) &&
+                    !w.generated->heights.contains(w.column(x, z)))
                     continue;
                 const auto &m = *w.models[b];
                 auto &vertices = b == Water ? mesh->water : m.translucent ? mesh->transparent : mesh->opaque;
+                const bool generatedSolid =
+                    distantPatch && w.generated->geometryCells.contains(w.key(x, y, z)) &&
+                    !w.generated->objectCells.contains(w.key(x, y, z)) && !w.explicitOverride(w.key(x, y, z));
                 for (const auto &face : m.faces) {
-                    if (creationOnly && face.normal.y() > .5f && y == heights[lz + 1][lx + 1] &&
+                    if (distantPatch && !generatedSolid) {
+                        // The continuous terrain already represents an undisturbed hillside.
+                        // Add its inner lining only where an excavation actually removed a neighbour.
+                        if (face.cull < 0)
+                            continue;
+                        const auto &n = normals[face.cull];
+                        const int nx = x + n[0], ny = y + n[1], nz = z + n[2];
+                        if (!w.contains(nx, ny, nz))
+                            continue;
+                        const auto removed = w.generated->cells.get(w.key(nx, ny, nz));
+                        if (!removed || *removed != Air || blockAt(nx, ny, nz) != Air ||
+                            w.terrainBlock(nx, ny, nz, heights[nz - cz * 16 + 1][nx - cx * 16 + 1]) == Air)
+                            continue;
+                    }
+                    if (!distantPatch && creationOnly && face.normal.y() > .5f && y == heights[lz + 1][lx + 1] &&
                         (!w.generated || !w.generated->geometryCells.contains(w.key(x, y, z))))
                         continue;
                     if (face.cull >= 0) {
@@ -117,10 +147,18 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                         if (nb != Air && m.hidesFace(neighbor, nb == b))
                             continue;
                     }
+                    auto color = b == Water ? waterColor : face.color;
+                    if (distantPatch && b != Water) {
+                        auto [it, added] = distantColors.try_emplace(b);
+                        if (added)
+                            it->second = surfaceColor(w, b);
+                        color = it->second;
+                        color.setW(face.color.w());
+                    }
                     for (int t : tri) {
                         const auto &p = face.points[t];
                         const auto &n = face.normal;
-                        auto c = b == Water ? waterColor : face.color;
+                        auto c = color;
                         if (b == Water) {
                             // Encode the column's water depth in the alpha lane.
                             // The water shader turns this into depth-dependent
@@ -130,7 +168,8 @@ MeshPtr buildChunkMesh(const World &w, int cx, int cz, uint64_t rev, bool creati
                             c.setW(std::clamp(float(w.seaLevel - columnHeight) / 64.f, 0.f, 1.f));
                         }
                         vertices.push_back({x + p.x(), y + p.y(), z + p.z(), n.x(), n.y(), n.z(), c.x(),
-                                            c.y(), c.z(), c.w(), face.uv[t].x(), face.uv[t].y()});
+                                            c.y(), c.z(), c.w(), distantPatch ? -1.f : face.uv[t].x(),
+                                            distantPatch ? -1.f : face.uv[t].y()});
                     }
                 }
             }

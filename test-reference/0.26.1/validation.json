@@ -1,0 +1,21 @@
+{
+  "version": "0.26.1",
+  "date": "2026-11-25",
+  "baseline": "8999bc2",
+  "commit": "working-tree",
+  "ctest": "15/15 passed",
+  "terrain_latency": {
+    "max_set_option_ms": 0.9854,
+    "samples": 48
+  },
+  "package_smoke": {
+    "screenshot": "test-output/BM/package-smoke.png",
+    "sha256": "45ee77b5ff953f95cd885f560eee0436b05a15874728723fa1db6baa2311451a"
+  },
+  "binaries": {
+    "Worldbench.exe": "a524e21f6391551147df369c00184e29f7faf66ad759084f01d6730e87f07303",
+    "WorldbenchMcp.exe": "6c83a1daa5b6dccc20f6b9d9889fe268f5083fb97af4103a22a16ca542e40f43"
+  },
+  "test_document": "E:\\AppProject\\Worldbench\\TESTING.md",
+  "development_document": "E:\\AppProject\\Worldbench\\DEVELOPMENT.md"
+}

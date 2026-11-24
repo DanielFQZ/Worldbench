@@ -796,6 +796,16 @@ bool Editor::open(const QUrl &url) {
     }
     return true;
 }
+void Editor::invalidateTerrainBounds(QRectF bounds) {
+    bounds.adjust(-1, -1, 1, 1);
+    m_farRegions.push_back(bounds.toAlignedRect());
+    for (int id : desiredChunks()) {
+        QRectF chunk(m_world.originX + id % m_world.chunksX() * 16,
+                     m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
+        if (chunk.intersects(bounds))
+            m_dirty.insert(id);
+    }
+}
 bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
     if (command.creationAfter || (!m_world.creation.volumes.empty() || !m_world.creation.presets.empty() ||
                                   !m_world.creation.roadEdges.empty()) &&
@@ -856,17 +866,6 @@ bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
         if (selectedTerrainIndex() < 0 && m_world.heights.layerIndex(m_selectedNode) < 0 &&
             !m_selectedNode.startsWith("environment"))
             m_selectedNode = "terrain-base-1";
-        const auto wanted = desiredChunks();
-        auto dirtyBounds = [&](QRectF bounds) {
-            bounds.adjust(-1, -1, 1, 1); // Cull faces on neighbouring chunk borders too.
-            m_farRegions.push_back(bounds.toAlignedRect());
-            for (int id : wanted) {
-                QRectF chunk(m_world.originX + id % m_world.chunksX() * 16,
-                             m_world.originZ + id / m_world.chunksX() * 16, 16, 16);
-                if (chunk.intersects(bounds))
-                    m_dirty.insert(id);
-            }
-        };
         if (command.terrainBefore && command.terrainAfter) {
             // Index changes also matter because replace/min/max composition is ordered.
             const auto &a = *command.terrainBefore, &b = *command.terrainAfter;
@@ -874,9 +873,9 @@ bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
                 if (n < a.size() && n < b.size() && a[n] == b[n])
                     continue;
                 if (n < a.size() && a[n].enabled)
-                    dirtyBounds(a[n].bounds());
+                    invalidateTerrainBounds(a[n].bounds());
                 if (n < b.size() && b[n].enabled)
-                    dirtyBounds(b[n].bounds());
+                    invalidateTerrainBounds(b[n].bounds());
             }
         }
         if (command.layersBefore && command.layersAfter) {
@@ -896,7 +895,7 @@ bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
                         area = area.isNull() ? column : area.united(column);
                     }
                     if (!area.isEmpty())
-                        dirtyBounds(area);
+                        invalidateTerrainBounds(area);
                 }
             }
         }
@@ -1027,7 +1026,7 @@ bool refreshPlacementScene(wb::MeshScene &scene, const wb::World &w, const std::
         bool exact = scene.exactArea.contains(cx * 16, cz * 16);
         const int slotId = exact ? id : -id - 1;
         auto it = std::find(scene.chunkIds.begin(), scene.chunkIds.end(), slotId);
-        const bool required = exact || w.generated->geometryChunks.contains(id);
+        const bool required = exact;
         if (!required && it == scene.chunkIds.end())
             continue;
         const auto mesh =
@@ -1342,11 +1341,10 @@ void Editor::startMesh() {
                 next->chunkIds.push_back(id);
                 next->chunks.push_back(exactCache.at(id));
             }
-            if (snapshot.generated) {
-                auto patchIds = snapshot.generated->geometryChunks;
-                if (inspection)
-                    for (const auto &[id, cells] : snapshot.generated->cells.pages())
-                        patchIds.insert(id);
+            if (snapshot.generated && !interactive && inspection) {
+                std::set<int> patchIds;
+                for (const auto &[id, cells] : snapshot.generated->cells.pages())
+                    patchIds.insert(id);
                 for (int id : patchIds)
                     if (!wanted.contains(id)) {
                         const int cacheId = -id - 1;
@@ -1374,8 +1372,8 @@ void Editor::startMesh() {
                 next->buildMilliseconds = timer.elapsed();
                 return next;
             }
-            if (old->generated == snapshot.generated && old->assets == snapshot.assets && !allFar &&
-                old->sourceRevision == sourceRevision) {
+            if (old->generated == snapshot.generated && old->assets == snapshot.assets &&
+                (interactive || (!allFar && old->sourceRevision == sourceRevision))) {
                 next->objects = old->objects;
                 next->clusters = old->clusters;
                 next->editedBounds = old->editedBounds;

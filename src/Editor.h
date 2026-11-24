@@ -56,7 +56,7 @@ class Editor : public QObject {
     Q_PROPERTY(QVariantMap environmentDetails READ environmentDetails NOTIFY changed)
     Q_PROPERTY(QVariantList sceneNodes READ sceneNodes NOTIFY changed)
     Q_PROPERTY(QVariantMap layerDetails READ layerDetails NOTIFY changed)
-    Q_PROPERTY(QVariantMap terrainDetails READ terrainDetails NOTIFY changed)
+    Q_PROPERTY(QVariantMap terrainDetails READ terrainDetails NOTIFY placementChanged)
     Q_PROPERTY(QVariantMap surfaceTheme READ surfaceTheme NOTIFY changed)
     Q_PROPERTY(QString materialLabel READ materialLabel NOTIFY changed)
     Q_PROPERTY(QVariantList materialProperties READ materialProperties NOTIFY changed)
@@ -307,6 +307,7 @@ class Editor : public QObject {
     QJsonObject regionJobInfo() const;
     void dirtyAll();
     void dirtyCreation(const std::shared_ptr<const wb::GeneratedCreation> &before);
+    void invalidateTerrainBounds(QRectF bounds);
     bool dirtyCommand(const wb::Command &command, bool forward = true);
     void startMesh();
     void resetHistory();

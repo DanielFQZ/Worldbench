@@ -75,6 +75,7 @@ QVariantMap Editor::terrainDetails() const {
 void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString &label) {
     if (assetBusy())
         return;
+    endTerrainEdit();
     QString error;
     auto creationNames = m_world.creation;
     if (!prepareLibraryNames(creationNames, next, false, error) || !wb::validateTerrain(next, error)) {
@@ -262,7 +263,26 @@ void Editor::setTerrainOptions(const QVariantMap &values) {
                 return;
         }
     }
-    commitTerrain(std::move(next), "已调整地貌实例");
+    if (!m_terrainStart || values.contains("name") || values.contains("enabled")) {
+        commitTerrain(std::move(next), "已调整地貌实例");
+        return;
+    }
+    if (next == m_world.heights.instances)
+        return;
+    QString error;
+    if (!wb::validateTerrain(next, error)) {
+        emit failure(error);
+        return;
+    }
+    const auto bounds = m_world.heights.instances[index].bounds();
+    m_world.heights.instances.swap(next);
+    ++m_revision;
+    invalidateTerrainBounds(bounds);
+    invalidateTerrainBounds(m_world.heights.instances[index].bounds());
+    m_farDirty = true;
+    if (!m_meshTimer.isActive())
+        m_meshTimer.start();
+    emit placementChanged();
 }
 void Editor::beginTerrainEdit() {
     if (m_terrainStart || assetBusy() || selectedTerrainIndex() < 0)
@@ -286,38 +306,44 @@ void Editor::endTerrainEdit(bool cancel) {
     c.terrainBefore = m_terrainStart;
     c.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(m_world.heights.instances);
     m_terrainStart.reset();
-    const bool wasInteractive = m_interactiveMesh;
+    const bool moved = *c.terrainBefore != *c.terrainAfter;
+    if (moved && !cancel && (!m_world.creation.volumes.empty() || !m_world.creation.presets.empty() ||
+                              !m_world.creation.roadEdges.empty())) {
+        // During the gesture workers kept the last committed roads, PCG and structures.
+        // Validate their new ground contact once, with the final elevation field.
+        auto candidate = m_world;
+        QString error;
+        // A heightmap drag keeps the last procedural/asset snapshot while the
+        // interactive surface is being displayed. Revalidate ground contact once.
+        if (prepareCreation(candidate, error, false)) {
+            const auto previous = m_world.generated;
+            m_world = std::move(candidate);
+            dirtyCreation(previous);
+        } else {
+            cancel = true;
+            emit failure(error + "；本次地貌变换已回滚");
+        }
+    }
     m_interactiveMesh = false;
     ++m_gesture;
-    if (*c.terrainBefore == *c.terrainAfter) {
-        m_rejectStaleMeshes = false;
-        if (wasInteractive && m_meshCancel)
-            m_meshCancel->store(true);
-        if (wasInteractive && m_scene->provisional) {
-            m_farDirty = true;
-            m_meshTimer.start();
-        }
-        emit changed();
-        return;
-    }
-    if (cancel) {
+    if (m_meshCancel)
+        m_meshCancel->store(true);
+    if (moved && cancel) {
         m_world.apply(c, false);
         ++m_revision;
-        dirtyCommand(c, false);
-        emit changed();
-    } else
-        pushCommand(std::move(c));
-    if (wasInteractive) {
-        if (m_meshCancel)
-            m_meshCancel->store(true);
-        // dirtyCommand has already coalesced the changed instance bounds. Do
-        // one formal rebuild after release instead of rebuilding every drag
-        // sample or forcing the entire world dirty.
-        m_farDirty = true;
-        if (!m_meshTimer.isActive())
-            m_meshTimer.start();
-        emit changed();
+        for (size_t n = 0; n < c.terrainBefore->size(); ++n)
+            if ((*c.terrainBefore)[n] != (*c.terrainAfter)[n]) {
+                invalidateTerrainBounds((*c.terrainBefore)[n].bounds());
+                invalidateTerrainBounds((*c.terrainAfter)[n].bounds());
+            }
+    } else if (moved) {
+        pushCommand(std::move(c), false);
     }
+    if (moved || m_scene->provisional || m_scene->sourceRevision != m_revision) {
+        m_farDirty = true;
+        m_meshTimer.start();
+    }
+    emit changed();
 }
 void Editor::commitLayers(std::vector<wb::SculptLayer> next, const QString &label) {
     if (assetBusy())

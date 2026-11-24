@@ -198,6 +198,35 @@ int main(int argc, char **argv) {
                   "MCP screenshot decoded");
             check(image.save(out + "/" + name + ".png"), "screenshot saved");
         };
+        if (args.contains("--terrain-latency")) {
+            check(editor.open(QUrl::fromLocalFile(source)), "open terrain benchmark");
+            settle();
+            const auto instances = editor.world().heights.instances;
+            check(!instances.empty(), "benchmark has a heightmap instance");
+            const auto terrain = instances.front();
+            editor.setSelectedNode(terrain.id);
+            const auto generated = editor.world().generated;
+            editor.beginTerrainEdit();
+            double maximum = 0;
+            bool observedPreview = false;
+            for (int n = 0; n < 48; ++n) {
+                QElapsedTimer timer;
+                timer.start();
+                editor.setTerrainOption("x", terrain.x + (n % 2 ? 8 : 0));
+                maximum = std::max(maximum, double(timer.nsecsElapsed()) / 1000000.);
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
+                observedPreview = observedPreview || editor.scene()->provisional || editor.meshBusy();
+            }
+            check(maximum < 30, "terrain drag update does not synchronously rebuild the world");
+            check(editor.world().generated == generated, "terrain drag retains the procedural snapshot");
+            check(observedPreview, "terrain drag publishes or schedules a coarse preview");
+            editor.endTerrainEdit(true);
+            settle();
+            check(editor.world().heights.instances.front() == terrain && !editor.scene()->provisional,
+                  "cancelled terrain drag restores the original terrain instance");
+            jsonFile("terrain-latency.json", {{"samples", 48}, {"max_set_option_ms", maximum}});
+            return 0;
+        }
         if (args.contains("--placement-latency")) {
             check(editor.open(QUrl::fromLocalFile(source)), "open placement benchmark");
             settle();

@@ -551,8 +551,9 @@ std::shared_ptr<const GeneratedCreation> generateCreation(World &w, QString &err
                     if (a->groundBlend == 1 && h >= y)
                         for (int yy = y; yy <= h; ++yy)
                             put(xz.first, yy, xz.second, Air, true);
-                    for (int yy = std::max(h + 1, y - std::max(1, a->groundBlend)); yy < y; ++yy)
+                    for (int yy = std::max(h + 1, y - std::max(1, a->groundBlend)); yy < y; ++yy) {
                         put(xz.first, yy, xz.second, Stone, true);
+                    }
                 }
             }
             const size_t objectIndex = out->objects.size();
