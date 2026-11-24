@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.22.0 LANGUAGES CXX)
+project(Worldbench VERSION 0.23.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -32,7 +32,7 @@ FetchContent_Declare(meshoptimizer
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(meshoptimizer)
 add_library(worldbench_core STATIC
-  src/core/CreationMesh.cpp
+  src/core/AssetIndex.cpp src/core/CreationMesh.cpp
   src/core/TerrainSurface.cpp
   src/core/ProjectChunks.cpp src/core/ProjectCompression.cpp src/core/HeightDeltas.cpp src/core/RegionEdit.cpp
   src/core/Environment.cpp src/core/RenderSupport.cpp src/core/World.cpp src/core/WorldCreation.cpp src/core/Pcg.cpp src/core/StructureImport.cpp src/core/CreationGenerate.cpp src/core/NbtPayload.cpp src/core/SkyImage.cpp src/core/SurfaceTheme.cpp src/core/HeightField.cpp src/core/Heightmap.cpp src/core/HeightmapRay.cpp src/core/TerrainProject.cpp src/core/Search.cpp src/core/Assets.cpp src/core/Project.cpp src/core/Mesh.cpp src/core/MinecraftExport.cpp)

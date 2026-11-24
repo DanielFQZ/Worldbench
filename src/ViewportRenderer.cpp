@@ -197,13 +197,17 @@ class Renderer final : public QQuickRhiItemRenderer {
         p->setDepthTest(!sky);
         p->setDepthWrite(!alpha && !sky);
         p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+        QRhiGraphicsPipeline::TargetBlend blend;
+        // The final texture is composed into a native window. Coverage and material
+        // opacity affect RGB inside the pass; the resolved window must stay opaque.
+        if (rt == renderTarget())
+            blend.colorWrite = QRhiGraphicsPipeline::R | QRhiGraphicsPipeline::G | QRhiGraphicsPipeline::B;
         if (alpha) {
-            QRhiGraphicsPipeline::TargetBlend blend;
             blend.enable = true;
             blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
             blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-            p->setTargetBlends({blend});
         }
+        p->setTargetBlends({blend});
         p->setSampleCount(rt->sampleCount());
         p->setShaderResourceBindings(srb);
         p->setRenderPassDescriptor(rt->renderPassDescriptor());
@@ -286,6 +290,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_water = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/water.frag.qsb", m_waterBindings.get(),
                            renderTarget(), true);
     }
+    bool m_inspection = false;
     void synchronize(QQuickRhiItem *item) override {
         auto *v = static_cast<Viewport *>(item);
         m_matrix = v->viewProjection();
@@ -297,6 +302,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         m_frames = v->frameCounter();
         m_metrics = v->renderMetrics();
         if (v->editor()) {
+            m_inspection = v->editor()->inspectionOnly();
             m_scene = v->editor()->scene();
             m_selectedId = v->editor()->selectedNode();
             m_proxy = v->selectionProxy();
@@ -558,16 +564,28 @@ class Renderer final : public QQuickRhiItemRenderer {
                 const float distance = std::max(1.f, (transform.map(mesh->center) - m_camera).length());
                 // Perspective projected geometric error: never simplify the terrain.
                 const float pixels = renderTarget()->pixelSize().height() * .866f / distance;
-                const float radius = (mesh->upper - mesh->lower).length() * .5f;
+                // A mesh changes as a unit. Use its entire transformed footprint so a
+                // building straddling the detail boundary cannot stay exact over far terrain.
+                const auto area = QRectF(m_scene->exactArea).adjusted(-.001, -.001, .001, .001);
+                bool inside = !m_scene->exactArea.isEmpty();
+                for (float x : {mesh->lower.x(), mesh->upper.x()})
+                    for (float z : {mesh->lower.z(), mesh->upper.z()}) {
+                        const auto corner = transform.map(QVector3D(x, mesh->center.y(), z));
+                        inside &= area.contains(QPointF(corner.x(), corner.z()));
+                    }
+                const bool exact = m_inspection || inside;
                 const float scaling = std::max({transform.column(0).toVector3D().length(),
                                                 transform.column(1).toVector3D().length(),
                                                 transform.column(2).toVector3D().length()});
-                for (const auto &lod : object.lods)
-                    if (lod != object.mesh && distance > std::max(128.f, radius * 4) &&
-                        lod->surfaceError * pixels * scaling < 1.5f)
-                        mesh = lod;
+                if (!exact && !object.lods.empty()) {
+                    mesh = object.lods.front();
+                    for (const auto &lod : object.lods)
+                        if (lod->surfaceError * pixels * scaling < 1.5f)
+                            mesh = lod;
+                }
                 objectTriangles += int(mesh->opaqueIndices.empty() ? mesh->opaque.size() / 3
                                                                    : mesh->opaqueIndices.size() / 3);
+                objectTriangles += int((mesh->transparent.size() + mesh->water.size()) / 3);
                 objectLods += mesh != object.mesh;
                 if (object.ownerId == m_selectedId && object.placement.id == m_selectedId) {
                     selected = mesh;

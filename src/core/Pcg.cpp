@@ -371,15 +371,6 @@ bool validateCreation(const CreationState &s, QString &error) {
     if (!unique(s.graphs) || !unique(s.volumes) || !unique(s.assets) || !unique(s.presets) ||
         !unique(s.roadNodes) || !unique(s.roadEdges) || !unique(s.caveMarkers) || !unique(s.pcgAssets))
         return fail("创作对象ID必须唯一，单类最多4096项");
-    for (const auto &asset : s.pcgAssets) {
-        CreationState local;
-        local.graphs = {asset.graph};
-        local.volumes = {asset.volume};
-        local.assets = asset.assets;
-        local.caveMarkers = asset.markers;
-        if (!validateCreation(local, error))
-            return false;
-    }
     for (auto &g : s.graphs) {
         if (!g.validate(error))
             return false;
@@ -451,7 +442,7 @@ bool validateCreation(const CreationState &s, QString &error) {
     auto finite = [](const QVector3D &v) {
         return std::isfinite(v.x()) && std::isfinite(v.y()) && std::isfinite(v.z()) && v.length() < 1e7;
     };
-    for (auto &v : s.volumes) {
+    auto validVolume = [&](const PcgVolume &v) {
         for (auto val : v.overrides)
             if (!val.isDouble() || !std::isfinite(val.toDouble()) || std::abs(val.toDouble()) > 1e9)
                 return fail("实例参数覆盖必须为有限标量");
@@ -459,7 +450,14 @@ bool validateCreation(const CreationState &s, QString &error) {
             v.min.y() >= v.max.y() || v.min.z() >= v.max.z() || !std::isfinite(v.transition) ||
             v.transition < 0)
             return fail("PCG范围或图引用无效");
-    }
+        return true;
+    };
+    for (const auto &v : s.volumes)
+        if (!validVolume(v))
+            return false;
+    for (const auto &a : s.pcgAssets)
+        if (!validVolume(a.volume))
+            return false;
     for (auto &p : s.presets)
         if (!assets.contains(p.assetId) || !finite(p.position) || !finite(p.rotation) || !finite(p.scale) ||
             p.scale.x() == 0 || p.scale.y() == 0 || p.scale.z() == 0 ||

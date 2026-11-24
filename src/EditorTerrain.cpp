@@ -108,6 +108,24 @@ void Editor::commitTerrain(std::vector<wb::TerrainInstance> next, const QString 
     m_status = label + " · Ctrl+Z 撤销";
     emit changed();
 }
+wb::TerrainInstance Editor::importedTerrain(const wb::World &world, const QString &fileName,
+                                            std::shared_ptr<const wb::HeightmapData> image) {
+    wb::TerrainInstance i;
+    i.id = "heightmap-" + QUuid::createUuid().toString(QUuid::Id128);
+    i.name = QFileInfo(fileName).completeBaseName().left(128);
+    if (i.name.isEmpty())
+        i.name = "高度图地貌";
+    i.sourceName = fileName;
+    i.image = image;
+    i.width = std::min(world.width, image->width);
+    i.depth = std::min(world.depth, image->depth);
+    i.x = world.originX + (world.width - i.width) / 2;
+    i.z = world.originZ + (world.depth - i.depth) / 2;
+    i.low = 0;
+    i.high = 64;
+    i.blend = 1;
+    return i;
+}
 void Editor::initializeTerrainImporter() {
     connect(&m_heightmapWatcher, &QFutureWatcherBase::finished, this, [this] {
         m_heightmapLoading = false;
@@ -132,20 +150,7 @@ void Editor::initializeTerrainImporter() {
             it->maskName = result.fileName;
             selected = it->id;
         } else {
-            wb::TerrainInstance i;
-            i.id = "heightmap-" + QUuid::createUuid().toString(QUuid::Id128);
-            i.name = QFileInfo(result.fileName).completeBaseName().left(128);
-            if (i.name.isEmpty())
-                i.name = "高度图地貌";
-            i.sourceName = result.fileName;
-            i.image = result.image;
-            i.width = std::min(m_world.width, result.image->width);
-            i.depth = std::min(m_world.depth, result.image->depth);
-            i.x = m_world.originX + (m_world.width - i.width) / 2;
-            i.z = m_world.originZ + (m_world.depth - i.depth) / 2;
-            i.low = 0;
-            i.high = 64;
-            i.blend = 1;
+            auto i = importedTerrain(m_world, result.fileName, result.image);
             selected = i.id;
             next.push_back(std::move(i));
         }

@@ -27,6 +27,12 @@ Rectangle {
     property bool dragActive:false
     property bool dragCancelled:false
     Shortcut{sequence:"Esc";enabled:root.dragActive;onActivated:{root.dragCancelled=true;root.dragActive=false;root.viewport.clearAssetPreview()}}
+    DropArea {
+        objectName:"assetLibraryDrop";anchors.fill:parent;z:10
+        onEntered:(drag)=>{drag.accepted=drag.hasUrls && !editor.assetBusy && !editor.exportBusy && !editor.acceptsProjectDrop(drag.urls)}
+        onDropped:(drop)=>{if(editor.importLibraryDrop(drop.urls,root.folder || "")){root.expanded=true;drop.acceptProposedAction()}}
+        Rectangle{anchors.fill:parent;visible:parent.containsDrag;color:"#302080a0";border.color:Theme.accent;border.width:2}
+    }
     Menu {id:assetMenu;property string assetId;property string collection
         MenuItem{text:"重命名…";onTriggered:{
             nameDialog.makeFolder=false

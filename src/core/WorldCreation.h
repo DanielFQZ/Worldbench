@@ -160,10 +160,7 @@ struct CaveMarker {
 
 struct PcgAsset {
     QString id, name;
-    PcgGraph graph;
     PcgVolume volume;
-    std::vector<StructureAsset> assets;
-    std::vector<CaveMarker> markers;
     QJsonObject toJson() const;
     static bool fromJson(const QJsonObject &, PcgAsset &, QString &error);
     bool operator==(const PcgAsset &) const = default;
@@ -181,6 +178,12 @@ struct CreationState {
     std::vector<CaveMarker> caveMarkers;
     bool operator==(const CreationState &) const = default;
 };
+
+const PcgGraph *libraryGraph(const CreationState &state, const QString &id);
+QStringList scatterReferences(const PcgGraph &graph);
+// Imports a legacy embedded graph or an expanded exchange manifest into a staged project.
+bool indexGraph(CreationState &state, const QJsonObject &bundle, QString &graphId, QString &error,
+                bool authoritativeIds = false);
 
 struct PcgSample {
     double x = 0, z = 0, height = 0, baseHeight = 0, slope = 0, localX = 0, localZ = 0, mask = 1;

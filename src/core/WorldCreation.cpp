@@ -353,24 +353,6 @@ bool loadCreation(const QJsonObject &o, CreationState &s, QString &error) {
     const auto locations = o["assetFolders"].toObject();
     for (auto it = locations.begin(); it != locations.end(); ++it)
         s.assetFolders.insert(it.key(), it.value().toString());
-    if (o.contains("pcgAssets")) {
-        if (!arr("pcgAssets")) {
-            error = "PCG资产库无效";
-            return false;
-        }
-        QSet<QString> ids;
-        for (const auto &value : o["pcgAssets"].toArray()) {
-            PcgAsset asset;
-            if (!PcgAsset::fromJson(value.toObject(), asset, error))
-                return false;
-            if (ids.contains(asset.id)) {
-                error = "PCG资产ID重复";
-                return false;
-            }
-            ids.insert(asset.id);
-            s.pcgAssets.push_back(std::move(asset));
-        }
-    }
     for (const auto &v : o["graphs"].toArray()) {
         PcgGraph x;
         if (!PcgGraph::fromJson(v.toObject(), x, error))
@@ -413,61 +395,42 @@ bool loadCreation(const QJsonObject &o, CreationState &s, QString &error) {
             return false;
         s.caveMarkers.push_back(std::move(x));
     }
+    if (o.contains("pcgAssets")) {
+        if (!arr("pcgAssets")) {
+            error = "PCG资产库无效";
+            return false;
+        }
+        QSet<QString> ids;
+        for (const auto &value : o["pcgAssets"].toArray()) {
+            PcgAsset asset;
+            if (!PcgAsset::fromJson(value.toObject(), asset, error))
+                return false;
+            if (value.toObject()["version"].toInt() == 1 &&
+                !indexGraph(s, value.toObject(), asset.volume.graphId, error))
+                return false;
+            if (ids.contains(asset.id)) {
+                error = "PCG资产ID重复";
+                return false;
+            }
+            ids.insert(asset.id);
+            s.pcgAssets.push_back(std::move(asset));
+        }
+    }
     return validateCreation(s, error);
 }
 
 QJsonObject PcgAsset::toJson() const {
-    QJsonArray a, m;
-    for (const auto &v : assets)
-        a.append(v.toJson());
-    for (const auto &v : markers)
-        m.append(v.toJson());
-    return {{"type", "pcg-volume"},
-            {"version", 1},
-            {"id", id},
-            {"name", name},
-            {"graph", graph.toJson()},
-            {"volume", volume.toJson()},
-            {"assets", a},
-            {"caveMarkers", m}};
+    return {{"type", "pcg-volume"}, {"version", 2}, {"id", id}, {"name", name}, {"volume", volume.toJson()}};
 }
 bool PcgAsset::fromJson(const QJsonObject &o, PcgAsset &out, QString &error) {
-    if (o["type"] != "pcg-volume" || o["version"].toInt() != 1 || !text(o, "id", out.id) ||
-        !text(o, "name", out.name, false) || !PcgGraph::fromJson(o["graph"].toObject(), out.graph, error) ||
-        !PcgVolume::fromJson(o["volume"].toObject(), out.volume, error)) {
-        if (error.isEmpty())
-            error = "PCG范围资产无效";
+    const int version = o["version"].toInt();
+    if (o["type"] != "pcg-volume" || (version != 1 && version != 2) || !text(o, "id", out.id) ||
+        !text(o, "name", out.name, false) ||
+        !PcgVolume::fromJson(o["volume"].toObject(), out.volume, error) || !out.volume.sourceId.isEmpty()) {
+        error = "PCG范围资产无效";
         return false;
     }
-    if (!o["assets"].isArray() || o["assets"].toArray().size() > 4096 || !o["caveMarkers"].isArray() ||
-        o["caveMarkers"].toArray().size() > 4096) {
-        error = "PCG依赖列表无效";
-        return false;
-    }
-    out.assets.clear();
-    out.markers.clear();
-    for (auto value : o["assets"].toArray()) {
-        StructureAsset a;
-        if (!StructureAsset::fromJson(value.toObject(), a, error))
-            return false;
-        out.assets.push_back(std::move(a));
-    }
-    for (auto value : o["caveMarkers"].toArray()) {
-        CaveMarker m;
-        if (!CaveMarker::fromJson(value.toObject(), m, error))
-            return false;
-        out.markers.push_back(std::move(m));
-    }
-    if (!out.volume.sourceId.isEmpty()) {
-        error = "便携PCG资产不能绑定外部地貌实例";
-        return false;
-    }
-    CreationState state;
-    state.graphs = {out.graph};
-    state.volumes = {out.volume};
-    state.assets = out.assets;
-    state.caveMarkers = out.markers;
-    return validateCreation(state, error);
+    return true;
 }
 bool importStructureJson(const QString &path, StructureAsset &asset, QString &error) {
     QFile f(path);

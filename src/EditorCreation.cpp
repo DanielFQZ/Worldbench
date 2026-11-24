@@ -1,6 +1,8 @@
 #include "Editor.h"
 #include "Viewport.h"
 #include <QBuffer>
+#include <QCryptographicHash>
+#include <QDir>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -23,25 +25,106 @@ QVariantList rows(const QJsonArray &a) {
 QJsonArray xyz(float x, float y, float z) {
     return {x, y, z};
 }
-QJsonValue remapReferences(const QJsonValue &value, const QMap<QString, QString> &ids) {
-    if (value.isArray()) {
-        QJsonArray out;
-        for (auto v : value.toArray())
-            out.append(remapReferences(v, ids));
-        return out;
+// Exchange files reference immutable sibling records. The project keeps its
+// own indexed records so reopening a saved world never needs the source files.
+constexpr qint64 ExchangeLimit = 64 * 1024 * 1024;
+QString recordPath(const QString &manifest, const QString &hash) {
+    return QFileInfo(manifest).dir().filePath("Worldbench.dependencies/" + hash + ".wbdep");
+}
+bool saveRecord(const QString &manifest, const QJsonObject &record, QString &hash, QString &error) {
+    const auto bytes = QJsonDocument(record).toJson(QJsonDocument::Compact);
+    if (bytes.size() > ExchangeLimit) {
+        error = "单项资产依赖超过64MiB";
+        return false;
     }
-    if (value.isObject()) {
-        auto o = value.toObject();
-        for (auto i = o.begin(); i != o.end(); ++i) {
-            if ((i.key() == "assetId" || i.key() == "id") && i.value().isString() &&
-                ids.contains(i.value().toString()))
-                i.value() = ids[i.value().toString()];
-            else
-                i.value() = remapReferences(i.value(), ids);
+    hash = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    const auto path = recordPath(manifest, hash);
+    QFile existing(path);
+    if (existing.open(QIODevice::ReadOnly) && existing.size() == bytes.size() && existing.readAll() == bytes)
+        return true;
+    existing.close();
+    QSaveFile file(path);
+    if (!QDir().mkpath(QFileInfo(path).absolutePath()) || !file.open(QIODevice::WriteOnly) ||
+        file.write(bytes) != bytes.size() || !file.commit()) {
+        error = "无法写入资产依赖 " + path;
+        return false;
+    }
+    return true;
+}
+bool readRecord(const QString &manifest, const QString &hash, QJsonObject &record, QString &error) {
+    static const QRegularExpression valid("^[a-f0-9]{64}$");
+    QFile f(recordPath(manifest, hash));
+    if (valid.match(hash).hasMatch() && f.size() <= ExchangeLimit && f.open(QIODevice::ReadOnly)) {
+        const auto bytes = f.readAll();
+        if (QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() == hash.toLatin1()) {
+            record = QJsonDocument::fromJson(bytes).object();
+            if (!record.isEmpty())
+                return true;
         }
-        return o;
     }
-    return value;
+    error = "缺少或损坏的资产依赖，请同时复制 Worldbench.dependencies 目录：" + hash;
+    return false;
+}
+bool graphManifest(const wb::CreationState &state, const wb::PcgGraph &graph, const QString &path,
+                   QJsonObject &manifest, QString &error) {
+    QJsonArray dependencies;
+    qint64 total = 0;
+    const auto refs = wb::scatterReferences(graph);
+    for (const auto &asset : state.assets) {
+        if (!refs.contains(asset.id))
+            continue;
+        QJsonArray markers;
+        for (const auto &marker : state.caveMarkers)
+            if (marker.assetId == asset.id)
+                markers.append(marker.toJson());
+        QString hash;
+        if (!saveRecord(path, {{"asset", asset.toJson()}, {"caveMarkers", markers}}, hash, error))
+            return false;
+        total += QFileInfo(recordPath(path, hash)).size();
+        if (total > ExchangeLimit) {
+            error = "图的结构依赖超过64MiB";
+            return false;
+        }
+        dependencies.append(QJsonObject{{"id", asset.id}, {"record", hash}});
+    }
+    manifest = {{"version", 2}, {"graph", graph.toJson()}, {"dependencies", dependencies}};
+    return true;
+}
+bool loadIndexedGraph(wb::CreationState &state, const QJsonObject &manifest, const QString &path,
+                      QString &graphId, QString &error) {
+    if (!manifest.contains("dependencies"))
+        return wb::indexGraph(state, manifest, graphId, error);
+    wb::PcgGraph graph;
+    if (manifest["version"].toInt() != 2 ||
+        !wb::PcgGraph::fromJson(manifest["graph"].toObject(), graph, error))
+        return false;
+    for (const auto &existing : state.graphs)
+        if (existing.id == graph.id) {
+            graphId = existing.id;
+            return true;
+        }
+    QJsonArray assets, markers;
+    qint64 bytes = 0;
+    for (const auto value : manifest["dependencies"].toArray()) {
+        const auto ref = value.toObject();
+        const auto id = ref["id"].toString();
+        if (std::any_of(state.assets.begin(), state.assets.end(), [&](const auto &a) { return a.id == id; }))
+            continue;
+        QJsonObject record;
+        const auto hash = ref["record"].toString();
+        if (!readRecord(path, hash, record, error))
+            return false;
+        bytes += QFileInfo(recordPath(path, hash)).size();
+        if (bytes > ExchangeLimit || record["asset"].toObject()["id"] != id) {
+            error = "依赖标识不匹配或图的结构依赖超过64MiB";
+            return false;
+        }
+        assets.append(record["asset"]);
+        for (const auto marker : record["caveMarkers"].toArray())
+            markers.append(marker);
+    }
+    return wb::indexGraph(state, {{"graph", graph.toJson()}, {"assets", assets}, {"caveMarkers", markers}},
+                          graphId, error, true);
 }
 } // namespace
 QVariantMap Editor::creationState() const {
@@ -70,8 +153,7 @@ QVariantMap Editor::creationState() const {
     data["assets"] = assets;
     QJsonArray pcgAssets;
     for (const auto &a : m_world.creation.pcgAssets)
-        pcgAssets.append(QJsonObject{
-            {"id", a.id}, {"name", a.name}, {"graph", a.graph.toJson()}, {"volume", a.volume.toJson()}});
+        pcgAssets.append(a.toJson());
     data["pcgAssets"] = pcgAssets;
     data["generatedCells"] = m_world.generated ? int(m_world.generated->cells.size()) : 0;
     data["diagnostics"] =
@@ -94,10 +176,12 @@ QVariantMap Editor::creationDetails() const {
 }
 QVariantList Editor::rangeDependencies(const QString &id) const {
     QVariantList rows;
-    for (const auto &preset : m_world.creation.pcgAssets)
-        if (preset.id == id)
-            for (const auto &asset : preset.assets)
+    if (const auto *graph = wb::libraryGraph(m_world.creation, id)) {
+        const auto ids = wb::scatterReferences(*graph);
+        for (const auto &asset : m_world.creation.assets)
+            if (ids.contains(asset.id))
                 rows.append(QVariantMap{{"id", asset.id}, {"name", asset.name}});
+    }
     return rows;
 }
 QVariantList Editor::pcgGraphs() const {
@@ -137,7 +221,7 @@ QVariantList Editor::libraryAssets() const {
     for (const auto &a : m_world.creation.pcgAssets) {
         const auto size = a.volume.max - a.volume.min;
         add(a.id, a.name, "range", "pcgAssets", size.x(), size.y(), size.z(),
-            qHashMulti(0, a.graph.toJson(), a.volume.toJson()));
+            qHashMulti(0, QJsonObject::fromVariantMap(graphData(a.id)), a.volume.toJson()));
     }
     for (const auto &g : m_world.creation.graphs)
         add(g.id, g.name, g.surfaceMaterial ? "material" : "graph", "graphs", 64, 64, 64, qHash(g.toJson()));
@@ -305,7 +389,6 @@ bool Editor::storePcgAsset(const QString &id) {
     asset.id = fresh("pcg-asset");
     asset.name = volume->name;
     asset.volume = *volume;
-    asset.graph = *graph;
     asset.volume.sourceId.clear();
     asset.volume.enabled = asset.volume.visible = true;
     const int centerX = int((volume->min.x() + volume->max.x()) * .5f),
@@ -314,16 +397,6 @@ bool Editor::storePcgAsset(const QString &id) {
         QVector3D(float(centerX), float(m_world.height(centerX, centerZ) + 1), float(centerZ));
     asset.volume.min -= anchor;
     asset.volume.max -= anchor;
-    const auto json = QJsonDocument(graph->toJson()).toJson(QJsonDocument::Compact);
-    QSet<QString> references;
-    for (const auto &a : next.assets)
-        if (json.contains(('"' + a.id + '"').toUtf8())) {
-            asset.assets.push_back(a);
-            references.insert(a.id);
-        }
-    for (const auto &m : next.caveMarkers)
-        if (references.contains(m.assetId))
-            asset.markers.push_back(m);
     next.pcgAssets.push_back(asset);
     return commitCreation(std::move(next), "PCG范围加入资产库");
 }
@@ -340,15 +413,8 @@ QVariantList Editor::caveMarkers() const {
     return creationState()["caveMarkers"].toList();
 }
 QVariantMap Editor::graphData(const QString &id) const {
-    for (auto &g : m_world.creation.graphs)
-        if (g.id == id)
-            return g.toJson().toVariantMap();
-    for (const auto &a : m_world.creation.pcgAssets)
-        if (a.id == id) {
-            auto graph = a.graph.toJson().toVariantMap();
-            graph["id"] = id; // Edit the portable copy, even if its source graph is still present.
-            return graph;
-        }
+    if (const auto *graph = wb::libraryGraph(m_world.creation, id))
+        return graph->toJson().toVariantMap();
     return {};
 }
 QVariantMap Editor::assetData(const QString &id) const {
@@ -404,13 +470,8 @@ bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
         }
     } else if (action == "graph") {
         const auto id = d["id"].toString();
-        wb::PcgGraph *target = nullptr;
-        for (auto &graph : next.graphs)
-            if (graph.id == id)
-                target = &graph;
-        for (auto &asset : next.pcgAssets)
-            if (asset.id == id)
-                target = &asset.graph;
+        const auto *resolved = wb::libraryGraph(next, id);
+        auto *target = resolved ? &next.graphs[size_t(resolved - next.graphs.data())] : nullptr;
         if (!target) {
             emit failure("图不存在");
             return false;
@@ -554,58 +615,81 @@ bool Editor::connectPcgNodes(const QString &graphId, const QString &fromNode, co
     g["connections"] = c;
     return creationEdit("graph", g.toVariantMap());
 }
-bool Editor::importStructureAsset(const QUrl &url) {
-    if (!url.isLocalFile())
-        return false;
+namespace {
+bool stageLibraryFile(const QString &path, wb::CreationState &next, QString &resultId, QString &error,
+                      bool forceGraph = false) {
+    if (forceGraph || QFileInfo(path).suffix().compare("wbpcg", Qt::CaseInsensitive) == 0) {
+        QFile file(path);
+        if (file.size() > ExchangeLimit || !file.open(QIODevice::ReadOnly)) {
+            error = "图文件不可读或超过64MiB";
+            return false;
+        }
+        return loadIndexedGraph(next, QJsonDocument::fromJson(file.readAll()).object(), path, resultId,
+                                error);
+    }
     wb::StructureAsset asset;
-    QString error;
-    if (QFileInfo(url.toLocalFile()).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
-        QFile file(url.toLocalFile());
+    if (QFileInfo(path).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
+        QFile file(path);
         if (file.size() > 64 * 1024 * 1024 || !file.open(QIODevice::ReadOnly)) {
-            emit failure("资产不可读或超过64MiB");
+            error = "资产不可读或超过64MiB";
             return false;
         }
         const auto data = QJsonDocument::fromJson(file.readAll()).object();
         if (data["type"] == "pcg-volume") {
             wb::PcgAsset pcg;
             if (!wb::PcgAsset::fromJson(data, pcg, error)) {
-                emit failure(error);
                 return false;
             }
+            auto &graphId = pcg.volume.graphId;
+            if (data["version"].toInt() == 1) {
+                if (!wb::indexGraph(next, data, graphId, error)) {
+                    return false;
+                }
+            } else if (!wb::libraryGraph(next, graphId)) {
+                const auto expected = graphId;
+                QJsonObject manifest;
+                if (!readRecord(path, data["graphRecord"].toString(), manifest, error) ||
+                    manifest["graph"].toObject()["id"] != expected ||
+                    !loadIndexedGraph(next, manifest, path, graphId, error)) {
+                    if (error.isEmpty())
+                        error = "范围预设的图引用无效";
+                    return false;
+                }
+            }
             pcg.id = fresh("pcg-asset");
-            auto next = m_world.creation;
             next.pcgAssets.push_back(pcg);
-            return commitCreation(std::move(next), "导入PCG范围资产");
+            resultId = pcg.id;
+            return true;
         }
     }
-    if (!wb::importStructure(url.toLocalFile(), asset, error)) {
-        emit failure(error);
+    if (!wb::importStructure(path, asset, error)) {
         return false;
     }
     if (asset.category.isEmpty() && std::any_of(asset.blocks.begin(), asset.blocks.end(), [](const auto &b) {
             return b.state.section('[', 0, 0).endsWith("_leaves");
         }))
         asset.category = "plant";
-    asset.id = fresh("asset");
-    auto next = m_world.creation;
-    if (QFileInfo(url.toLocalFile()).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
-        QFile f(url.toLocalFile());
+    if (asset.id.isEmpty() || asset.id == "imported-asset" ||
+        std::any_of(next.assets.begin(), next.assets.end(), [&](const auto &a) { return a.id == asset.id; }))
+        asset.id = fresh("asset");
+    if (QFileInfo(path).suffix().compare("wbasset", Qt::CaseInsensitive) == 0) {
+        QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {
             auto object = QJsonDocument::fromJson(f.readAll()).object();
             auto preset = object["instance"].toObject();
             if (!preset.isEmpty()) {
                 wb::AssetPreset p;
                 if (!wb::AssetPreset::fromJson(preset, p, error)) {
-                    emit failure(error);
                     return false;
                 }
+                if (asset.defaultRotation != p.rotation || asset.defaultScale != p.scale)
+                    asset.id = fresh("asset");
                 asset.defaultRotation = p.rotation;
                 asset.defaultScale = p.scale;
             }
             for (auto value : object["caveMarkers"].toArray()) {
                 wb::CaveMarker m;
                 if (!wb::CaveMarker::fromJson(value.toObject(), m, error)) {
-                    emit failure(error);
                     return false;
                 }
                 m.id = fresh("cave-marker");
@@ -615,7 +699,152 @@ bool Editor::importStructureAsset(const QUrl &url) {
         }
     }
     next.assets.push_back(asset);
-    return commitCreation(std::move(next), "导入结构资产");
+    resultId = asset.id;
+    return true;
+}
+} // namespace
+bool Editor::importStructureAsset(const QUrl &url) {
+    if (!url.isLocalFile() || commandBusy() || exportBusy())
+        return false;
+    auto next = m_world.creation;
+    QString id, error;
+    if (!stageLibraryFile(url.toLocalFile(), next, id, error)) {
+        emit failure(error);
+        return false;
+    }
+    return commitCreation(std::move(next), "导入库资产");
+}
+QString Editor::importLibraryGraph(const QUrl &url) {
+    if (!url.isLocalFile() || commandBusy() || exportBusy())
+        return {};
+    auto next = m_world.creation;
+    QString graphId, error;
+    if (!stageLibraryFile(url.toLocalFile(), next, graphId, error, true)) {
+        emit failure(error);
+        return {};
+    }
+    return commitCreation(std::move(next), "导入PCG图") ? graphId : QString{};
+}
+bool Editor::importLibraryDrop(const QList<QUrl> &urls, const QString &folder) {
+    if (commandBusy() || exportBusy() || urls.empty() ||
+        (!folder.isEmpty() && !m_world.creation.folders.contains(folder)))
+        return false;
+    auto next = m_world.creation;
+    auto terrain = m_world.heights.instances;
+    const auto world = m_world;
+    const auto revision = m_revision;
+    QStringList issues;
+    int imported = 0, skipped = 0;
+    QFutureWatcher<void> watcher;
+    QEventLoop loop;
+    connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
+    m_heightmapLoading = true;
+    m_status = "正在读取拖入的资产…";
+    emit changed();
+    watcher.setFuture(QtConcurrent::run([&] {
+        struct Entry {
+            QFileInfo file;
+            QString folder;
+            int order;
+        };
+        QList<Entry> files;
+        QSet<QString> seen;
+        auto collect = [&](auto &&visit, const QFileInfo &info, QString parent) -> void {
+            if (!info.exists() || info.isSymLink() || info.isJunction() ||
+                seen.contains(info.canonicalFilePath()))
+                return;
+            seen.insert(info.canonicalFilePath());
+            if (info.isDir()) {
+                if (info.fileName().compare("Worldbench.dependencies", Qt::CaseInsensitive) == 0)
+                    return;
+                auto path = parent.isEmpty() ? info.fileName() : parent + "/" + info.fileName();
+                if (path.isEmpty() || path.size() > 256) {
+                    ++skipped;
+                    return;
+                }
+                int existing = next.folders.indexOf(path);
+                for (const auto &f : next.folders)
+                    if (path.compare(f, Qt::CaseInsensitive) == 0) {
+                        path = f;
+                        existing = 0;
+                        break;
+                    }
+                if (existing < 0)
+                    next.folders.append(path);
+                for (const auto &child : QDir(info.absoluteFilePath())
+                                             .entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot))
+                    visit(visit, child, path);
+                return;
+            }
+            const auto ext = info.suffix().toLower();
+            if (!QStringList{"wbpcg", "wbasset", "nbt", "schem", "schematic", "json", "png"}.contains(ext)) {
+                ++skipped;
+                return;
+            }
+            // A standalone structure in a mixed drop must enter the index before its consumers.
+            int order = ext == "wbpcg" ? 1 : 0;
+            if (ext == "wbasset") {
+                QFile f(info.absoluteFilePath());
+                if (f.size() <= ExchangeLimit && f.open(QIODevice::ReadOnly) &&
+                    QJsonDocument::fromJson(f.readAll()).object()["type"] == "pcg-volume")
+                    order = 2;
+            }
+            files.append({info, parent, order});
+        };
+        for (const auto &url : urls)
+            if (url.isLocalFile())
+                collect(collect, QFileInfo(url.toLocalFile()), folder);
+        std::stable_sort(files.begin(), files.end(),
+                         [](const Entry &a, const Entry &b) { return a.order < b.order; });
+        for (const auto &entry : files) {
+            QString error, id;
+            if (entry.file.suffix().compare("png", Qt::CaseInsensitive) == 0) {
+                if (auto image = wb::loadHeightmap(entry.file.absoluteFilePath(), error)) {
+                    for (const auto &t : terrain)
+                        if (t.image && *t.image == *image) {
+                            image = t.image;
+                            break;
+                        }
+                    terrain.push_back(importedTerrain(world, entry.file.fileName(), image));
+                    if (wb::validateTerrain(terrain, error))
+                        id = terrain.back().id;
+                    else
+                        terrain.pop_back();
+                }
+            } else {
+                auto staged = next;
+                if (stageLibraryFile(entry.file.absoluteFilePath(), staged, id, error) &&
+                    wb::validateCreation(staged, error))
+                    next = std::move(staged);
+                else
+                    id.clear();
+            }
+            if (id.isEmpty()) {
+                ++skipped;
+                if (issues.size() < 8)
+                    issues.append(entry.file.fileName() + " · " + error);
+            } else {
+                if (!entry.folder.isEmpty())
+                    next.assetFolders[id] = entry.folder;
+                ++imported;
+            }
+        }
+        next.folders.sort(Qt::CaseInsensitive);
+    }));
+    loop.exec();
+    m_heightmapLoading = false;
+    emit changed();
+    if (revision != m_revision) {
+        emit failure("导入期间工程已变化，请重新拖入");
+        return false;
+    }
+    if (!commitCreation(std::move(next), "拖入库资产", &terrain))
+        return false;
+    m_status = QString("资产库导入 %1 项，跳过 %2 项").arg(imported).arg(skipped);
+    emit changed();
+    if (!issues.empty())
+        emit failure(m_status + "\n" + issues.join('\n'));
+    return true;
 }
 bool Editor::saveAssetPreset(const QString &id, const QUrl &url) {
     return creationFile("save_asset", id, url);
@@ -642,27 +871,9 @@ bool Editor::placeAssetInstance(const QString &id, int x, int y, int z) {
     auto next = m_world.creation;
     for (const auto &asset : m_world.creation.pcgAssets)
         if (asset.id == id) {
-            QMap<QString, QString> ids;
-            for (auto a : asset.assets) {
-                const auto old = a.id;
-                a.id = fresh("asset");
-                ids[old] = a.id;
-                next.assets.push_back(a);
-            }
-            for (auto marker : asset.markers) {
-                marker.id = fresh("cave-marker");
-                marker.assetId = ids.value(marker.assetId);
-                next.caveMarkers.push_back(marker);
-            }
-            auto graph = asset.graph;
-            graph.id = fresh("pcg");
-            for (auto &node : graph.nodes)
-                node.parameters = remapReferences(node.parameters, ids).toObject();
-            next.graphs.push_back(graph);
             auto volume = asset.volume;
             volume.id = fresh("pcg-volume");
             volume.name = instanceName(asset.name, next);
-            volume.graphId = graph.id;
             volume.min += QVector3D(x, y, z);
             volume.max += QVector3D(x, y, z);
             next.volumes.push_back(volume);
@@ -741,92 +952,31 @@ bool Editor::creationFile(const QString &action, const QString &id, const QUrl &
     QString path = url.toLocalFile();
     if (action == "load_asset")
         return importStructureAsset(url);
-    if (action == "load_graph") {
-        QFile f(path);
-        if (f.size() > 64 * 1024 * 1024 || !f.open(QIODevice::ReadOnly)) {
-            emit failure("图文件不可读或超过64MiB");
-            return false;
-        }
-        auto doc = QJsonDocument::fromJson(f.readAll());
-        wb::PcgGraph g;
-        QString error;
-        const auto bundle = doc.object();
-        if (!wb::PcgGraph::fromJson(bundle.contains("graph") ? bundle["graph"].toObject() : bundle, g,
-                                    error)) {
-            emit failure(error);
-            return false;
-        }
-        g.id = fresh("pcg");
-        auto next = m_world.creation;
-        QMap<QString, QString> remap;
-        for (auto value : bundle["assets"].toArray()) {
-            wb::StructureAsset asset;
-            if (!wb::StructureAsset::fromJson(value.toObject(), asset, error)) {
-                emit failure(error);
-                return false;
-            }
-            const auto old = asset.id;
-            asset.id = fresh("asset");
-            remap[old] = asset.id;
-            next.assets.push_back(asset);
-        }
-        for (auto &node : g.nodes)
-            if (node.type == "output_scatter") {
-                auto assetId = node.parameters["assetId"].toString();
-                if (remap.contains(assetId))
-                    node.parameters["assetId"] = remap[assetId];
-                auto weighted = node.parameters["assets"].toArray();
-                for (int i = 0; i < weighted.size(); ++i) {
-                    auto entry = weighted[i].toObject();
-                    auto old = entry["id"].toString();
-                    if (remap.contains(old))
-                        entry["id"] = remap[old];
-                    weighted[i] = entry;
-                }
-                node.parameters["assets"] = weighted;
-            }
-        for (auto value : bundle["caveMarkers"].toArray()) {
-            wb::CaveMarker marker;
-            if (!wb::CaveMarker::fromJson(value.toObject(), marker, error) ||
-                !remap.contains(marker.assetId)) {
-                emit failure("图资产中的洞穴标记引用无效");
-                return false;
-            }
-            marker.id = fresh("cave-marker");
-            marker.assetId = remap[marker.assetId];
-            next.caveMarkers.push_back(marker);
-        }
-        next.graphs.push_back(g);
-        return commitCreation(std::move(next), "导入PCG图");
-    }
+    if (action == "load_graph")
+        return !importLibraryGraph(url).isEmpty();
     QJsonObject data;
     if (action == "save_graph") {
-        const auto graph = QJsonObject::fromVariantMap(graphData(id));
-        if (!graph.isEmpty()) {
-            QSet<QString> references;
-            for (auto value : graph["nodes"].toArray()) {
-                auto node = value.toObject();
-                if (node["type"] != "output_scatter")
-                    continue;
-                auto p = node["parameters"].toObject();
-                references.insert(p["assetId"].toString());
-                for (auto asset : p["assets"].toArray())
-                    references.insert(asset.toObject()["id"].toString());
-            }
-            QJsonArray assets, markers;
-            for (auto &asset : m_world.creation.assets)
-                if (references.contains(asset.id))
-                    assets.append(asset.toJson());
-            for (auto &marker : m_world.creation.caveMarkers)
-                if (references.contains(marker.assetId))
-                    markers.append(marker.toJson());
-            data = {{"version", 1}, {"graph", graph}, {"assets", assets}, {"caveMarkers", markers}};
+        const auto *graph = wb::libraryGraph(m_world.creation, id);
+        QString error;
+        if (graph && !graphManifest(m_world.creation, *graph, path, data, error)) {
+            emit failure(error);
+            return false;
         }
     }
     if (action == "save_asset") {
         for (const auto &asset : m_world.creation.pcgAssets)
-            if (asset.id == id)
+            if (asset.id == id) {
+                const auto *graph = wb::libraryGraph(m_world.creation, id);
+                QJsonObject manifest;
+                QString hash, error;
+                if (!graph || !graphManifest(m_world.creation, *graph, path, manifest, error) ||
+                    !saveRecord(path, manifest, hash, error)) {
+                    emit failure(error);
+                    return false;
+                }
                 data = asset.toJson();
+                data["graphRecord"] = hash;
+            }
         QString assetId = id;
         QJsonObject instance;
         for (auto &p : m_world.creation.presets)
@@ -974,13 +1124,7 @@ bool Editor::prepareCreation(wb::World &candidate, QString &error, bool cancella
     return ok;
 }
 QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const QString &volumeId) const {
-    const wb::PcgGraph *graph = nullptr;
-    for (auto &g : m_world.creation.graphs)
-        if (g.id == graphId)
-            graph = &g;
-    for (const auto &asset : m_world.creation.pcgAssets)
-        if (asset.id == graphId)
-            graph = &asset.graph;
+    const auto *graph = wb::libraryGraph(m_world.creation, graphId);
     if (!graph)
         return {};
     wb::PcgPlan plan;

@@ -65,6 +65,43 @@ int main(int argc, char **argv) {
         QString error;
         QTemporaryDir dir;
         auto graph = surface();
+        {
+            CreationState original;
+            original.assets = {tree()};
+            PcgGraph scatter;
+            scatter.id = "forest";
+            scatter.nodes = {{"trees", "output_scatter", {{"assetId", "tree"}}}};
+            original.graphs = {scatter};
+            PcgVolume v;
+            v.id = "bounds";
+            v.graphId = scatter.id;
+            auto oldAsset = original.assets.front().toJson();
+            QJsonObject embedded{{"type", "pcg-volume"},           {"version", 1},
+                                 {"id", "forest-preset"},          {"name", "forest preset"},
+                                 {"graph", scatter.toJson()},      {"volume", v.toJson()},
+                                 {"assets", QJsonArray{oldAsset}}, {"caveMarkers", QJsonArray{}}};
+            auto legacy = saveCreation(original);
+            legacy["pcgAssets"] = QJsonArray{embedded};
+            CreationState indexed;
+            check(loadCreation(legacy, indexed, error) && indexed.assets.size() == 1 &&
+                      indexed.graphs.size() == 1,
+                  "legacy embedded range links existing graph and asset");
+            oldAsset["pivot"] = QJsonArray{0, 0, 0};
+            embedded["assets"] = QJsonArray{oldAsset};
+            legacy["pcgAssets"] = QJsonArray{embedded};
+            check(loadCreation(legacy, indexed, error) && indexed.assets.size() == 2 &&
+                      indexed.graphs.size() == 2,
+                  "legacy preset with edited pivot preserves its distinct dependency");
+            const auto linked = indexed.pcgAssets.front().volume.graphId;
+            QString id;
+            check(indexGraph(indexed, embedded, id, error) && id == linked && indexed.graphs.size() == 2 &&
+                      indexed.assets.size() == 2,
+                  "reimport reuses migrated variant");
+            auto saved = saveCreation(indexed);
+            check(!saved["pcgAssets"].toArray().first().toObject().contains("assets") &&
+                      loadCreation(saved, original, error) && original == indexed,
+                  "project round trip contains each dependency once");
+        }
         check(graph.validate(error), "graph validation");
         check(graph.evaluate(0, 0, 24, 0, 1) == 1, "output evaluation");
         auto cycle = graph;

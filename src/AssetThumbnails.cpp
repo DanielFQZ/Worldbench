@@ -5,22 +5,8 @@
 #include <cmath>
 
 namespace {
-QColor blockColor(const wb::AssetLibrary *lib, const QString &state) {
+QColor fallbackColor(const QString &state) {
     const auto name = state.section('[', 0, 0);
-    if (lib) {
-        const auto entry = lib->catalog.constFind(name);
-        if (entry != lib->catalog.cend() && entry->preview) {
-            const auto image = lib->thumbnails.value(entry->preview->thumbnail);
-            if (!image.isNull()) {
-                auto color =
-                    image.scaled(1, 1, Qt::IgnoreAspectRatio, Qt::SmoothTransformation).pixelColor(0, 0);
-                if (name.contains("leaves") || name.contains("grass"))
-                    color = QColor::fromRgbF(color.redF() * .58, color.greenF() * .85, color.blueF() * .4);
-                color.setAlpha(255);
-                return color;
-            }
-        }
-    }
     if (name.contains("leaves") || name.contains("grass"))
         return QColor("#779252");
     if (name.contains("log") || name.contains("planks") || name.contains("dirt"))
@@ -29,46 +15,109 @@ QColor blockColor(const wb::AssetLibrary *lib, const QString &state) {
         return QColor("#d7c495");
     return QColor("#92999b");
 }
+// Bake a bounded isometric sprite per block state from the very same model
+// geometry, UVs, tint and active atlas as the scene. Overscan fits fences and
+// models extending outside their unit cell. Pixel centres avoid edge halos.
+QImage blockSprite(const wb::AssetLibrary *lib, const QString &name) {
+    constexpr int size = 128;
+    constexpr float unit = 36.f;
+    QImage image(size, size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    wb::BlockState state;
+    QString error;
+    auto model = lib && wb::parseCreationBlock(name, state, error) ? lib->model(state) : nullptr;
+    auto project = [](QVector3D p) {
+        return QVector2D(64 + unit * (p.x() - p.z()), 64 + unit * (.45f * (p.x() + p.z()) - p.y()));
+    };
+    if (!model || !lib || lib->atlas.isNull()) {
+        auto cube = wb::fallbackModel(1);
+        QPainter painter(&image);
+        for (const auto &face : cube->faces) {
+            if (QVector3D::dotProduct(face.normal, {1, .9f, 1}) <= 0)
+                continue;
+            QPolygonF polygon;
+            for (const auto &point : face.points)
+                polygon << project(point).toPointF();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(fallbackColor(name).darker(face.normal.y() > .5f   ? 100
+                                                        : face.normal.x() > .5f ? 150
+                                                                                : 122));
+            painter.drawPolygon(polygon);
+        }
+        return image;
+    }
+    const QVector3D eye(1, .9f, 1);
+    std::vector<const wb::ModelFace *> faces;
+    for (const auto &face : model->faces)
+        if (QVector3D::dotProduct(face.normal, eye) > 0)
+            faces.push_back(&face);
+    std::stable_sort(faces.begin(), faces.end(), [&](const auto *a, const auto *b) {
+        return QVector3D::dotProduct(a->points[0] + a->points[2], eye) <
+               QVector3D::dotProduct(b->points[0] + b->points[2], eye);
+    });
+    auto cross = [](QVector2D a, QVector2D b) { return a.x() * b.y() - a.y() * b.x(); };
+    const auto &atlas = lib->atlas;
+    for (const auto *f : faces) {
+        const auto origin = project(f->points[0]);
+        const auto dx = project(f->points[1]) - origin, dy = project(f->points[3]) - origin;
+        const float det = cross(dx, dy);
+        if (std::abs(det) < .0001f)
+            continue;
+        QPolygonF polygon;
+        for (const auto &v : f->points)
+            polygon << project(v).toPointF();
+        const auto rect = polygon.boundingRect().toAlignedRect().intersected(image.rect());
+        const float light = .68f + .28f * std::max(0.f, f->normal.y()) + .12f * std::max(0.f, f->normal.z());
+        for (int y = rect.top(); y <= rect.bottom(); ++y)
+            for (int x = rect.left(); x <= rect.right(); ++x) {
+                const QVector2D delta = QVector2D(x + .5f, y + .5f) - origin;
+                float u = cross(delta, dy) / det, v = cross(dx, delta) / det;
+                if (u < 0 || u >= 1 || v < 0 || v >= 1)
+                    continue;
+                auto uv = f->uv[0] + u * (f->uv[1] - f->uv[0]) + v * (f->uv[3] - f->uv[0]);
+                auto tex = atlas.pixelColor(std::clamp(int(uv.x() * atlas.width()), 0, atlas.width() - 1),
+                                            std::clamp(int(uv.y() * atlas.height()), 0, atlas.height() - 1));
+                const float alpha = tex.alphaF() * f->color.w();
+                if (alpha < .05f)
+                    continue;
+                auto dest = image.pixelColor(x, y);
+                const float behind = dest.alphaF() * (1 - alpha), total = behind + alpha;
+                auto channel = [&](float sample, float tint, float previous) {
+                    return std::clamp((sample * tint * light * alpha + previous * behind) / total, 0.f, 1.f);
+                };
+                image.setPixelColor(x, y,
+                                    QColor::fromRgbF(channel(tex.redF(), f->color.x(), dest.redF()),
+                                                     channel(tex.greenF(), f->color.y(), dest.greenF()),
+                                                     channel(tex.blueF(), f->color.z(), dest.blueF()),
+                                                     total));
+            }
+    }
+    return image;
+}
 void drawStructure(QPainter &p, const wb::StructureAsset &asset, const wb::AssetLibrary *lib) {
     const int step = std::max(1, (std::max({asset.width, asset.height, asset.depth}) + 29) / 30);
     const int w = (asset.width + step - 1) / step, h = (asset.height + step - 1) / step,
               d = (asset.depth + step - 1) / step;
-    QHash<QString, QColor> palette;
-    std::vector<QColor> cells(w * h * d);
+    std::vector<QString> cells(w * h * d);
     auto index = [&](int x, int y, int z) { return (y * d + z) * w + x; };
-    for (const auto &b : asset.blocks) {
-        if (b.state.endsWith(":air") || b.state.endsWith("_air"))
-            continue;
-        auto it = palette.constFind(b.state);
-        if (it == palette.cend())
-            it = palette.insert(b.state, blockColor(lib, b.state));
-        cells[index(b.x / step, b.y / step, b.z / step)] = it.value();
-    }
+    for (const auto &b : asset.blocks)
+        if (!b.state.endsWith(":air") && !b.state.endsWith("_air"))
+            cells[index(b.x / step, b.y / step, b.z / step)] = b.state;
+    QCache<QString, QImage> sprites(128);
     const double scale = std::min(146. / (w + d), 80. / (.45 * (w + d) + h));
-    auto point = [&](int x, int y, int z) {
-        return QPointF(80 + scale * (x - z - (w - d) * .5),
-                       45 + scale * (.45 * (x + z) - y - .225 * (w + d) + h * .5));
-    };
-    auto face = [&](QColor c, QPointF a, QPointF b, QPointF d, QPointF e) {
-        p.setPen(Qt::NoPen);
-        p.setBrush(c);
-        p.drawPolygon(QPolygonF{a, b, d, e});
-    };
+    const auto side = 128 * scale / 36;
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
     for (int y = 0; y < h; ++y)
         for (int z = 0; z < d; ++z)
             for (int x = 0; x < w; ++x) {
-                const auto color = cells[index(x, y, z)];
-                if (!color.isValid())
+                const auto &name = cells[index(x, y, z)];
+                if (name.isEmpty())
                     continue;
-                if (z + 1 == d || !cells[index(x, y, z + 1)].isValid())
-                    face(color.darker(125), point(x, y, z + 1), point(x + 1, y, z + 1),
-                         point(x + 1, y + 1, z + 1), point(x, y + 1, z + 1));
-                if (x + 1 == w || !cells[index(x + 1, y, z)].isValid())
-                    face(color.darker(160), point(x + 1, y, z), point(x + 1, y, z + 1),
-                         point(x + 1, y + 1, z + 1), point(x + 1, y + 1, z));
-                if (y + 1 == h || !cells[index(x, y + 1, z)].isValid())
-                    face(color, point(x, y + 1, z), point(x + 1, y + 1, z), point(x + 1, y + 1, z + 1),
-                         point(x, y + 1, z + 1));
+                if (!sprites.contains(name))
+                    sprites.insert(name, new QImage(blockSprite(lib, name)));
+                double px = 80 + scale * (x - z - (w - d) * .5),
+                       py = 45 + scale * (.45 * (x + z) - y - .225 * (w + d) + h * .5);
+                p.drawImage(QRectF(px - side * .5, py - side * .5, side, side), *sprites.object(name));
             }
 }
 void drawTerrain(QPainter &p, const wb::TerrainInstance &terrain) {
@@ -115,9 +164,17 @@ void drawGraph(QPainter &p, const wb::PcgGraph &graph, const wb::PcgVolume &volu
         return;
     constexpr int n = 36;
     QHash<QString, QColor> colors;
+    QHash<QString, QImage> textures;
     for (const auto &node : plan.instructions)
-        if (node.type == "output_surface")
-            colors[node.id] = blockColor(lib, node.parameters["block"].toString("minecraft:stone"));
+        if (node.type == "output_surface") {
+            const auto block = node.parameters["block"].toString("minecraft:stone");
+            colors[node.id] = fallbackColor(block);
+            if (lib) {
+                auto entry = lib->catalog.constFind(block.section('[', 0, 0));
+                if (entry != lib->catalog.cend() && entry->preview)
+                    textures[node.id] = lib->thumbnails.value(entry->preview->thumbnail);
+            }
+        }
     for (int z = 0; z < n; ++z)
         for (int x = 0; x < n; ++x) {
             double u = (x + .5) / n, v = (z + .5) / n;
@@ -137,8 +194,11 @@ void drawGraph(QPainter &p, const wb::PcgGraph &graph, const wb::PcgVolume &volu
             for (size_t k = 0; k < plan.instructions.size(); ++k) {
                 auto &node = plan.instructions[k];
                 auto value = std::clamp(values[k], 0., 1.) * mask;
-                if (node.type == "output_surface" && value >= node.parameters["threshold"].toDouble(.5))
-                    color = colors.value(node.id);
+                if (node.type == "output_surface" && value >= node.parameters["threshold"].toDouble(.5)) {
+                    const auto texture = textures.value(node.id);
+                    color = texture.isNull() ? colors.value(node.id)
+                                             : texture.pixelColor(x % texture.width(), z % texture.height());
+                }
                 if (node.type == "output_scatter" &&
                     ((x * 31 + z * 57 + x * z * 13 + volume.seed) % 101) / 101. <
                         value * node.parameters["density"].toDouble(.5))
@@ -168,7 +228,8 @@ QString Editor::assetThumbnail(const QString &id, const QString &key) const {
             drawGraph(painter, g, {}, m_world.assets.get());
     for (const auto &a : m_world.creation.pcgAssets)
         if (a.id == id)
-            drawGraph(painter, a.graph, a.volume, m_world.assets.get());
+            if (const auto *graph = wb::libraryGraph(m_world.creation, a.id))
+                drawGraph(painter, *graph, a.volume, m_world.assets.get());
     painter.end();
     QBuffer bytes;
     bytes.open(QIODevice::WriteOnly);

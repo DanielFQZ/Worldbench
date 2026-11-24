@@ -229,14 +229,17 @@ void Editor::setExactPreviewEnabled(bool value) {
     emit changed();
 }
 
-bool Editor::commitCreation(wb::CreationState next, const QString &label) {
-    auto terrainNames = m_world.heights.instances;
+bool Editor::commitCreation(wb::CreationState next, const QString &label,
+                            const std::vector<wb::TerrainInstance> *terrains) {
+    auto terrainNames = terrains ? *terrains : m_world.heights.instances;
     QString nameError;
-    if (!prepareLibraryNames(next, terrainNames, false, nameError)) {
+    if (!prepareLibraryNames(next, terrainNames, false, nameError) ||
+        (terrains && !wb::validateTerrain(terrainNames, nameError))) {
         emit failure(nameError);
         return false;
     }
-    if (next == m_world.creation)
+    const bool terrainChanged = terrains && terrainNames != m_world.heights.instances;
+    if (next == m_world.creation && !terrainChanged)
         return true;
     if (regionBusy() || assetBusy()) {
         emit failure("请等待当前任务完成");
@@ -249,6 +252,12 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label) {
     command.creationAfter = std::make_shared<const wb::CreationState>(std::move(next));
     auto candidate = m_world;
     candidate.creation = *command.creationAfter;
+    if (terrainChanged) {
+        command.terrainBefore =
+            std::make_shared<const std::vector<wb::TerrainInstance>>(candidate.heights.instances);
+        command.terrainAfter = std::make_shared<const std::vector<wb::TerrainInstance>>(terrainNames);
+        candidate.heights.instances = std::move(terrainNames);
+    }
     const auto previousGenerated = m_world.generated;
     m_creationPending = command.creationAfter;
     QString error;
@@ -256,8 +265,9 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label) {
     metadataOnly.pcgAssets = candidate.creation.pcgAssets;
     metadataOnly.folders = candidate.creation.folders;
     metadataOnly.assetFolders = candidate.creation.assetFolders;
-    const bool prepared = metadataOnly == candidate.creation ? wb::validateCreation(candidate.creation, error)
-                                                             : prepareCreation(candidate, error);
+    const bool prepared = !terrainChanged && metadataOnly == candidate.creation
+                              ? wb::validateCreation(candidate.creation, error)
+                              : prepareCreation(candidate, error);
     if (!prepared) {
         m_creationPending.reset();
         emit failure(error);
@@ -267,7 +277,10 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label) {
     m_creationPending.reset();
     m_world = std::move(candidate);
     ++m_revision;
-    dirtyCreation(previousGenerated);
+    if (terrainChanged)
+        dirtyAll();
+    else
+        dirtyCreation(previousGenerated);
     pushCommand(std::move(command));
     m_status = label + " · Ctrl+Z 撤销";
     emit changed();

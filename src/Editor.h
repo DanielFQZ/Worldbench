@@ -85,6 +85,8 @@ class Editor : public QObject {
     Q_INVOKABLE QString assetThumbnail(const QString &id, const QString &key) const;
     Q_PROPERTY(QStringList libraryFolders READ libraryFolders NOTIFY changed)
     QStringList libraryFolders() const { return m_world.creation.folders; }
+    Q_INVOKABLE QString importLibraryGraph(const QUrl &url);
+    Q_INVOKABLE bool importLibraryDrop(const QList<QUrl> &urls, const QString &folder);
     Q_INVOKABLE bool createAssetFolder(const QString &path);
     Q_INVOKABLE bool removeAssetFolder(const QString &path);
     Q_INVOKABLE bool moveLibraryAsset(const QString &id, const QString &folder);
@@ -331,7 +333,10 @@ class Editor : public QObject {
     std::shared_ptr<CreationControl> m_creationControl;
     bool m_creationBusy = false, m_creationCancellable = false;
     bool prepareCreation(wb::World &candidate, QString &error, bool cancellable = true);
-    bool commitCreation(wb::CreationState next, const QString &label);
+    static wb::TerrainInstance importedTerrain(const wb::World &world, const QString &fileName,
+                                               std::shared_ptr<const wb::HeightmapData> image);
+    bool commitCreation(wb::CreationState next, const QString &label,
+                        const std::vector<wb::TerrainInstance> *terrains = nullptr);
     std::shared_ptr<const wb::CreationState> m_creationStart;
     std::shared_ptr<const wb::CreationState> m_creationPending;
     QString m_placementAsset;

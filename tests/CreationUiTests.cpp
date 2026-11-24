@@ -4,13 +4,17 @@
 #include "core/Project.h"
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMimeData>
 #include <QProcess>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickItemGrabResult>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSettings>
@@ -212,6 +216,26 @@ int main(int argc, char **argv) {
         auto treePath = jsonFile("tree.wbasset", {{"version", 1}, {"asset", tree.toJson()}});
         write("creation", {{"action", "import_asset"}, {"path", treePath}});
         QString treeId = editor.world().creation.assets.back().id;
+        if (editor.world().assets) {
+            auto log = tree;
+            log.id = "thumbnail-log";
+            log.name = "原木贴图";
+            log.width = log.height = log.depth = 1;
+            log.pivot = {};
+            log.blocks.clear();
+            log.blocks.push_back({0, 0, 0, "minecraft:oak_log[axis=y]"});
+            auto path = jsonFile("thumbnail-log.wbasset", {{"asset", log.toJson()}});
+            check(editor.importStructureAsset(QUrl::fromLocalFile(path)), "import one textured block");
+            const auto uri = editor.assetThumbnail(log.id, "test");
+            const auto thumbnail = QImage::fromData(QByteArray::fromBase64(uri.section(',', 1).toLatin1()));
+            QSet<QRgb> colors;
+            for (int y = 33; y < 43; ++y)
+                for (int x = 67; x < 76; ++x)
+                    colors.insert(thumbnail.pixel(x, y));
+            check(colors.size() > 5, "actual JAR texels vary inside one face");
+            check(thumbnail.save(out + "/BI-oak-log.png"), "capture textured oak block thumbnail");
+            write("undo", {});
+        }
         wb::PcgGraph graph;
         graph.id = "landscape";
         graph.name = "地表着色 + 植被";
@@ -250,10 +274,19 @@ int main(int argc, char **argv) {
               {{"action", "file"}, {"operation", "save_asset"}, {"id", pcgAssetId}, {"path", pcgPath}});
         write("creation", {{"action", "import_asset"}, {"path", pcgPath}});
         check(editor.world().creation.pcgAssets.size() == 2, "portable PCG asset imported with dependencies");
+        QFile rangeFile(pcgPath);
+        check(rangeFile.open(QIODevice::ReadOnly), "read range manifest");
+        auto manifest = QJsonDocument::fromJson(rangeFile.readAll()).object();
+        check(manifest.contains("graphRecord") && !manifest.contains("assets") && !manifest.contains("graph"),
+              "range stores only shared references");
+        rangeFile.close();
         const auto libraryId = editor.world().creation.pcgAssets.back().id;
         write("creation",
               {{"action", "place_asset"}, {"asset_id", libraryId}, {"x", 0}, {"y", 25}, {"z", 0}});
-        check(editor.world().creation.volumes.size() == 2, "library placement makes editable PCG range");
+        check(editor.world().creation.volumes.size() == 2 &&
+                  editor.world().creation.volumes.back().graphId == graph.id &&
+                  editor.world().creation.graphs.size() == 1 && editor.world().creation.assets.size() == 1,
+              "import and placement reuse the original graph and tree");
         check(editor.world().creation.volumes.back().min.y() == volume.min.y(),
               "PCG preset keeps ground-relative vertical extent");
         write("undo", {});
@@ -331,9 +364,28 @@ int main(int argc, char **argv) {
         capture("01-pcg-scene");
         call("camera", {{"position", QJsonArray{0, 50, 65}}, {"yaw", 0}, {"pitch", -20}});
         capture("01a-assets-near");
+        viewport->setAlphaBlending(true);
+        auto grab = viewport->grabToImage();
+        check(grab && QTest::qWaitFor([&] { return !grab->image().isNull(); }),
+              "grab viewport on transparent backing");
+        const auto pixels = grab->image().convertToFormat(QImage::Format_ARGB32);
+        for (int y = 1; y < pixels.height() - 1; ++y) {
+            const auto *row = reinterpret_cast<const QRgb *>(pixels.constScanLine(y));
+            check(std::all_of(row + 1, row + pixels.width() - 1,
+                              [](QRgb pixel) { return qAlpha(pixel) == 255; }),
+                  "leaf/terrain frame has opaque resolved alpha in every interior pixel");
+        }
+        viewport->setAlphaBlending(false);
         const int nearTriangles = viewport->renderMetrics()->objectTriangles.load();
         check(nearTriangles > 0 && viewport->renderMetrics()->objectLods.load() == 0,
               "near assets use original block geometry");
+        editor.setExactPreviewEnabled(false);
+        settle();
+        check(editor.scene()->exactArea.isEmpty() &&
+                  viewport->renderMetrics()->objectLods.load() == int(editor.scene()->objects.size()),
+              "all placed assets follow disabled exact terrain at the same close camera");
+        editor.setExactPreviewEnabled(true);
+        settle();
         call("camera", {{"position", QJsonArray{0, 200, 500}}, {"yaw", 0}, {"pitch", -20}});
         capture("01b-assets-distant");
         const int farTriangles = viewport->renderMetrics()->objectTriangles.load();
@@ -345,6 +397,33 @@ int main(int argc, char **argv) {
         auto *shelf = window->findChild<QQuickItem *>("assetShelf");
         auto *shelfGrid = window->findChild<QQuickItem *>("assetShelfGrid");
         check(panel && shelf && shelfGrid, "asset workspace and scene library exist");
+        {
+            const auto before = editor.world().creation;
+            const auto root = out + "/DragLibrary";
+            check(QDir().mkpath(root + "/地形"), "create folder drop fixture");
+            QImage gray(8, 8, QImage::Format_Grayscale8);
+            gray.fill(Qt::black);
+            check(gray.save(root + "/地形/A.png") && gray.save(root + "/地形/B.png"), "write mixed PNG drop");
+            const auto fileUrl = QUrl::fromLocalFile(treePath);
+            QMimeData mime;
+            mime.setUrls({QUrl::fromLocalFile(root), fileUrl});
+            QPoint pos = shelf->mapToScene({shelf->width() * .5, shelf->height() * .5}).toPoint();
+            QDragEnterEvent enter(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(window, &enter);
+            check(enter.isAccepted(), "asset shelf accepts native folder/file drag");
+            QDropEvent drop(pos, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(window, &drop);
+            check(drop.isAccepted() && editor.world().heights.instances.size() == 2 &&
+                      editor.world().creation.assets.size() == before.assets.size() + 1 &&
+                      editor.world().creation.assetFolders.value(
+                          editor.world().heights.instances.back().id) == "DragLibrary/地形",
+                  "recursive native import preserves hierarchy and both heightmaps");
+            settle();
+            check(window->grabWindow().save(out + "/BI-library-drop.png"), "capture dropped library");
+            write("undo", {});
+            check(editor.world().creation == before && editor.world().heights.instances.empty(),
+                  "undo whole mixed drop");
+        }
         auto scene = [&] { QMetaObject::invokeMethod(window, "activate", Q_ARG(QVariant, QString{})); };
         auto cardPoint = [&](const QString &id) {
             scene();
@@ -468,9 +547,9 @@ int main(int argc, char **argv) {
         auto embeddedGraph = editor.graphData(savedRange);
         embeddedGraph["name"] = QString("edited preset graph");
         check(editor.creationEdit("graph", embeddedGraph) &&
-                  editor.world().creation.pcgAssets.back().graph.name == "edited preset graph" &&
-                  editor.world().creation.graphs.front().name == graph.name,
-              "range tab edits embedded graph only");
+                  editor.world().creation.pcgAssets.back().volume.graphId == graph.id &&
+                  editor.world().creation.graphs.front().name == "edited preset graph",
+              "range tab edits the shared graph");
         write("undo", {});
         scene();
         const auto sharedStart = cardPoint(graph.id);
@@ -805,6 +884,9 @@ int main(int argc, char **argv) {
         write("creation", {{"action", "file"}, {"operation", "load_graph"}, {"path", portableGraph}});
         check(editor.world().creation.assets.size() == 1 && editor.world().creation.graphs.size() == 1,
               "portable graph restores referenced assets in fresh project");
+        write("creation", {{"action", "file"}, {"operation", "load_graph"}, {"path", portableGraph}});
+        check(editor.world().creation.assets.size() == 1 && editor.world().creation.graphs.size() == 1,
+              "repeat external graph import is idempotent");
         auto portableVolume = volume;
         portableVolume.id = "portable-volume";
         portableVolume.graphId = editor.world().creation.graphs.front().id;

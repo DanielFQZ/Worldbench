@@ -1,0 +1,14 @@
+{
+  "version": "0.23.0",
+  "baseline": "b61d3d7",
+  "ctest_passed": 15,
+  "ctest_total": 15,
+  "creation_core_checks": 426,
+  "resources_checks": 1317,
+  "creation_ui_mcp_checks": 3499,
+  "near_object_triangles": 16450,
+  "far_object_triangles": 6160,
+  "original_project_sha256": "6eddcd95d11d07817fc43c6e3b4e03fcf7c79bbe669c10b21b2c15db4226f81c",
+  "packaged_3k_smoke": "passed",
+  "user_acceptance": "pending"
+}

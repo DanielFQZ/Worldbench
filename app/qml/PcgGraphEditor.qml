@@ -115,7 +115,7 @@ Item {
        WorkbenchSpinBox {visible:typeof parent.value==="number";Layout.fillWidth:true;from:-100000000;to:100000000;property real multiplier:1000;value:Number(parent.value)*multiplier;textFromValue:function(v){return String(v/multiplier)};valueFromText:function(t){return Math.round(Number(t)*multiplier)};stepSize:100;onValueModified:root.patchParam(parent.modelData,value/multiplier)}
        WorkbenchCheckBox {visible:typeof parent.value==="boolean";checked:parent.value===true;text:"启用";onToggled:root.patchParam(parent.modelData,checked)}
        WorkbenchComboBox {visible:modelData==="block"||modelData==="under";Layout.fillWidth:true;model:editor.blockCatalog("");textRole:"title";valueRole:"name";onActivated:root.patchParam(parent.modelData,currentValue)}
-       WorkbenchComboBox {visible:modelData==="assetId";Layout.fillWidth:true;model:root.rangePreset?editor.rangeDependencies(root.graphId):editor.structureAssets;textRole:"name";valueRole:"id";onActivated:root.patchParam("assetId",currentValue)}
+       WorkbenchComboBox {visible:modelData==="assetId";Layout.fillWidth:true;model:editor.structureAssets;textRole:"name";valueRole:"id";onActivated:root.patchParam("assetId",currentValue)}
       }
      }
      Label {text:"数量："+editor.creationState.scatterCount+" 个散布实例\n生成："+editor.creationState.generatedCells+" 个方块";Layout.margins:12;color:Theme.secondary}
@@ -124,6 +124,6 @@ Item {
   }
   Label {Layout.fillWidth:true;Layout.margins:8;text:root.message||"参数与连接修改自动生成；范围、种子和过渡在场景大纲详情中调整。";color:Theme.secondary;elide:Text.ElideRight}
  }
- FileDialog{id:graphFile;title:fileMode===FileDialog.SaveFile?"保存 PCG 图":"导入 PCG 图";nameFilters:["Worldbench PCG (*.wbpcg *.json)"];onRejected:editor.rememberDialogFolder(fileMode===FileDialog.SaveFile?"pcgGraphSave":"pcgGraphImport",currentFolder,true);onAccepted:{editor.rememberDialogFolder(fileMode===FileDialog.SaveFile?"pcgGraphSave":"pcgGraphImport",selectedFile);if(editor.creationFile(fileMode===FileDialog.SaveFile?"save_graph":"load_graph",root.graphId,selectedFile)&&fileMode===FileDialog.OpenFile)root.graphImported(editor.pcgGraphs[editor.pcgGraphs.length-1].id)}}
+ FileDialog{id:graphFile;title:fileMode===FileDialog.SaveFile?"保存 PCG 图":"导入 PCG 图";nameFilters:["Worldbench PCG (*.wbpcg *.json)"];onRejected:editor.rememberDialogFolder(fileMode===FileDialog.SaveFile?"pcgGraphSave":"pcgGraphImport",currentFolder,true);onAccepted:{editor.rememberDialogFolder(fileMode===FileDialog.SaveFile?"pcgGraphSave":"pcgGraphImport",selectedFile);if(fileMode===FileDialog.OpenFile){let id=editor.importLibraryGraph(selectedFile);if(id)root.graphImported(id)}else editor.creationFile("save_graph",root.graphId,selectedFile)}}
 }
 

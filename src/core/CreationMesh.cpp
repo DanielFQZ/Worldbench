@@ -46,11 +46,10 @@ void cellMesh(const World &w, ChunkMesh &mesh, int x, int y, int z, Block b, Sam
         }
     }
 }
-MeshPtr simplify(const World &w, const MeshPtr &source, float ratio, float error) {
-    if (source->opaque.size() < 72)
-        return source;
-    auto mesh = std::make_shared<ChunkMesh>(*source);
-    auto &v = mesh->opaque;
+void simplifyPart(const World &w, std::vector<Vertex> &v, std::vector<uint32_t> &outputIndices, float ratio,
+                  float error, float &surfaceError) {
+    if (v.empty())
+        return;
     // Resolve atlas texels to colors before changing topology. Distant LODs
     // must not interpolate UVs across unrelated blocks in the resource atlas.
     const QImage atlas = w.assets ? w.assets->atlas : QImage{};
@@ -111,24 +110,24 @@ MeshPtr simplify(const World &w, const MeshPtr &source, float ratio, float error
         welded[i].b /= contributions[i];
     }
     v = std::move(welded);
-    mesh->opaqueIndices.resize(indices.size());
+    outputIndices.resize(indices.size());
     float achieved = 0;
     size_t count = meshopt_simplify(
-        mesh->opaqueIndices.data(), indices.data(), indices.size(), &v[0].x, v.size(), sizeof(Vertex),
+        outputIndices.data(), indices.data(), indices.size(), &v[0].x, v.size(), sizeof(Vertex),
         std::max(size_t(36), size_t(indices.size() * ratio) / 3 * 3), error, 0, &achieved);
     if (count < 3) {
-        mesh->opaqueIndices = indices;
+        outputIndices = indices;
         count = indices.size();
         achieved = 0;
     }
-    mesh->opaqueIndices.resize(count);
-    mesh->surfaceError = achieved * meshopt_simplifyScale(&v[0].x, v.size(), sizeof(Vertex));
+    outputIndices.resize(count);
+    surfaceError =
+        std::max(surfaceError, achieved * meshopt_simplifyScale(&v[0].x, v.size(), sizeof(Vertex)));
     // Accumulate smooth normals only for the reduced representation.
     for (auto &vertex : v)
         vertex.nx = vertex.ny = vertex.nz = 0;
     for (size_t i = 0; i < count; i += 3) {
-        auto &a = v[mesh->opaqueIndices[i]], &b = v[mesh->opaqueIndices[i + 1]],
-             &c = v[mesh->opaqueIndices[i + 2]];
+        auto &a = v[outputIndices[i]], &b = v[outputIndices[i + 1]], &c = v[outputIndices[i + 2]];
         auto n = QVector3D::crossProduct(QVector3D(b.x - a.x, b.y - a.y, b.z - a.z),
                                          QVector3D(c.x - a.x, c.y - a.y, c.z - a.z));
         for (auto *p : {&a, &b, &c}) {
@@ -145,10 +144,28 @@ MeshPtr simplify(const World &w, const MeshPtr &source, float ratio, float error
     }
     // Compact the vertex buffer as well as the triangle list.
     std::vector<Vertex> compact(v.size());
-    size_t used = meshopt_optimizeVertexFetch(compact.data(), mesh->opaqueIndices.data(), count, v.data(),
-                                              v.size(), sizeof(Vertex));
+    size_t used = meshopt_optimizeVertexFetch(compact.data(), outputIndices.data(), count, v.data(), v.size(),
+                                              sizeof(Vertex));
     compact.resize(used);
     v = std::move(compact);
+}
+
+MeshPtr simplify(const World &w, const MeshPtr &source, float ratio, float error) {
+    auto mesh = std::make_shared<ChunkMesh>(*source);
+    simplifyPart(w, mesh->opaque, mesh->opaqueIndices, ratio, error, mesh->surfaceError);
+    // Alpha and water passes take triangle lists. Keep their material class
+    // while reducing their geometry under the same LOD rule as opaque blocks.
+    for (auto *part : {&mesh->transparent, &mesh->water}) {
+        if (part->empty())
+            continue;
+        std::vector<uint32_t> indices;
+        simplifyPart(w, *part, indices, ratio, error, mesh->surfaceError);
+        std::vector<Vertex> triangles;
+        triangles.reserve(indices.size());
+        for (uint32_t i : indices)
+            triangles.push_back((*part)[i]);
+        *part = std::move(triangles);
+    }
     return mesh;
 }
 } // namespace
