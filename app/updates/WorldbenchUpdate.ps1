@@ -18,10 +18,10 @@ try {
     if ($entries.Count -eq 1 -and $entries[0].PSIsContainer) { $source = $entries[0].FullName }
     New-Item -ItemType Directory -Force -Path $backup | Out-Null
     if (Test-Path -LiteralPath $InstallDir) {
-        Copy-Item -LiteralPath (Join-Path $InstallDir '*') -Destination $backup -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -Path (Join-Path $InstallDir '*') -Destination $backup -Recurse -Force -ErrorAction SilentlyContinue
     }
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    Copy-Item -LiteralPath (Join-Path $source '*') -Destination $InstallDir -Recurse -Force
+    Copy-Item -Path (Join-Path $source '*') -Destination $InstallDir -Recurse -Force
     Start-Process -FilePath $RestartPath -WorkingDirectory $InstallDir
 } catch {
     $message = $_.Exception.Message

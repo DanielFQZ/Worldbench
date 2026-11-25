@@ -18,7 +18,7 @@ param([string]$PayloadRoot)
 $ErrorActionPreference = 'Stop'
 $target = Join-Path $env:LOCALAPPDATA 'Programs\Worldbench'
 New-Item -ItemType Directory -Force -Path $target | Out-Null
-Copy-Item -LiteralPath (Join-Path $PayloadRoot '*') -Destination $target -Recurse -Force
+Copy-Item -Path (Join-Path $PayloadRoot '*') -Destination $target -Recurse -Force
 $shortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Worldbench.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($shortcut)
@@ -57,9 +57,10 @@ Worldbench-$Version-win-x64.zip=
 "@ | Set-Content -LiteralPath $sed -Encoding ASCII
 $iexpress = Join-Path $env:WINDIR 'System32\iexpress.exe'
 if (-not (Test-Path -LiteralPath $iexpress)) { throw 'Windows IExpress was not found.' }
+$setup = Join-Path $release ("Worldbench-" + $Version + '-setup.exe')
+Remove-Item -LiteralPath $setup -Force -ErrorAction SilentlyContinue
 & $iexpress /N /Q $sed
 if ($LASTEXITCODE) { throw "IExpress failed with exit code $LASTEXITCODE" }
-$setup = Join-Path $release ("Worldbench-" + $Version + '-setup.exe')
 for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path -LiteralPath $setup); ++$attempt) { Start-Sleep -Milliseconds 500 }
 if (-not (Test-Path -LiteralPath $setup)) { throw "IExpress did not create installer: $setup" }
 
