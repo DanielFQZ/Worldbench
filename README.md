@@ -4,7 +4,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 当前版本
 
-当前公开测试版本为 **0.26.2-pre.3-updatetest**。Minecraft 资源与导出基线为 **1.20.1**。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
+当前公开测试版本为 **0.26.3-pre.1**。Minecraft 资源与导出基线为 **1.20.1**。本版修复打开旧工程后的近景红色纹理，并增加跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
 
 ## 已实现能力
 
@@ -22,7 +22,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 ## 快速开始
 
 1. 从 [Releases](https://github.com/DanielFQZ/Worldbench/releases) 下载 Windows x64 安装包。
-2. 启动软件后导入 Minecraft 1.20.1 客户端 JAR 或资源包。
+2. 首次启动导入 Minecraft 1.20.1 客户端 JAR 或资源包；后续启动校验来源并恢复本地缓存，无需重复解压和解析。
 3. 新建或打开 `.wbench` 工程，在 3D 视口中编辑地形和资产。
 4. 使用“文件 → 导出 Minecraft 1.20.1”生成游戏存档。
 
@@ -51,7 +51,7 @@ Worldbench is an open-source 3D terrain and asset editor for large Minecraft wor
 
 ## Current version
 
-The current public preview is **0.26.2-pre.3-updatetest**. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
+The current public preview is **0.26.3-pre.1**. This build fixes red near-terrain textures after reopening projects and adds persistent resource caching. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
 
 ## Features
 
@@ -69,7 +69,7 @@ The current public preview is **0.26.2-pre.3-updatetest**. Minecraft resource lo
 ## Getting started
 
 1. Download the Windows x64 installer from [Releases](https://github.com/DanielFQZ/Worldbench/releases).
-2. Import a Minecraft 1.20.1 client JAR or resource pack when the editor starts.
+2. Import a Minecraft 1.20.1 client JAR or resource pack once. Subsequent launches validate the sources and restore a local cache without repeating archive extraction and parsing.
 3. Create or open a `.wbench` project and edit the terrain and assets in the 3D viewport.
 4. Use “File → Export Minecraft 1.20.1” to create a playable world.
 

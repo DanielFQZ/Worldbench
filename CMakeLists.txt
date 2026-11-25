@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
-project(Worldbench VERSION 0.26.2 LANGUAGES CXX)
-set(WORLDBENCH_APP_VERSION "0.26.2-pre.3-updatetest" CACHE STRING "Displayed application version")
+project(Worldbench VERSION 0.26.3 LANGUAGES CXX)
+set(WORLDBENCH_APP_VERSION "0.26.3-pre.1" CACHE STRING "Displayed application version")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -33,6 +33,7 @@ FetchContent_Declare(meshoptimizer
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(meshoptimizer)
 add_library(worldbench_core STATIC
+  src/core/AssetCache.cpp
   src/core/AssetIndex.cpp src/core/CreationMesh.cpp
   src/core/TerrainSurface.cpp
   src/core/ProjectChunks.cpp src/core/ProjectCompression.cpp src/core/HeightDeltas.cpp src/core/RegionEdit.cpp

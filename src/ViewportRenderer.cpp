@@ -64,7 +64,7 @@ class Renderer final : public QQuickRhiItemRenderer {
     std::unique_ptr<QRhiTexture> m_atlas, m_white, m_skyTexture;
     std::unique_ptr<QRhiSampler> m_atlasSampler, m_nearest, m_surfaceSampler, m_linear, m_skySampler;
     std::unique_ptr<QRhiShaderResourceBindings> m_mainBindings, m_reflectionBindings, m_skyBindings,
-        m_reflectionSkyBindings, m_waterBindings;
+        m_reflectionSkyBindings, m_waterBindings, m_boundsBindings;
     std::array<std::unique_ptr<QRhiShaderResourceBindings>, 2> m_shadowBindings, m_shadowSurfaceBindings;
     std::unique_ptr<QRhiGraphicsPipeline> m_opaque, m_alpha, m_water, m_sky, m_reflectOpaque, m_reflectSky,
         m_shadow, m_boundsPipe;
@@ -211,7 +211,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_opaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
                                 renderTarget());
         if (!m_boundsPipe)
-            m_boundsPipe = pipeline(":/shaders/bounds.vert.qsb", ":/shaders/bounds.frag.qsb", m_mainBindings.get(),
+            m_boundsPipe = pipeline(":/shaders/bounds.vert.qsb", ":/shaders/bounds.frag.qsb", m_boundsBindings.get(),
                                     renderTarget(), true, false, true);
         if (!m_alpha)
             m_alpha = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
@@ -304,6 +304,12 @@ class Renderer final : public QQuickRhiItemRenderer {
             atlasBindings();
             m_skyBindings = skyBindings(m_uniform.get());
             m_reflectionSkyBindings = skyBindings(m_reflectionUniform.get());
+            // D3D11 caches native shader register mappings on the SRB's first
+            // use. Bounds has no fragment textures: sharing the voxel SRB here
+            // initializes it with a different mapping when an overview renders
+            // before any exact chunks (e.g. reopening a project with PCG boxes).
+            // Later terrain then samples a shadow map as its atlas and turns red.
+            m_boundsBindings = bindings(m_uniform.get(), nullptr, nullptr, false);
             for (int i = 0; i < 2; ++i)
                 m_shadowSurfaceBindings[i] =
                     bindings(m_shadowUniform[i].get(), m_white.get(), m_nearest.get(), false);
@@ -972,7 +978,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         opaquePass(visible, false);
         if (!m_boundsVertices.empty()) {
             cb->setGraphicsPipeline(m_boundsPipe.get());
-            cb->setShaderResources(m_mainBindings.get());
+            cb->setShaderResources(m_boundsBindings.get());
             draw(cb, m_boundsBuffer.get(), int(m_boundsVertices.size()));
         }
         std::erase_if(visible, [](const wb::MeshPtr &mesh) {

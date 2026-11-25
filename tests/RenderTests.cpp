@@ -74,6 +74,50 @@ int main(int argc, char **argv) {
             const double y = std::max(150, editor.world().height(348, 3392) + 126);
             v->applyCamera({{"position", QJsonArray{348.5, y, 3392.3}}, {"yaw", 0}, {"pitch", -65}});
         };
+        if (app.arguments().contains("--resource-regression")) {
+            const auto args = app.arguments();
+            const int at = args.indexOf("--resource-regression");
+            check(args.size() > at + 2, "resource regression requires project and jar");
+            editor.importResource(QUrl::fromLocalFile(args[at + 2]), false);
+            settle();
+            auto camera = [&] {
+                const auto &w = editor.world();
+                int x = w.originX + w.width / 2, z = w.originZ + w.depth / 2;
+                for (int sz = w.originZ + 128; sz < w.originZ + w.depth - 128; sz += 64)
+                    for (int sx = w.originX + 128; sx < w.originX + w.width - 128; sx += 64)
+                        if (w.height(sx, sz) > w.height(x, z)) { x = sx; z = sz; }
+                std::cout << "Regression dry-ground camera " << x << "," << w.height(x,z) + 45 << "," << z << std::endl;
+                v->applyCamera({{"position", QJsonArray{x + .5, w.height(x, z) + 45., z + .5}},
+                                {"yaw", 0}, {"pitch", -85}});
+            };
+            check(editor.open(QUrl::fromLocalFile(args[at + 1])), "open old resource project");
+            settle(); // Open resets to overview: bounds may render before any exact terrain.
+            camera();
+            settle();
+            const auto before = window.grabWindow();
+            before.save("test-output/resource-before-reload.png");
+            editor.importResource(QUrl::fromLocalFile(args[at + 2]), false);
+            settle();
+            const auto after = window.grabWindow();
+            after.save("test-output/resource-after-reload.png");
+            int different = 0, redBefore = 0, redAfter = 0, samples = 0;
+            for (int y = before.height() / 2; y < before.height() * 4 / 5; y += 2)
+                for (int x = before.width() * 2 / 5; x < before.width() * 3 / 5; x += 2) {
+                    const auto a = before.pixelColor(x, y), b = after.pixelColor(x, y);
+                    redBefore += a.red() > 3 * a.green() && a.red() > 3 * a.blue();
+                    redAfter += b.red() > 3 * b.green() && b.red() > 3 * b.blue();
+                    different += std::abs(a.red() - b.red()) + std::abs(a.green() - b.green()) +
+                                     std::abs(a.blue() - b.blue()) > 40;
+                    ++samples;
+                }
+            std::cout << "Resource regression: changed " << different << "/" << samples
+                      << ", red before " << redBefore << ", red after " << redAfter << std::endl;
+            check(redBefore <= redAfter + samples / 100, "open must not introduce red terrain before manual reload");
+            check(different < samples / 20, "open and manual resource reload must render equivalent terrain");
+            check(editor.save(QUrl::fromLocalFile(QDir::current().absoluteFilePath("test-output/resource-roundtrip.wbench"))),
+                  "save fixed resource project copy for fresh-process reopen");
+            return 0;
+        }
         check(editor.createWorld(8192, 42, 24, 0, -60, true), "create flat 8K");
         nearCamera();
         groundVisible("render-plain");
@@ -113,10 +157,23 @@ int main(int argc, char **argv) {
         editor.importResource(QUrl::fromLocalFile(resource), false);
         groundVisible("render-atlas-switch-lit");
         check(bool(editor.world().assets), "texture resource loaded");
+        check(editor.createPcgGraph("Resource binding regression") && editor.addPcgVolume(),
+              "create PCG bounds for overview-first resource regression");
+        editor.setSelectedNode("");
+        v->frameWorld();
+        settle();
+        editor.removeResource(0);
+        settle();
+        editor.importResource(QUrl::fromLocalFile(resource), false);
+        settle();
+        check(editor.scene()->chunks.empty(), "atlas first used in far overview without exact chunks");
+        nearCamera();
+        groundVisible("render-bounds-before-exact");
         auto cached = editor.world().assets;
         check(editor.save(QUrl::fromLocalFile(temp.filePath("flat.wbench"))) &&
                   editor.open(QUrl::fromLocalFile(temp.filePath("flat.wbench"))),
               "reopen lit project");
+        settle(); // Let the PCG wireframe render in the reset overview before approaching.
         nearCamera();
         groundVisible("render-cached-reopen");
         check(editor.world().assets == cached, "exercise default-resource reuse");
@@ -174,12 +231,22 @@ int main(int argc, char **argv) {
         QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, first);
         const auto firstHit = v->hit();
         QTest::mouseMove(&window, last, 60);
+        // Native mouse movement can be queued by Windows. Wait for delivery
+        // before reading the hit; mouseRelease can otherwise flush that move
+        // after lastHit was sampled, comparing endpoints from different events.
+        check(QTest::qWaitFor([&] {
+                  return editor.selectionRect().width() > 8000 && editor.selectionRect().height() > 5500;
+              }, 3000), "selection drag movement delivered");
         const auto lastHit = v->hit();
         QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, last);
         check(firstHit.valid && lastHit.valid && !editor.previewContains(firstHit.x, firstHit.z) &&
                   !editor.previewContains(lastHit.x, lastHit.z),
               "full-map drag hits precise terrain outside resident chunks");
         const auto selected = editor.selectionRect();
+        std::cout << "Selection result " << selected.x() << "," << selected.y() << "," << selected.width()
+                  << "," << selected.height() << " endpoints " << firstHit.x << "," << firstHit.z << " -> "
+                  << lastHit.x << "," << lastHit.z << " revision " << revision << "/" << editor.revision()
+                  << " tool " << editor.tool() << std::endl;
         check(selected == QRect(QPoint(firstHit.x, firstHit.z), QPoint(lastHit.x, lastHit.z)).normalized() &&
                   selected.width() > 8000 && selected.height() > 5500 && editor.revision() == revision,
               "whole-domain selection matches authoritative endpoints without editing world");

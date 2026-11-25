@@ -201,6 +201,29 @@ int main(int argc, char **argv) {
                   "MCP screenshot decoded");
             check(image.save(out + "/" + name + ".png"), "screenshot saved");
         };
+        if (args.contains("--resource-review")) {
+            check(editor.open(QUrl::fromLocalFile(source)), "open old project for resource MCP review");
+            settle(); // Overview/PCG bounds render before the first exact terrain draw.
+            const auto &world = editor.world();
+            int x = world.originX + world.width / 2, z = world.originZ + world.depth / 2;
+            for (int sz = world.originZ + 128; sz < world.originZ + world.depth - 128; sz += 64)
+                for (int sx = world.originX + 128; sx < world.originX + world.width - 128; sx += 64)
+                    if (world.height(sx, sz) > world.height(x, z)) { x = sx; z = sz; }
+            call("camera", {{"position", QJsonArray{x + .5, world.height(x, z) + 45., z + .5}},
+                            {"yaw", 0}, {"pitch", -85}});
+            capture("resources-mcp-near");
+            const auto status = info();
+            check(status.contains("resource_cache_hit") && world.assets &&
+                      status["resource_cache_hit"].toBool() == world.assets->restoredFromDiskCache,
+                  "stdio MCP reports actual resource cache state");
+            check(status["preview"].toObject()["exact_chunks"].toInt() > 0,
+                  "MCP review contains real exact terrain");
+            check(digest(source) == sourceHash, "resource review preserves source project");
+            jsonFile("resource-review.json", status);
+            std::cout << "Resource MCP review passed; cache=" << status["resource_cache_hit"].toBool()
+                      << "; output=" << out.toStdString() << std::endl;
+            return 0;
+        }
         if (args.contains("--terrain-latency")) {
             check(editor.open(QUrl::fromLocalFile(source)), "open terrain benchmark");
             settle();

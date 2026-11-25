@@ -5,6 +5,8 @@
 #include "core/Project.h"
 #include <QBuffer>
 #include <QDir>
+#include <QDateTime>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -27,6 +29,19 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     QTemporaryDir tmp;
     try {
+        if (app.arguments().contains("--cache-benchmark")) {
+            const auto args = app.arguments();
+            const int at = args.indexOf("--cache-benchmark");
+            check(args.size() > at + 2, "cache benchmark requires jar and cache directory");
+            QString error;
+            QElapsedTimer timer;
+            timer.start();
+            auto lib = wb::AssetLibrary::loadCached({args[at + 1]}, error, {}, args[at + 2]);
+            check(bool(lib), qPrintable(error));
+            std::cout << "resource_load_ms=" << timer.elapsed() << " disk_cache=" << lib->restoredFromDiskCache
+                      << " blocks=" << lib->catalog.size() << " atlas=" << lib->atlas.width() << std::endl;
+            return 0;
+        }
         QImage image(16, 32, QImage::Format_RGBA8888);
         image.fill(Qt::red);
         image.setPixelColor(0, 0, Qt::transparent);
@@ -82,6 +97,103 @@ int main(int argc, char **argv) {
               "multipart absent connection default");
         fence.properties["north"] = "true";
         check(lib->model(fence)->faces.size() == 12, "multipart added connection");
+        const auto cacheDirectory = tmp.filePath("cache");
+        auto cold = wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory);
+        auto warm = wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory);
+        check(cold && warm && !cold->restoredFromDiskCache && warm->restoredFromDiskCache,
+              "first parse persists and next load restores disk cache");
+        check(warm->atlas == lib->atlas && warm->sources == lib->sources && warm->version == lib->version &&
+                  warm->warnings == lib->warnings, "cache preserves atlas pixels, sources and diagnostics");
+        check(warm->thumbnails.size() == lib->thumbnails.size(), "cache preserves thumbnail count");
+        for (auto i = lib->thumbnails.cbegin(); i != lib->thumbnails.cend(); ++i)
+            check(warm->thumbnails[i.key()] == i->convertToFormat(QImage::Format_RGBA8888),
+                  "cache preserves thumbnail pixels");
+        for (const auto &entry : lib->catalog) {
+            const auto &cached = warm->catalog[entry.name];
+            check(cached.title == entry.title && cached.searchTerms == entry.searchTerms &&
+                      cached.thumbnailData == entry.thumbnailData && cached.defaults == entry.defaults &&
+                      cached.options == entry.options, "cache preserves catalog and Chinese search");
+        }
+        auto compareModels = [&](const wb::BlockState &s) {
+            const auto a = lib->model(s), b = warm->model(s);
+            check(a->faces.size() == b->faces.size() && a->full == b->full && a->translucent == b->translucent &&
+                      a->fallback == b->fallback && a->leafCube == b->leafCube && a->thumbnail == b->thumbnail &&
+                      a->diagnostic == b->diagnostic, "cached model flags and face count");
+            for (size_t f = 0; f < a->faces.size(); ++f) {
+                check(a->faces[f].color == b->faces[f].color && a->faces[f].normal == b->faces[f].normal &&
+                          a->faces[f].cull == b->faces[f].cull, "cached model face metadata");
+                for (int p = 0; p < 4; ++p)
+                    check(a->faces[f].uv[p] == b->faces[f].uv[p] && a->faces[f].points[p] == b->faces[f].points[p],
+                          "cached model geometry and UVs");
+            }
+        };
+        compareModels(state);
+        state.properties["axis"] = "x";
+        compareModels(state);
+        state.properties["axis"] = "y";
+        compareModels(fence);
+        const auto cacheFile = QDir(cacheDirectory).entryInfoList({"*.wbassets"}, QDir::Files).first().absoluteFilePath();
+        {
+            QFile corrupt(cacheFile);
+            check(corrupt.open(QIODevice::ReadWrite) && corrupt.seek(corrupt.size() - 1), "open cache to corrupt");
+            const auto byte = corrupt.read(1);
+            corrupt.seek(corrupt.size() - 1);
+            corrupt.write(QByteArray(1, char(byte[0] ^ 0x5a)));
+        }
+        auto repaired = wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory);
+        check(repaired && !repaired->restoredFromDiskCache && repaired->atlas == lib->atlas,
+              "bad checksum falls back to parsing without changing pixels");
+        check(wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory)->restoredFromDiskCache,
+              "corrupt cache replaced atomically");
+        {
+            QFile truncated(cacheFile);
+            check(truncated.open(QIODevice::WriteOnly | QIODevice::Truncate), "truncate cache");
+            truncated.write("WBASSET1");
+        }
+        check(!wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory)->restoredFromDiskCache,
+              "truncated cache falls back");
+        {
+            QFile changed(base);
+            check(changed.open(QIODevice::ReadWrite), "open source to update timestamp");
+            check(changed.setFileTime(QDateTime::currentDateTimeUtc().addSecs(60), QFileDevice::FileModificationTime),
+                  "modify source timestamp");
+        }
+        check(!wb::AssetLibrary::loadCached({base}, error, {}, cacheDirectory)->restoredFromDiskCache,
+              "source modification invalidates cache");
+        check(wb::AssetLibrary::loadCached({base, base}, error, {}, cacheDirectory)->sources.size() == 2 &&
+                  !wb::AssetLibrary::loadCached({tmp.filePath("missing.jar")}, error, {}, cacheDirectory),
+              "ordered source list and missing sources never reuse unrelated cache");
+        const auto mutableJar = tmp.filePath("mutable.jar");
+        auto writeMutable = [&](const QByteArray &version) {
+            QZipWriter zip(mutableJar);
+            zip.setCompressionPolicy(QZipWriter::NeverCompress);
+            zip.addFile("version.json", "{\"id\":\"" + version + "\"}");
+            zip.addFile("assets/test/textures/block/stone.png", png);
+            zip.close();
+        };
+        writeMutable("1.20.1");
+        check(bool(wb::AssetLibrary::loadCached({mutableJar}, error, {}, cacheDirectory)), "cache mutable source");
+        const auto timestamp = QFileInfo(mutableJar).lastModified();
+        const auto size = QFileInfo(mutableJar).size();
+        writeMutable("1.20.2");
+        {
+            QFile file(mutableJar);
+            check(file.open(QIODevice::ReadWrite) && file.setFileTime(timestamp, QFileDevice::FileModificationTime),
+                  "restore changed source timestamp");
+        }
+        auto contentChanged = wb::AssetLibrary::loadCached({mutableJar}, error, {}, cacheDirectory);
+        check(QFileInfo(mutableJar).size() == size && contentChanged && !contentChanged->restoredFromDiskCache &&
+                  contentChanged->version == "1.20.2", "content hash detects same-size same-time replacement");
+        auto orderA = wb::AssetLibrary::loadCached({base, mutableJar}, error, {}, cacheDirectory);
+        auto orderB = wb::AssetLibrary::loadCached({mutableJar, base}, error, {}, cacheDirectory);
+        check(orderA && orderB && orderA->version == "1.20.1" && orderB->version == "1.20.2" &&
+                  !orderB->restoredFromDiskCache, "overlay order is part of the cache identity");
+        check(QDir(cacheDirectory).entryList({"*.wbassets"}, QDir::Files).size() <= 4,
+              "cache prunes only managed entries and keeps a bounded working set");
+        const auto blocker = tmp.filePath("not-a-directory");
+        { QFile file(blocker); check(file.open(QIODevice::WriteOnly), "create blocked cache directory"); }
+        check(bool(wb::AssetLibrary::loadCached({base}, error, {}, blocker)),
+              "unwritable cache never prevents resource loading");
         auto w = wb::World::create(32);
         w.setAssets(lib);
         auto id = w.intern(state);

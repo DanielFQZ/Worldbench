@@ -27,7 +27,7 @@ QVariantMap vecMap(const QVector3D &v) {
 
 QString Editor::resourceSummary() const {
     if (assetBusy())
-        return "正在解析资源与构建图集…";
+        return "正在准备资源…";
     if (!m_world.assets)
         return "内置调试材质 · 尚未载入 Minecraft 资源";
     return QString("%1 · %2 个方块 · %3 个来源\n32 px 贴图预览 / 首帧 / JSON 模型\n跳过 %4 个无效条目 · 忽略 "
@@ -36,7 +36,8 @@ QString Editor::resourceSummary() const {
         .arg(m_world.assets->catalog.size())
         .arg(m_world.resourcePaths.size())
         .arg(m_world.assets->skippedEntries)
-        .arg(m_world.assets->unsupportedEntries);
+        .arg(m_world.assets->unsupportedEntries) +
+           (m_world.assets->restoredFromDiskCache ? "\n资源读取：本地缓存" : "\n资源读取：JAR/ZIP 解析");
 }
 QString Editor::resourceDiagnostics() const {
     if (!m_world.assets)
@@ -321,7 +322,7 @@ void Editor::loadResources(const QStringList &paths, bool restoring, bool rememb
         return;
     }
     m_loadingFingerprint = resourceFingerprint(paths);
-    auto cache = (!m_loadingFingerprint.isEmpty() && m_defaultFingerprint == m_loadingFingerprint)
+    auto cache = (restoring && !m_loadingFingerprint.isEmpty() && m_defaultFingerprint == m_loadingFingerprint)
                      ? m_defaultAssets
                      : nullptr;
     m_assetProgress = 0;
@@ -339,7 +340,7 @@ void Editor::loadResources(const QStringList &paths, bool restoring, bool rememb
                 Qt::QueuedConnection);
         };
         AssetResult r;
-        r.library = cache ? cache : wb::AssetLibrary::load(paths, r.error, [&](int p, const QString &m) {
+        r.library = cache ? cache : wb::AssetLibrary::loadCached(paths, r.error, [&](int p, const QString &m) {
             report(p * 90 / 100, m);
         });
         if (r.library) {
@@ -454,6 +455,7 @@ QJsonObject Editor::worldInfo() const {
         {"protected_y", wb::World::MinY},
         {"modified", modified()},
         {"resource_version", m_world.resourceVersion},
+        {"resource_cache_hit", m_world.assets && m_world.assets->restoredFromDiskCache},
         {"palette_states", int(m_world.palette.size())},
         {"override_cells", int(m_world.overrides.size())},
         {"busy", commandBusy()},

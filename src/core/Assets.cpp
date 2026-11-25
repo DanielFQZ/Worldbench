@@ -17,7 +17,11 @@
 
 // Explicit initialization keeps the resource object linked from the static core library.
 static void initializeBlockNames() {
-    Q_INIT_RESOURCE(block_names);
+    static const bool initialized = [] {
+        Q_INIT_RESOURCE(block_names);
+        return true;
+    }();
+    Q_UNUSED(initialized);
 }
 
 namespace wb {
@@ -339,6 +343,7 @@ QJsonObject AssetLibrary::inherited(const QString &name, QStringList chain) cons
     return result;
 }
 bool AssetLibrary::validate(const BlockState &state, QString &error) const {
+    initializeBlockNames(); // Disk-cache restores do not pass through the ZIP loader.
     auto it = catalog.find(state.name);
     if (it == catalog.end()) {
         error = "方块不在已加载目录中：" + state.name;

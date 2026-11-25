@@ -53,6 +53,10 @@ class AssetLibrary {
     using Progress = std::function<void(int, const QString &)>;
     static std::shared_ptr<AssetLibrary> load(const QStringList &paths, QString &error,
                                               Progress progress = {});
+    // Disposable CPU data only; palettes and GPU resources belong to each project/renderer.
+    static std::shared_ptr<AssetLibrary> loadCached(const QStringList &paths, QString &error,
+                                                   Progress progress = {}, QString cacheDirectory = {});
+    bool restoredFromDiskCache = false;
     std::shared_ptr<const BlockModel> model(const BlockState &state) const;
     bool validate(const BlockState &state, QString &error) const;
 
@@ -60,6 +64,8 @@ class AssetLibrary {
     QMap<QString, QJsonObject> m_models, m_states;
     QMap<QString, QRectF> m_uv;
     QJsonObject inherited(const QString &name, QStringList chain = {}) const;
+    static std::shared_ptr<AssetLibrary> readCache(const QString &file, const QByteArray &key);
+    bool writeCache(const QString &file, const QByteArray &key) const;
 };
 std::shared_ptr<const BlockModel> fallbackModel(int builtin);
 QImage whiteAtlas();
