@@ -2,23 +2,23 @@
   "schema": 1,
   "releases": [
     {
-      "tag_name": "v0.26.3-pre.1",
+      "tag_name": "v0.26.3-pre.2",
       "draft": false,
       "prerelease": true,
-      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.3-pre.1",
-      "body": "本版修复拖入旧工程、保存后重开时高精度地面发红的问题，并加入持久资源缓存。\n\n### 修复\n- 为 PCG 线框分离 GPU 资源绑定，避免全图先渲染时污染方块纹理。无需反复重载 JAR；不修改工程数据或工程格式。\n- 新增跨启动 JAR/ZIP 资源缓存，保留中文搜索、模型、缩略图和资源覆盖顺序。来源变化或缓存损坏会自动重新解析。\n\n### 缓存说明\n- 首次使用本版需要生成缓存。之后跳过重复的 ZIP 扫描、图片解码和图集打包，仍需校验来源和上传 GPU。\n- 缓存位于 `%LOCALAPPDATA%/Worldbench/Worldbench/cache/minecraft-resources`，最多 4 份/512 MiB，随时可重建。原 JAR/ZIP 请保留。\n- 开发机 1.20.1 JAR 资源阶段实测：首次 11.235 秒，两个独立进程缓存读取均 0.289 秒；这不是整个软件的启动时间承诺。\n\n### 获取新版\n已有 pre3 可使用“帮助 → 检查更新”。首次安装请下载 `Worldbench-0.26.3-pre.1-setup.exe`。Windows x64，自签名，沿用标准安装向导和可选安装目录。\n\n开发方已完成旧 3K 工程、新进程保存重开、真实 stdio MCP、缓存失效/损坏回退及自动回归。用户 RC01–RC07 待验收。\n测试单：https://github.com/DanielFQZ/Worldbench/blob/v0.26.3-pre.1/TESTING.md\n",
+      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.3-pre.2",
+      "body": "修复检查更新时因 GitHub 匿名 API 额度用完而失败的问题。\n\n### 如何升级\n你正在使用的 pre3 / 0.26.3-pre.1 尚不具备此修复。若软件内更新失败，请先保存工程并退出旧程序，下载 `Worldbench-0.26.3-pre.2-setup.exe`，选择原安装目录覆盖安装一次，无需先卸载。配置和工程保留。\n\n### 本版改动\n- 默认读取项目的静态更新清单，正常检查不请求 GitHub REST API，也无需登录或令牌。\n- 静态清单失败时尝试官方 API；403/429 限流及其他失败显示明确原因，保留重新检查和打开发布页入口。\n- 更新文件在独立临时目录下载，核对大小和 SHA256 后才允许安装。\n- 包含上一版的旧工程材质修复和跨启动资源缓存。\n\nWindows x64，自签名，标准安装向导支持选择安装目录。测试单见仓库主分支 TESTING.md；用户 UD 验收待完成。\n",
       "assets": [
         {
-          "name": "Worldbench-0.26.3-pre.1-setup.exe",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.1/Worldbench-0.26.3-pre.1-setup.exe",
-          "size": 41378528,
-          "digest": "sha256:b70044a9adf0c8234b82d27690d923dea0d30da2d9c63e71f55a0a0670d00657"
+          "name": "Worldbench-0.26.3-pre.2-setup.exe",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.2/Worldbench-0.26.3-pre.2-setup.exe",
+          "size": 41384280,
+          "digest": "sha256:40619677287562d25658193e6a016625507172a99f6c2784d01b2f1e9582995e"
         },
         {
-          "name": "Worldbench-0.26.3-pre.1-win-x64.zip",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.1/Worldbench-0.26.3-pre.1-win-x64.zip",
-          "size": 52565958,
-          "digest": "sha256:d4be8dedf5944aa31e8812ec0727137e99e02cbbd915599ab652db8c2fea5428"
+          "name": "Worldbench-0.26.3-pre.2-win-x64.zip",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.2/Worldbench-0.26.3-pre.2-win-x64.zip",
+          "size": 52571597,
+          "digest": "sha256:61e8a4121500c3db98404087b30712cece2a5feec5c63baac2a7db4213a6357d"
         }
       ]
     }
