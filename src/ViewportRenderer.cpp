@@ -179,12 +179,49 @@ class Renderer final : public QQuickRhiItemRenderer {
         return b;
     }
     void atlasBindings() {
+        m_shadow.reset();
+        m_opaque.reset();
+        m_alpha.reset();
+        m_boundsPipe.reset();
+        m_water.reset();
+        m_reflectOpaque.reset();
+        m_reflectSky.reset();
+        m_maskPipe.reset();
+        m_outlinePipe.reset();
         m_maskBindings = bindings(m_maskUniform.get(), m_atlas.get(), m_atlasSampler.get(), false);
         m_mainBindings = bindings(m_uniform.get(), m_atlas.get(), m_atlasSampler.get());
         m_reflectionBindings = bindings(m_reflectionUniform.get(), m_atlas.get(), m_atlasSampler.get());
         for (int i = 0; i < 2; ++i)
             m_shadowBindings[i] =
                 bindings(m_shadowUniform[i].get(), m_atlas.get(), m_atlasSampler.get(), false);
+    }
+    void rebuildPipelines() {
+        if (!m_rhi || !m_mainBindings || !m_skyBindings || !m_waterBindings || !m_reflection.target)
+            return;
+        if (!m_shadow)
+            m_shadow = pipeline(":/shaders/shadow.vert.qsb", ":/shaders/shadow.frag.qsb",
+                                m_shadowBindings[0].get(), m_shadows[0].target.get());
+        if (!m_reflectOpaque)
+            m_reflectOpaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb",
+                                       m_reflectionBindings.get(), m_reflection.target.get());
+        if (!m_reflectSky)
+            m_reflectSky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb",
+                                    m_reflectionSkyBindings.get(), m_reflection.target.get(), false, true);
+        if (!m_opaque)
+            m_opaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
+                                renderTarget());
+        if (!m_boundsPipe)
+            m_boundsPipe = pipeline(":/shaders/bounds.vert.qsb", ":/shaders/bounds.frag.qsb", m_mainBindings.get(),
+                                    renderTarget(), true, false, true);
+        if (!m_alpha)
+            m_alpha = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
+                               renderTarget(), true);
+        if (!m_sky)
+            m_sky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb", m_skyBindings.get(),
+                             renderTarget(), false, true);
+        if (!m_water)
+            m_water = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/water.frag.qsb", m_waterBindings.get(),
+                               renderTarget(), true);
     }
     std::unique_ptr<QRhiGraphicsPipeline> pipeline(const char *vert, const char *frag,
                                                    QRhiShaderResourceBindings *srb, QRhiRenderTarget *rt,
@@ -270,10 +307,13 @@ class Renderer final : public QQuickRhiItemRenderer {
             for (int i = 0; i < 2; ++i)
                 m_shadowSurfaceBindings[i] =
                     bindings(m_shadowUniform[i].get(), m_white.get(), m_nearest.get(), false);
-            m_shadow = pipeline(":/shaders/shadow.vert.qsb", ":/shaders/shadow.frag.qsb",
-                                m_shadowBindings[0].get(), m_shadows[0].target.get());
         }
         m_outlinePipe.reset(); // Main target sample count may have changed.
+        m_opaque.reset();
+        m_boundsPipe.reset();
+        m_alpha.reset();
+        m_sky.reset();
+        m_water.reset();
         const QSize viewSize = renderTarget()->pixelSize();
         const float scale = std::min(.5f, 1024.f / std::max(viewSize.width(), viewSize.height()));
         const QSize reflectSize(std::max(64, int(viewSize.width() * scale)),
@@ -285,21 +325,8 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_reflection.create(rhi(), reflectSize, QRhiTexture::RGBA8, true);
             m_reflectionReady = false;
             bindWater();
-            m_reflectOpaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb",
-                                       m_reflectionBindings.get(), m_reflection.target.get());
-            m_reflectSky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb",
-                                    m_reflectionSkyBindings.get(), m_reflection.target.get(), false, true);
         }
-        m_opaque = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
-                            renderTarget());
-        m_boundsPipe = pipeline(":/shaders/bounds.vert.qsb", ":/shaders/bounds.frag.qsb", m_mainBindings.get(),
-                                renderTarget(), true, false, true);
-        m_alpha = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/voxel.frag.qsb", m_mainBindings.get(),
-                           renderTarget(), true);
-        m_sky = pipeline(":/shaders/sky.vert.qsb", ":/shaders/sky.frag.qsb", m_skyBindings.get(),
-                         renderTarget(), false, true);
-        m_water = pipeline(":/shaders/voxel.vert.qsb", ":/shaders/water.frag.qsb", m_waterBindings.get(),
-                           renderTarget(), true);
+        rebuildPipelines();
     }
     void updateBounds(const Viewport &viewport) {
         std::vector<wb::Vertex> vertices;
@@ -806,6 +833,7 @@ class Renderer final : public QQuickRhiItemRenderer {
             updates->updateDynamicBuffer(m_maskUniform.get(), 0, 64, mvp.constData());
         }
         std::erase_if(m_chunks, [&](const auto &pair) { return !retained.contains(pair.first); });
+        rebuildPipelines();
         auto main = sceneUniform(m_matrix, m_camera, false, shadows, shadowViews);
         if (!reflection)
             main[126] = 0;

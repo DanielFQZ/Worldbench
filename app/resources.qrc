@@ -30,4 +30,5 @@
 <file alias="WorkbenchSlider.qml">qml/WorkbenchSlider.qml</file>
 <file alias="WorkbenchTabButton.qml">qml/WorkbenchTabButton.qml</file>
 <file alias="AssetShelf.qml">qml/AssetShelf.qml</file>
+<file alias="WorldbenchUpdate.ps1">updates/WorldbenchUpdate.ps1</file>
 </qresource></RCC>

@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "UpdateService.h"
 #include "Viewport.h"
 #include "core/Project.h"
 #include <QBuffer>
@@ -44,9 +45,11 @@ int main(int argc, char **argv) {
     qmlRegisterType<Viewport>("Worldbench", 1, 0, "VoxelViewport");
     qmlRegisterUncreatableType<Editor>("Worldbench", 1, 0, "WorldEditor", "Application instance only");
     Editor editor;
+    UpdateService updater;
     QQmlApplicationEngine engine;
     KDDockWidgets::QtQuick::Platform::instance()->setQmlEngine(&engine);
     engine.rootContext()->setContextProperty("editor", &editor);
+    engine.rootContext()->setContextProperty("updater", &updater);
     engine.load(QUrl("qrc:/main.qml"));
     try {
         QJSEngine expressionEngine;

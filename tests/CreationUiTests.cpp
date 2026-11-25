@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "UpdateService.h"
 #include "Viewport.h"
 #include "core/MinecraftExport.h"
 #include "core/Project.h"
@@ -63,9 +64,11 @@ int main(int argc, char **argv) {
         const auto sourceHash = source.isEmpty() ? QByteArray{} : digest(source);
         Editor editor;
         editor.setTool(-1);
+        UpdateService updater;
         QQmlApplicationEngine engine;
         KDDockWidgets::QtQuick::Platform::instance()->setQmlEngine(&engine);
         engine.rootContext()->setContextProperty("editor", &editor);
+        engine.rootContext()->setContextProperty("updater", &updater);
         engine.load(QUrl("qrc:/main.qml"));
         check(!engine.rootObjects().isEmpty(), "real editor UI loads");
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());

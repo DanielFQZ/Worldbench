@@ -1,7 +1,9 @@
 param(
     [string]$QtRoot = 'E:\AppProject\.worldbench-tools\Qt\6.8.3\msvc2022_64',
     [string]$DockSource = '',
+    [string]$Version = '0.26.2-pre.1',
     [switch]$Clean,
+    [switch]$SkipTests,
     [switch]$Package
 )
 $ErrorActionPreference = 'Stop'
@@ -31,10 +33,12 @@ if ($Clean) { $buildArgs += '--clean-first' }
 & $cmake @buildArgs
 if ($LASTEXITCODE) { throw 'Build failed.' }
 $env:PATH = "$QtRoot\bin;$env:PATH"
-& (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
-if ($LASTEXITCODE) { throw 'Core tests failed.' }
+if (-not $SkipTests) {
+    & (Join-Path (Split-Path $cmake) 'ctest.exe') --test-dir $build --output-on-failure
+    if ($LASTEXITCODE) { throw 'Core tests failed.' }
+}
 if ($Package) {
-    $dist = Join-Path $root 'dist\Worldbench-0.26.1'
+    $dist = Join-Path $root ("dist\Worldbench-" + $Version)
     New-Item -ItemType Directory -Force -Path $dist | Out-Null
     Copy-Item -LiteralPath "$build\Worldbench.exe" -Destination $dist -Force
     Copy-Item -LiteralPath "$build\WorldbenchMcp.exe" -Destination $dist -Force
@@ -46,5 +50,10 @@ if ($Package) {
     if ($LASTEXITCODE) { throw 'MCP Qt deployment failed.' }
     Copy-Item -LiteralPath "$root\licenses" -Destination $dist -Recurse -Force
     Copy-Item -LiteralPath "$root\examples" -Destination $dist -Recurse -Force
+    $exeHash = (Get-FileHash -LiteralPath "$dist\Worldbench.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+    $mcpHash = (Get-FileHash -LiteralPath "$dist\WorldbenchMcp.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+    @{version=$Version; date=(Get-Date -Format 'yyyy-MM-dd'); executable_sha256=$exeHash; mcp_sha256=$mcpHash;
+      test_document="$root\TESTING.md"; development_document="$root\DEVELOPMENT.md"} |
+        ConvertTo-Json | Set-Content -LiteralPath "$dist\build-info.json" -Encoding UTF8
     Write-Host "Runnable test build: $dist\Worldbench.exe"
 }

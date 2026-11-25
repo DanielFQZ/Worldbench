@@ -1,5 +1,6 @@
 #include "Editor.h"
 #include "Viewport.h"
+#include "UpdateService.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -37,7 +38,7 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.26.1");
+    app.setApplicationVersion("0.26.2-pre.1");
     // KDDockWidgets floating frames use the application palette rather than
     // inheriting the QML window palette. Keep both surfaces on the same theme.
     QPalette palette;
@@ -79,7 +80,7 @@ int main(int argc, char **argv) {
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.26.1 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench 0.26.2-pre.1 starting (D3D11 / Qt 6.8.3)");
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -88,9 +89,11 @@ int main(int argc, char **argv) {
                                        "Use the application editor instance");
     Editor editor;
     editor.setTool(-1);
+    UpdateService updater;
     QQmlApplicationEngine engine;
     KDDockWidgets::QtQuick::Platform::instance()->setQmlEngine(&engine);
     engine.rootContext()->setContextProperty("editor", &editor);
+    engine.rootContext()->setContextProperty("updater", &updater);
     engine.load(QUrl("qrc:/main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
