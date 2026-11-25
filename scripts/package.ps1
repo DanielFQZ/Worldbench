@@ -74,7 +74,10 @@ if (-not $cert) {
 Export-Certificate -Cert $cert -FilePath $certPath -Force | Out-Null
 $signed = Set-AuthenticodeSignature -FilePath $setup -Certificate $cert -HashAlgorithm SHA256
 if ($signed.Status -notin @('Valid','UnknownError')) { throw "Installer signing failed: $($signed.Status)" }
-$hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  $([IO.Path]::GetFileName($setup))" | Set-Content -LiteralPath (Join-Path $release 'SHA256SUMS.txt') -Encoding ASCII
+$hashLines = @($setup, $archive) | ForEach-Object {
+    $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $([IO.Path]::GetFileName($_))"
+}
+$hashLines | Set-Content -LiteralPath (Join-Path $release 'SHA256SUMS.txt') -Encoding ASCII
 Remove-Item -LiteralPath $installScript,$cmd,$sed -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Release assets created in $release"
