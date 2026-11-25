@@ -297,6 +297,7 @@ ApplicationWindow {
         if (action === "new") newWorldDialog.open()
         else if (action === "open") { openDialog.currentFolder=editor.dialogFolder("openProject"); openDialog.open() }
         else if (action === "drop") { const url = pendingProject; pendingProject=""; editor.rememberDialogFolder("openProject",url); editor.open(url) }
+        else if (action === "installUpdate") updater.applyUpdate()
         else if (action === "close") { allowClose = true; win.close() }
     }
     function chooseResources(overlay) {
@@ -394,6 +395,8 @@ ApplicationWindow {
     Connections {
         target: updater
         function onCheckFinished(available) { if (available) updateDialog.open() }
+        function onInstallReady() { win.requestAction("installUpdate") }
+        function onExitingForUpdate() { win.allowClose = true }
     }
     Timer { id: updateCheckTimer; interval: 1800; running: Qt.application.applicationName === "Worldbench"; repeat: false; onTriggered: updater.checkForUpdates(false) }
     Dialog {
@@ -424,7 +427,7 @@ ApplicationWindow {
                 Layout.fillWidth: true; spacing: 8
                 Item { Layout.fillWidth: true }
                 WorkbenchButton { text: "打开发布页"; enabled: updater.releaseUrl.length > 0; onClicked: updater.openReleasePage() }
-                WorkbenchButton { text: updater.downloading ? "下载中…" : "立即更新"; enabled: updater.updateAvailable && !updater.downloading; onClicked: updater.installUpdate() }
+                WorkbenchButton { text: updater.downloading ? "下载中…" : updater.ready ? "安装并重启" : "立即更新"; enabled: updater.updateAvailable && !updater.downloading && !editor.commandBusy && !editor.assetBusy && !editor.exportBusy; onClicked: updater.installUpdate() }
                 WorkbenchButton { text: updater.updateAvailable ? "稍后" : "关闭"; enabled: !updater.downloading; onClicked: updateDialog.close() }
             }
         }

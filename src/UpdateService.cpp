@@ -176,6 +176,10 @@ void UpdateService::parseRelease(const QByteArray &payload) {
 void UpdateService::installUpdate() {
     if (!m_updateAvailable || m_downloading)
         return;
+    if (m_ready) {
+        emit installReady();
+        return;
+    }
     if (!m_archiveAsset.url.isEmpty())
         download(m_archiveAsset);
     else if (!m_installerAsset.url.isEmpty())
@@ -183,6 +187,7 @@ void UpdateService::installUpdate() {
 }
 
 void UpdateService::download(const ReleaseAsset &asset) {
+    m_downloadIsArchive = asset.archive;
     m_downloading = true;
     m_ready = false;
     m_progress = 0;
@@ -228,11 +233,14 @@ void UpdateService::download(const ReleaseAsset &asset) {
         m_ready = true;
         setStatus("更新已下载，准备安装");
         emit stateChanged();
-        if (asset.archive)
-            launchArchiveUpdater(m_downloadPath);
-        else
-            launchInstaller(m_downloadPath);
+        emit installReady();
     });
+}
+
+void UpdateService::applyUpdate() {
+    if (!m_ready || m_downloading || m_downloadPath.isEmpty()) return;
+    if (m_downloadIsArchive) launchArchiveUpdater(m_downloadPath);
+    else launchInstaller(m_downloadPath);
 }
 
 void UpdateService::launchArchiveUpdater(const QString &path) {
@@ -258,6 +266,7 @@ void UpdateService::launchArchiveUpdater(const QString &path) {
         return;
     }
     setStatus("更新程序已启动，Worldbench 将关闭并完成更新");
+    emit exitingForUpdate();
     QCoreApplication::quit();
 }
 
@@ -267,6 +276,7 @@ void UpdateService::launchInstaller(const QString &path) {
         return;
     }
     setStatus("安装器已启动，Worldbench 将关闭");
+    emit exitingForUpdate();
     QCoreApplication::quit();
 }
 

@@ -34,12 +34,15 @@ public:
 
     Q_INVOKABLE void checkForUpdates(bool interactive = true);
     Q_INVOKABLE void installUpdate();
+    Q_INVOKABLE void applyUpdate();
     Q_INVOKABLE void openReleasePage();
 
 signals:
     void stateChanged();
     void checkFinished(bool updateAvailable);
     void failed(const QString &message);
+    void installReady();
+    void exitingForUpdate();
 
 private:
     friend class UpdateServiceTests;
@@ -74,4 +77,5 @@ private:
     ReleaseAsset m_archiveAsset;
     ReleaseAsset m_installerAsset;
     QString m_downloadPath;
+    bool m_downloadIsArchive = false;
 };

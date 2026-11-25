@@ -60,6 +60,10 @@ public:
         updater.parseRelease("invalid json");
         check(updater.status().contains(QString::fromUtf8("格式无效")), "invalid response reports failure");
         check(QMetaObject::invokeMethod(dialog, "close"), "update dialog closes");
+        check(!win->property("allowClose").toBool(), "normal close retains save guard");
+        emit updater.exitingForUpdate();
+        check(win->property("allowClose").toBool(), "successful updater launch releases application quit guard");
+        win->setProperty("allowClose", false);
     }
 };
 int main(int argc, char **argv) {
