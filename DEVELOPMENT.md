@@ -30,7 +30,7 @@ Worldbench定位为WorldPainter创作能力的上位替代，从“2D绘制＋3D
 
 | 项目 | 基线 |
 | --- | --- |
-| 仓库与发布 | 私有 https://github.com/DanielFQZ/Worldbench.git；未来正式开源，无商业化计划；非商业不豁免第三方许可 |
+| 仓库与发布 | 公开 https://github.com/DanielFQZ/Worldbench.git；首个公开预发布为 `v0.26.2-pre.1`；采用 GNU GPL v3.0；非商业不豁免第三方许可 |
 | 已确认技术路线 | 现有软件＋专用地形渲染＋成熟开源组件；按适配成本与精度验证选择模块，不整体移植参考项目，不迁移UE/Godot或开发通用引擎 |
 | 核心 | C++20；工程、命令、求值、区块、网格、烘焙在C++；QML不承担逐方块热循环 |
 | 界面 | Qt6.8.3 Quick/QML + KDDockWidgets QtQuick；深色DCC工作区、分类菜单、图标工具栏、场景大纲/详情 |
@@ -421,7 +421,7 @@ BF 森林示例资产三角形近景68250、远景6160（减少约91%）；120�
 
 界面归属说明同时写入随包`licenses/THIRD-PARTY-NOTICES.txt`。界面参考GabrielDja的[Blender UI Redesign (Concept)](https://www.figma.com/community/file/1568606578530940776/blender-ui-redesign-concept)，公开页面标注[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。只参考信息组织、紧凑密度与中性配色，自行编写QML和矢量图标；无Figma节点/组件或Blender商标素材复制，未引入新UI依赖。实际参考截图保存在仓库外设计参考目录。
 
-Qt6.8.3动态链接、GuiPrivate/CorePrivate及Qt内置zlib前缀导出绑定准确版本，升级重编译回归。KDDockWidgets固定66e66fa5d8a824488538558e274023822ac13952，归档SHA256 ea9ad76d5c8b4c861c9c931b265f3a08713b0bc4d238fbc3185718f312b03c3a，静态链接GPL-3.0-only选项；licenses随包部署。公开前确定最终SPDX和源码/依赖分发方案。
+Qt6.8.3动态链接、GuiPrivate/CorePrivate及Qt内置zlib前缀导出绑定准确版本，升级重编译回归。KDDockWidgets固定66e66fa5d8a824488538558e274023822ac13952，归档SHA256 ea9ad76d5c8b4c861c9c931b265f3a08713b0bc4d238fbc3185718f312b03c3a，静态链接GPL-3.0-only选项；licenses随包部署。当前公开仓库使用GPL v3.0，后续继续维护完整源码和第三方归属分发。
 
 中文来自Mojang1.20.1 zh_cn（SHA1 78cee27ad20ff7ba349607098c638a6263cf9dfc），2000方块名称+18别名，保留归属，公开下载不等于公有领域；拼音由MIT pypinyin0.55.0生成，运行无需Python。JAR/资源包不随程序分发。
 
@@ -453,4 +453,4 @@ WorldPainter固定参考[8e3329aa7e7014dcda08f7ad25b8cb8fa97b4d2b](https://githu
 已读取官方正文，研究快照保存在忽略目录`test-output/research-water/`；没有复制UE引擎/第三方示例代码或将其作为依赖。产品算法和测试由本项目实现。
 
 
-新增实际依赖：stb_image固定`f0569113c93ad095470c54bf34a17b36646bbbb5`；TinyEXR v1.0.9；WorldEdit固定`0725e850198c97a44c13fbc0b49db6d293e5ddb0`的旧方块映射数据（GPL）；PrismarineJS/minecraft-data固定`68c9e840e127858e9548b0d477b992202120dfaa`的1.20属性值（MIT；dataPaths将1.20.1映射到1.20）。对应许可证和来源随包部署。没有移植UE/Houdini源码；参考其节点/实例交互方式。正式公开前仍需完成整体许可证与源码分发检查。
+新增实际依赖：stb_image固定`f0569113c93ad095470c54bf34a17b36646bbbb5`；TinyEXR v1.0.9；WorldEdit固定`0725e850198c97a44c13fbc0b49db6d293e5ddb0`的旧方块映射数据（GPL）；PrismarineJS/minecraft-data固定`68c9e840e127858e9548b0d477b992202120dfaa`的1.20属性值（MIT；dataPaths将1.20.1映射到1.20）。对应许可证和来源随包部署。没有移植UE/Houdini源码；参考其节点/实例交互方式。公开发布后继续按依赖版本更新归属和源码分发记录。
