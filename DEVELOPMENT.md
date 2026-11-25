@@ -1,15 +1,6 @@
 # Worldbench 开发文档
 
-> 0.26.2 · BN · 2026-11-25。起点 06a8e27。本轮修复高精度方块材质错绑导致的红色图案和拖动时的异常阴影。本文是唯一开发基准，TESTING.md 是当期验收单。
-
-### 1.3 本轮分发与安装器改造（pre.2-updatetest）
-
-- 将旧 IExpress 自解压脚本替换为 Inno Setup 标准 Windows x64 安装向导。安装器支持自选安装目录（默认 `%LocalAppData%\\Programs\\Worldbench`）、开始菜单和可选桌面快捷方式，并注册标准卸载程序。
-- 为可执行文件加入 `app/icons/worldbench.ico` 和 Windows 资源 `app/worldbench.rc`，安装器、快捷方式、文件关联和卸载项都使用同一图标。注册 `.wbench` 到 `Worldbench.Project`，双击或拖入编辑器时将普通工程路径传给程序；程序保留 `--open` 测试参数。
-- 用户配置、资源来源、对话框路径记忆和日志统一放入 `%USERPROFILE%\\Documents\\Worldbench`。启动时会从旧的 Qt 原生用户配置位置迁移一次已有键值；工程文件仍由用户选择保存，更新器不覆盖 Documents 数据。
-- 卸载时由 Inno Setup 询问是否删除 Documents 用户数据；选择保留时只删除安装目录、快捷方式、文件关联和卸载项，不删除配置、日志、资源来源或用户工程。
-- `scripts/package.ps1` 现在生成标准 setup.exe、可直接替换的 ZIP、签名证书和 SHA256SUMS；使用 Inno Setup 6 `ISCC.exe`。本轮更新测试版本为 `0.26.2-pre.2-updatetest`，保留 GitHub 更新服务的 ZIP 优先、安装器回退策略。
-- 自动验证：Release 构建完成；Inno 安装器静默安装到自定义目录成功，`Worldbench.exe`、`unins000.exe`、`.wbench` 关联和 Documents 日志目录均存在；安装目录程序完成 smoke capture。用户验收见当前 `TESTING.md`，不能把自动验证写成用户通过。
+> 0.26.2-pre.3-updatetest · UP · 2026-11-25。本轮修复更新反馈、更新脚本路径与安装器编码。本文是唯一开发基准，TESTING.md 是当期验收单。
 
 ## 1. 持续有效的协作规定与当前状态
 
@@ -32,6 +23,18 @@
 - BF 轮以0.19.1为起点，备份标签`backup/0.19.1`；BE单与证据位于仓库外`E:/AppProject/Worldbench-test-archive/0.19.1-20261123-BE-issues/`，未追认通过。0.19.0界面重构起点标签为`backup/0.18.0`。0.18.0大规模开发的历史起点由`backup/0.17.4`和仓库外bundle保存。
 - 用户在0.18.0允许一次性完成第7/8节；随后明确暂缓测试，选择方案A进行界面重构。本轮恢复“更新开发文档＋新测试单＋用户验收”，不继续追加未授权的新功能。
 - 原始`C:/Users/38683/Downloads/测试工程.wbench`及高度图只读；开发测试使用独立副本并比较SHA256。
+
+### 1.3 pre3 更新检查与安装器修复（2026-11-25）
+
+- 版本 `0.26.2-pre.3-updatetest`，起点 `19405e2`。用户确认 pre2 卸载可执行，但报告更新检查无反馈、安装器中文乱码；旧测试单已移至仓库外 `Worldbench-test-archive/0.26.2-pre2-20261125-feedback/`，不追认其他项目通过。
+- 手动检查更新立即打开窗口，显示检查中、完整版本号、最新版或连接/响应失败；请求设置超时。启动自动检查仅发现更新时弹窗。按版本挑选最新非草稿发布，修正数字预发布号比较。
+- 原始 pre2 的 QRC 别名是 `:/WorldbenchUpdate.ps1`，调用却指向 `:/updates/WorldbenchUpdate.ps1`，导致下载后不能启动覆盖。这是客户端缺陷，不能靠上传 pre3 自动修复。发布独立 `Worldbench-pre2-updatefix.exe`（内部版本 `0.26.2-pre.2-updatefix`）作为过渡；先安装它到原目录，再通过软件更新到 pre3。原始 pre2 Release 不覆盖。
+- 更新脚本在等待旧进程退出后备份和覆盖；失败尝试恢复旧文件并保留备份/下载包、弹出错误；删除原来的递归提权重试，避免循环或提升后的程序无法接收资源管理器拖放。普通用户安装目录仍是推荐路径；受保护目录不可写时使用安装器。
+- 安装模板单独存放 `scripts/Worldbench.iss`，以明确 UTF-8 读取并以 UTF-8 BOM 输出，PowerShell 脚本保存 BOM，兼容 Windows PowerShell 5.1。自选目录页始终显示，中文启动/卸载/快捷方式/工程类型不再经过系统 ANSI 解码。
+- Inno Setup 7.1.1 和 6.7.3 是上一轮在开发机安装的编译工具，未打入 Worldbench。发布载荷只来自 dist 的运行目录，不包含 ISCC/Compil32 或 Inno 安装器。此轮不擅自卸载用户机器上的工具。
+- 配置保持 Documents/Worldbench（遵循 Windows Documents 重定向），日志在根目录，INI 在 Worldbench/Worldbench.ini；旧原生设置首次迁移。卸载默认保留数据，选择删除仅清理已知配置/日志及旧迁移源，不递归删除用户可能放入该目录的工程/资源；静默卸载保留数据。
+- 标准安装向导、用户级安装、文件关联、嵌入图标、注册卸载入口沿用 pre2。ZIP 覆盖不会刷新旧安装器的注册版本和卸载器，直接安装 pre3 才同步这些安装元数据。
+- 本轮验证结果和 pre2→pre3 验收步骤以唯一 `TESTING.md` 为准。WorldPainter 功能及渲染范围不扩展。
 
 ## 2. 产品目标与技术基线
 
@@ -319,7 +322,7 @@ HDR/EXR解码保留大于1的线性RGB值，预览缩放至2048×1024后以RGBA3
 - 将仓库切换为公开仓库并采用 GNU GPL v3.0，中文项目简介和双语 README 已落盘。
 - 增加 GitHub Releases 更新服务。启动后自动检查公开发布，帮助菜单可手动检查，发现新版本时显示版本说明和下载进度。
 - Windows x64 更新优先下载 ZIP，在进程退出后由临时 PowerShell 更新器覆盖当前安装目录；只有发布页缺少 ZIP 或用户选择安装器时才启动 EXE 安装包。
-- 增加 Windows x64 可运行目录、ZIP 更新包、IExpress EXE 安装包、自签名证书和 SHA-256 文件的可重复打包脚本。
+- 增加 Windows x64 可运行目录、ZIP 更新包、Inno Setup EXE 安装包、自签名证书和 SHA-256 文件的可重复打包脚本。
 
 0.26.2（BN，待用户验收）
 
@@ -421,7 +424,7 @@ BF 森林示例资产三角形近景68250、远景6160（减少约91%）；120�
 最大化卡顿真实存在，75%缩放本轮没有稳定收益，不能宣布性能问题解决或简单归因像素填充。GPU计时存在跨运行波动、首帧旧样本，不是分pass时钟；0代表计时不可用。额外Qt诊断（含加载、飞行、冷到达）同步p95约6ms、呈现等待p95约14ms，混合样本仅用于定位。下一步高优先级拆分Qt同步、资源上传、D3D呈现等待和各GPU pass；基于结果再决定动态分辨率/空间超分/时域超分。未集成DLSS/FSR/插帧，尚无稳定30–60FPS或8K/16K完整认证。冷到达精确区域本轮约160–226ms，仍需继续降低延迟。
 
 - 构建与完整测试：`powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Package`；Qt6.8.3/MSVC2022 x64。
-- 本轮构建：`dist/Worldbench-0.26.2-pre.1/Worldbench.exe`；MCP桥接同目录；最终提交和SHA256写入`build-info.json`。示例目录包含创作工程及可拖放森林范围预设；不分发Minecraft JAR。发布资产位于 `dist/release-0.26.2-pre.1/`，包括 ZIP、IExpress EXE、自签名证书和 SHA256 校验文件。
+- 本轮构建：`dist/Worldbench-0.26.2-pre.1/Worldbench.exe`；MCP桥接同目录；最终提交和SHA256写入`build-info.json`。示例目录包含创作工程及可拖放森林范围预设；不分发Minecraft JAR。发布资产位于 `dist/release-0.26.2-pre.1/`，包括 ZIP、Inno Setup EXE、自签名证书和 SHA256 校验文件。
 - 唯一验收文件TESTING.md；本轮证据目标`test-reference/0.26.2/`，原始日志在忽略的`test-output/`；桌面集成测试存在偶发时序失败，单独重跑 UI 测试已通过，发布构建未把偶发失败写成全量通过。BE旧单/证据已在仓库外归档，旧截图目录因自动审批拒绝删除而保留，仅是历史证据，不是当前验收。BC继续暂缓。
 
 ### 12.3 许可与参考

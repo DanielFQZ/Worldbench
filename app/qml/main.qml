@@ -247,7 +247,7 @@ ApplicationWindow {
             title: "帮助"
             Action { text: "视口操作说明"; onTriggered: { errorBox.text = "右键 + WASDQE 漫游\nAlt + 左键围绕视口中心环绕\n中键平移 / Alt + 右键推拉\n右键 + 滚轮调速 / F 聚焦选中实例或指向位置\n雕刻时 Shift 反向 / [ ] 调整半径\n左侧选择工具并展开设置\n地图图标显示全图，导航工具双击地表进入近景\n抬升/平整/平滑可从远处直接落笔\n太阳图标开关光照，参数在环境组件详情"; errorBox.open() } }
             Action { text: "关于 Worldbench"; onTriggered: { errorBox.text = win.productLabel + " · 开发测试版\nC++20 / Qt 6.8.3 / QRhi D3D11\n本轮测试见仓库 TESTING.md。"; errorBox.open() } }
-            Action { text: "检查更新…"; enabled: !updater.checking && !updater.downloading; onTriggered: updater.checkForUpdates(true) }
+            Action { text: "检查更新…"; enabled: !updater.downloading; onTriggered: win.checkUpdates() }
         }
     }
       Rectangle {
@@ -387,6 +387,10 @@ ApplicationWindow {
             Label{text:"也可以稍后设置，先用内置材质试用。";color:Theme.secondary}
         }
     }
+    function checkUpdates() {
+        updateDialog.open()
+        updater.checkForUpdates(true)
+    }
     Connections {
         target: updater
         function onCheckFinished(available) { if (available) updateDialog.open() }
@@ -399,14 +403,17 @@ ApplicationWindow {
         contentItem: ColumnLayout {
             spacing: 12
             Label {
-                text: "发现新版本 " + updater.latestVersion + "（当前 " + updater.currentVersion + "）"
+                objectName: "updateHeading"
+                text: updater.checking ? "正在检查更新…" : updater.updateAvailable ? "发现新版本 " + updater.latestVersion : "Worldbench 更新检查"
                 color: Theme.text; font.bold: true; font.pixelSize: 17; Layout.fillWidth: true
             }
             Label { text: updater.status; color: Theme.secondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            Label { text: "当前版本：" + updater.currentVersion; color: Theme.muted }
+            BusyIndicator { running: updater.checking; visible: running; Layout.alignment: Qt.AlignHCenter }
             ScrollView {
                 Layout.fillWidth: true; Layout.fillHeight: true; clip: true
                 TextArea {
-                    text: updater.releaseNotes.length ? updater.releaseNotes : "该版本没有附加说明。"
+                    text: updater.updateAvailable ? updater.releaseNotes : ""
                     readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
                     color: Theme.text; background: Rectangle { color: Theme.field; border.color: Theme.border; radius: 3 }
                 }
@@ -418,7 +425,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
                 WorkbenchButton { text: "打开发布页"; enabled: updater.releaseUrl.length > 0; onClicked: updater.openReleasePage() }
                 WorkbenchButton { text: updater.downloading ? "下载中…" : "立即更新"; enabled: updater.updateAvailable && !updater.downloading; onClicked: updater.installUpdate() }
-                WorkbenchButton { text: "稍后"; enabled: !updater.downloading; onClicked: updateDialog.close() }
+                WorkbenchButton { text: updater.updateAvailable ? "稍后" : "关闭"; enabled: !updater.downloading; onClicked: updateDialog.close() }
             }
         }
     }

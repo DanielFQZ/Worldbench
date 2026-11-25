@@ -47,9 +47,7 @@ QString UpdateService::normalizedVersion(const QString &version) {
 }
 
 QString UpdateService::displayVersion(const QString &version) {
-    const QString value = normalizedVersion(version);
-    const int dash = value.indexOf('-');
-    return dash < 0 ? value : value.left(dash);
+    return normalizedVersion(version);
 }
 
 int UpdateService::compareVersions(const QString &left, const QString &right) {
@@ -72,9 +70,16 @@ int UpdateService::compareVersions(const QString &left, const QString &right) {
     const QString as = av.second, bs = bv.second;
     if (as.isEmpty() != bs.isEmpty())
         return as.isEmpty() ? 1 : -1;
-    return QString::compare(as, bs, Qt::CaseInsensitive) < 0
-               ? -1
-               : QString::compare(as, bs, Qt::CaseInsensitive) > 0 ? 1 : 0;
+    const auto ap = as.split('.'), bp = bs.split('.');
+    for (int i = 0; i < std::min(ap.size(), bp.size()); ++i) {
+        if (ap[i] == bp[i]) continue;
+        bool an = false, bn = false;
+        const auto ai = ap[i].toULongLong(&an), bi = bp[i].toULongLong(&bn);
+        if (an && bn) return ai < bi ? -1 : 1;
+        if (an != bn) return an ? -1 : 1;
+        return ap[i].compare(bp[i], Qt::CaseInsensitive) < 0 ? -1 : 1;
+    }
+    return ap.size() == bp.size() ? 0 : ap.size() < bp.size() ? -1 : 1;
 }
 
 void UpdateService::checkForUpdates(bool interactive) {
@@ -86,6 +91,7 @@ void UpdateService::checkForUpdates(bool interactive) {
     m_ready = false;
     m_latestVersion.clear();
     m_releaseNotes.clear();
+    m_releaseUrl.clear();
     m_archiveAsset = {};
     m_installerAsset = {};
     setStatus("正在检查 GitHub 更新…");
@@ -94,6 +100,7 @@ void UpdateService::checkForUpdates(bool interactive) {
     QNetworkRequest request(QUrl(QString::fromLatin1(ReleasesEndpoint)));
     request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromLatin1(UserAgent));
     request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setTransferTimeout(20000);
     m_reply = m_network.get(request);
     connect(m_reply, &QNetworkReply::finished, this, [this] {
         QNetworkReply *reply = m_reply;
@@ -129,9 +136,9 @@ void UpdateService::parseRelease(const QByteArray &payload) {
     QJsonObject release;
     for (const auto &value : document.array()) {
         const auto candidate = value.toObject();
-        if (!candidate["draft"].toBool() && !candidate["tag_name"].toString().isEmpty()) {
+        if (!candidate["draft"].toBool() && !candidate["tag_name"].toString().isEmpty() &&
+            (release.isEmpty() || compareVersions(candidate["tag_name"].toString(), release["tag_name"].toString()) > 0)) {
             release = candidate;
-            break;
         }
     }
     if (release.isEmpty()) {
@@ -189,6 +196,7 @@ void UpdateService::download(const ReleaseAsset &asset) {
     QNetworkRequest request(asset.url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromLatin1(UserAgent));
     request.setRawHeader("Accept", "application/octet-stream");
+    request.setTransferTimeout(60000);
     m_reply = m_network.get(request);
     connect(m_reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
         m_progress = total > 0 ? int(std::clamp<qint64>(received * 100 / total, 0, 100)) : 0;
@@ -235,7 +243,7 @@ void UpdateService::launchArchiveUpdater(const QString &path) {
         setStatus("无法准备更新程序，请下载安装器手动更新");
         return;
     }
-    QFile resource(":/updates/WorldbenchUpdate.ps1");
+    QFile resource(":/WorldbenchUpdate.ps1");
     if (!resource.open(QIODevice::ReadOnly) || script.write(resource.readAll()) < 0 || !script.flush()) {
         setStatus("无法准备更新程序，请下载安装器手动更新");
         return;

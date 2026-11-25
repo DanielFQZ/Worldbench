@@ -1,7 +1,7 @@
-param(
+﻿param(
     [string]$QtRoot = 'E:\AppProject\.worldbench-tools\Qt\6.8.3\msvc2022_64',
     [string]$DockSource = '',
-    [string]$Version = '0.26.2-pre.1',
+    [string]$Version = '0.26.2-pre.3-updatetest',
     [switch]$Clean,
     [switch]$SkipTests,
     [switch]$Package

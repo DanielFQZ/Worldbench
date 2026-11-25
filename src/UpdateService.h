@@ -42,6 +42,7 @@ signals:
     void failed(const QString &message);
 
 private:
+    friend class UpdateServiceTests;
     struct ReleaseAsset {
         QString name;
         QUrl url;

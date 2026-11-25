@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMimeData>
+#include <QNetworkReply>
 #include <QProcess>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -33,6 +34,34 @@ static void check(bool b, const char *what) {
     if (!b)
         throw std::runtime_error(what);
 }
+class UpdateServiceTests {
+public:
+    static void run(QQuickWindow *win, UpdateService &updater) {
+        QFile script(":/WorldbenchUpdate.ps1");
+        check(script.open(QIODevice::ReadOnly) && script.readAll().contains("Expand-Archive"), "packaged updater resource loads");
+        check(UpdateService::compareVersions("v0.26.2-pre.3-updatetest", "0.26.2-pre.2-updatetest") > 0, "pre2 upgrades to pre3");
+        check(UpdateService::compareVersions("1.0.0-pre.10", "1.0.0-pre.9") > 0, "numeric prerelease ordering");
+        check(UpdateService::compareVersions("1.0.0", "1.0.0-pre.3") > 0, "stable follows prerelease");
+        auto *dialog = win->findChild<QObject *>("updateDialog");
+        check(dialog && QMetaObject::invokeMethod(win, "checkUpdates"), "manual update action invokes dialog");
+        check(dialog->property("visible").toBool(), "checking dialog opens immediately");
+        // Cancel the actual network request deterministically, as a failed request.
+        if (updater.m_reply) updater.m_reply->abort();
+        check(QTest::qWaitFor([&] { return !updater.checking(); }, 5000), "failed check completes");
+        check(dialog->property("visible").toBool() && updater.status().contains(QString::fromUtf8("无法连接")), "network failure remains visible");
+        const auto payload = QByteArrayLiteral(R"([{"tag_name":"v0.26.2-pre.2-updatetest","assets":[]},{"tag_name":"v0.26.2-pre.3-updatetest","assets":[{"name":"Worldbench-pre3-win-x64.zip","browser_download_url":"https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.2-pre.3-updatetest/Worldbench-pre3-win-x64.zip"}]}])");
+        updater.m_currentVersion = "0.26.2-pre.3-updatetest";
+        updater.parseRelease(payload);
+        check(!updater.updateAvailable() && updater.status().contains(QString::fromUtf8("当前已是最新版本")) && updater.status().contains("pre.3"), "latest status shows full version");
+        check(dialog->property("visible").toBool(), "latest version result stays visible");
+        updater.m_currentVersion = "0.26.2-pre.2-updatetest";
+        updater.parseRelease(payload);
+        check(updater.updateAvailable() && updater.latestVersion().contains("pre.3") && updater.m_archiveAsset.archive, "unsorted releases select newer pre3 ZIP");
+        updater.parseRelease("invalid json");
+        check(updater.status().contains(QString::fromUtf8("格式无效")), "invalid response reports failure");
+        check(QMetaObject::invokeMethod(dialog, "close"), "update dialog closes");
+    }
+};
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("Worldbench integration tests");
@@ -69,6 +98,11 @@ int main(int argc, char **argv) {
         check(win, "native Qt window");
         win->requestActivate();
         check(QTest::qWaitForWindowExposed(win), "window exposed");
+        if (app.arguments().contains("--updates-only")) {
+            UpdateServiceTests::run(win, updater);
+            std::cout << checks << " update checks passed\n";
+            return 0;
+        }
         auto *chrome = win->findChild<QQuickItem *>("windowChrome");
         auto *menus = win->findChild<QQuickItem *>("mainMenuBar");
         check(chrome && menus && win->flags().testFlag(Qt::FramelessWindowHint) &&
