@@ -43,13 +43,17 @@ public:
         check(UpdateService::compareVersions("1.0.0-pre.10", "1.0.0-pre.9") > 0, "numeric prerelease ordering");
         check(UpdateService::compareVersions("1.0.0", "1.0.0-pre.3") > 0, "stable follows prerelease");
         auto *dialog = win->findChild<QObject *>("updateDialog");
+        updater.m_checkEndpoints = {QUrl("http://127.0.0.1:1/manifest"), QUrl("http://127.0.0.1:1/api")};
         check(dialog && QMetaObject::invokeMethod(win, "checkUpdates"), "manual update action invokes dialog");
         check(dialog->property("visible").toBool(), "checking dialog opens immediately");
         // Cancel the actual network request deterministically, as a failed request.
         if (updater.m_reply) updater.m_reply->abort();
         check(QTest::qWaitFor([&] { return !updater.checking(); }, 5000), "failed check completes");
-        check(dialog->property("visible").toBool() && updater.status().contains(QString::fromUtf8("无法连接")), "network failure remains visible");
-        const auto payload = QByteArrayLiteral(R"([{"tag_name":"v0.26.2-pre.2-updatetest","assets":[]},{"tag_name":"v0.26.2-pre.3-updatetest","assets":[{"name":"Worldbench-pre3-win-x64.zip","browser_download_url":"https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.2-pre.3-updatetest/Worldbench-pre3-win-x64.zip"}]}])");
+        check(dialog->property("visible").toBool() && updater.status().contains(QString::fromUtf8("无法检查")), "network failure remains visible");
+        auto *releasePage = win->findChild<QObject *>("updateReleasePage");
+        auto *retry = win->findChild<QObject *>("updateRetry");
+        check(releasePage && releasePage->property("enabled").toBool() && retry && retry->property("enabled").toBool(), "failed check retains release page and retry actions");
+        const auto payload = QByteArrayLiteral(R"([{"tag_name":"v0.26.2-pre.2-updatetest","assets":[]},{"tag_name":"v0.26.2-pre.3-updatetest","assets":[{"name":"Worldbench-0.26.2-pre.3-updatetest-win-x64.zip","size":123,"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","browser_download_url":"https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.2-pre.3-updatetest/Worldbench-0.26.2-pre.3-updatetest-win-x64.zip"}]}])");
         updater.m_currentVersion = "0.26.2-pre.3-updatetest";
         updater.parseRelease(payload);
         check(!updater.updateAvailable() && updater.status().contains(QString::fromUtf8("当前已是最新版本")) && updater.status().contains("pre.3"), "latest status shows full version");
@@ -57,8 +61,7 @@ public:
         updater.m_currentVersion = "0.26.2-pre.2-updatetest";
         updater.parseRelease(payload);
         check(updater.updateAvailable() && updater.latestVersion().contains("pre.3") && updater.m_archiveAsset.archive, "unsorted releases select newer pre3 ZIP");
-        updater.parseRelease("invalid json");
-        check(updater.status().contains(QString::fromUtf8("格式无效")), "invalid response reports failure");
+        check(!updater.parseRelease("invalid json") && updater.m_parseError.contains(QString::fromUtf8("格式无效")), "invalid response reports failure");
         check(QMetaObject::invokeMethod(dialog, "close"), "update dialog closes");
         check(!win->property("allowClose").toBool(), "normal close retains save guard");
         emit updater.exitingForUpdate();

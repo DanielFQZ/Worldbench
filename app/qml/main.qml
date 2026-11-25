@@ -426,7 +426,8 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
                 Item { Layout.fillWidth: true }
-                WorkbenchButton { text: "打开发布页"; enabled: updater.releaseUrl.length > 0; onClicked: updater.openReleasePage() }
+                WorkbenchButton { objectName: "updateRetry"; text: "重新检查"; enabled: !updater.checking && !updater.downloading; onClicked: win.checkUpdates() }
+                WorkbenchButton { objectName: "updateReleasePage"; text: "打开发布页"; enabled: updater.releaseUrl.length > 0; onClicked: updater.openReleasePage() }
                 WorkbenchButton { text: updater.downloading ? "下载中…" : updater.ready ? "安装并重启" : "立即更新"; enabled: updater.updateAvailable && !updater.downloading && !editor.commandBusy && !editor.assetBusy && !editor.exportBusy; onClicked: updater.installUpdate() }
                 WorkbenchButton { text: updater.updateAvailable ? "稍后" : "关闭"; enabled: !updater.downloading; onClicked: updateDialog.close() }
             }

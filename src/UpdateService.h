@@ -2,6 +2,7 @@
 
 #include <QNetworkAccessManager>
 #include <QObject>
+#include <QStringList>
 #include <QUrl>
 
 class QNetworkReply;
@@ -50,10 +51,14 @@ private:
         QString name;
         QUrl url;
         bool archive = false;
+        QByteArray sha256;
+        qint64 size = 0;
     };
 
     void setStatus(const QString &status);
-    void parseRelease(const QByteArray &payload);
+    bool parseRelease(const QByteArray &payload, bool manifest = false);
+    void requestCheckSource();
+    static QString replyFailure(QNetworkReply *reply, const QByteArray &payload);
     void download(const ReleaseAsset &asset);
     void launchArchiveUpdater(const QString &path);
     void launchInstaller(const QString &path);
@@ -63,6 +68,10 @@ private:
 
     QNetworkAccessManager m_network;
     QNetworkReply *m_reply = nullptr;
+    QList<QUrl> m_checkEndpoints;
+    int m_checkSource = 0;
+    QStringList m_checkErrors;
+    QString m_parseError;
     QString m_currentVersion;
     QString m_latestVersion;
     QString m_releaseNotes;

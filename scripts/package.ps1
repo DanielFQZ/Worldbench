@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Version = '0.26.3-pre.1',
+    [string]$Version = '0.26.3-pre.2',
     [string]$Root = (Split-Path $PSScriptRoot -Parent),
     [string]$Publisher = 'Worldbench Project'
 )

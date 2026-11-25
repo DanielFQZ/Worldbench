@@ -1,6 +1,8 @@
 #include "UpdateService.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -11,21 +13,35 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QScopeGuard>
 #include <algorithm>
 #include <array>
 
 namespace {
 constexpr auto ReleasesEndpoint = "https://api.github.com/repos/DanielFQZ/Worldbench/releases?per_page=10";
+constexpr auto ManifestEndpoint = "https://raw.githubusercontent.com/DanielFQZ/Worldbench/main/updates/windows-x64.json";
+constexpr auto ReleasesPage = "https://github.com/DanielFQZ/Worldbench/releases";
 constexpr auto UserAgent = "Worldbench-UpdateChecker";
+constexpr qint64 MaxCheckBytes = 2 * 1024 * 1024;
+constexpr qint64 MaxDownloadBytes = 1024ll * 1024 * 1024;
+
+bool trustedReleaseUrl(const QUrl &url, const QString &path) {
+    return url.isValid() && url.scheme() == "https" && url.host() == "github.com" &&
+           url.port() == -1 && url.userInfo().isEmpty() && !url.hasQuery() && !url.hasFragment() &&
+           url.path() == path;
+}
 
 } // namespace
 
 UpdateService::UpdateService(QObject *parent)
     : QObject(parent), m_currentVersion(QCoreApplication::applicationVersion()) {
+    m_releaseUrl = QUrl(QString::fromLatin1(ReleasesPage));
+    m_checkEndpoints = {QUrl(QString::fromLatin1(ManifestEndpoint)), QUrl(QString::fromLatin1(ReleasesEndpoint))};
     setStatus("尚未检查更新");
 }
 
@@ -91,86 +107,146 @@ void UpdateService::checkForUpdates(bool interactive) {
     m_ready = false;
     m_latestVersion.clear();
     m_releaseNotes.clear();
-    m_releaseUrl.clear();
+    m_releaseUrl = QUrl(QString::fromLatin1(ReleasesPage));
     m_archiveAsset = {};
     m_installerAsset = {};
-    setStatus("正在检查 GitHub 更新…");
+    m_checkSource = 0;
+    m_checkErrors.clear();
+    setStatus("正在读取更新清单…");
     emit stateChanged();
-
-    QNetworkRequest request(QUrl(QString::fromLatin1(ReleasesEndpoint)));
-    request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromLatin1(UserAgent));
-    request.setRawHeader("Accept", "application/vnd.github+json");
-    request.setTransferTimeout(20000);
-    m_reply = m_network.get(request);
-    connect(m_reply, &QNetworkReply::finished, this, [this] {
-        QNetworkReply *reply = m_reply;
-        m_reply = nullptr;
-        const auto guard = qScopeGuard([this] {
-            m_checking = false;
-            emit stateChanged();
-        });
-        if (reply->error() != QNetworkReply::NoError) {
-            const QString message = reply->error() == QNetworkReply::ContentNotFoundError
-                                         ? "更新源暂时不可用，请稍后重试"
-                                         : "无法连接 GitHub 更新源：" + reply->errorString();
-            setStatus(message);
-            emit failed(message);
-            reply->deleteLater();
-            emit checkFinished(false);
-            return;
-        }
-        parseRelease(reply->readAll());
-        reply->deleteLater();
-    });
+    requestCheckSource();
 }
 
-void UpdateService::parseRelease(const QByteArray &payload) {
-    const auto document = QJsonDocument::fromJson(payload);
-    if (!document.isArray()) {
-        const QString message = "GitHub 更新响应格式无效";
+QString UpdateService::replyFailure(QNetworkReply *reply, const QByteArray &payload) {
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const auto message = QJsonDocument::fromJson(payload).object()["message"].toString();
+    if ((status == 403 || status == 429) &&
+        (reply->rawHeader("X-RateLimit-Remaining") == "0" || message.contains("rate limit", Qt::CaseInsensitive) || status == 429)) {
+        QString detail = QString("GitHub 请求额度已用完（HTTP %1）").arg(status);
+        bool ok = false;
+        const qint64 reset = reply->rawHeader("X-RateLimit-Reset").toLongLong(&ok);
+        if (ok && reset > 0)
+            detail += "，预计 " + QDateTime::fromSecsSinceEpoch(reset).toLocalTime().toString("HH:mm:ss") + " 后恢复";
+        return detail;
+    }
+    if (status)
+        return QString("HTTP %1：%2").arg(status).arg(reply->errorString());
+    return reply->errorString();
+}
+
+void UpdateService::requestCheckSource() {
+    if (m_checkSource >= m_checkEndpoints.size()) {
+        m_checking = false;
+        const QString message = "无法检查更新。" + m_checkErrors.join("；") +
+                                "。可以重试，或打开发布页下载安装包。";
         setStatus(message);
         emit failed(message);
+        emit stateChanged();
         emit checkFinished(false);
         return;
     }
+    const bool manifest = m_checkSource == 0;
+    QNetworkRequest request(m_checkEndpoints[m_checkSource]);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromLatin1(UserAgent));
+    request.setRawHeader("Accept", manifest ? "application/json" : "application/vnd.github+json");
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
+    request.setTransferTimeout(8000);
+    m_reply = m_network.get(request);
+    QNetworkReply *reply = m_reply;
+    connect(reply, &QIODevice::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > MaxCheckBytes) {
+            reply->setProperty("worldbenchOversized", true);
+            reply->abort();
+        }
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, manifest] {
+        m_reply = nullptr;
+        const auto payload = reply->readAll();
+        QString error;
+        if (reply->property("worldbenchOversized").toBool() || payload.size() > MaxCheckBytes) error = "更新响应过大";
+        else if (reply->error() != QNetworkReply::NoError) error = replyFailure(reply, payload);
+        else if (!parseRelease(payload, manifest)) error = m_parseError;
+        reply->deleteLater();
+        if (!error.isEmpty()) {
+            m_checkErrors << (manifest ? "更新清单：" : "GitHub API：") + error;
+            ++m_checkSource;
+            if (m_checkSource < m_checkEndpoints.size()) setStatus("更新清单暂不可用，正在检查备用源…");
+            requestCheckSource();
+        }
+    });
+}
+
+bool UpdateService::parseRelease(const QByteArray &payload, bool manifest) {
+    const auto document = QJsonDocument::fromJson(payload);
+    m_parseError.clear();
+    if (manifest ? (!document.isObject() || document.object()["schema"].toInt() != 1 ||
+                    !document.object()["releases"].isArray()) : !document.isArray()) {
+        m_parseError = "更新响应格式无效";
+        return false;
+    }
+    const auto releases = manifest ? document.object()["releases"].toArray() : document.array();
     QJsonObject release;
-    for (const auto &value : document.array()) {
+    static const QRegularExpression versionPattern("^v?\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$");
+    for (const auto &value : releases) {
         const auto candidate = value.toObject();
-        if (!candidate["draft"].toBool() && !candidate["tag_name"].toString().isEmpty() &&
+        if (!candidate["draft"].toBool() && versionPattern.match(candidate["tag_name"].toString()).hasMatch() &&
             (release.isEmpty() || compareVersions(candidate["tag_name"].toString(), release["tag_name"].toString()) > 0)) {
             release = candidate;
         }
     }
     if (release.isEmpty()) {
+        if (manifest || !releases.isEmpty()) {
+            m_parseError = "更新清单中没有有效公开版本";
+            return false;
+        }
+        m_checking = false;
         setStatus("没有可用的公开版本");
         emit checkFinished(false);
-        return;
+        return true;
     }
     m_latestVersion = release["tag_name"].toString();
     m_releaseNotes = release["body"].toString().trimmed();
-    m_releaseUrl = QUrl(release["html_url"].toString());
+    m_releaseUrl = QUrl(QString::fromLatin1(ReleasesPage) + "/tag/" + m_latestVersion);
+    m_archiveAsset = {};
+    m_installerAsset = {};
     for (const auto &value : release["assets"].toArray()) {
         const auto object = value.toObject();
         const QString name = object["name"].toString();
         const QUrl url(object["browser_download_url"].toString());
-        if (!url.isValid())
+        const QString digest = object["digest"].toString();
+        const auto hash = digest.mid(7).toLatin1().toLower();
+        const qint64 size = object["size"].toInteger();
+        if (!trustedReleaseUrl(url, "/DanielFQZ/Worldbench/releases/download/" + m_latestVersion + "/" + name) ||
+            !name.startsWith("Worldbench-" + normalizedVersion(m_latestVersion)) ||
+            name.contains('/') || name.contains('\\') || !digest.startsWith("sha256:") ||
+            hash.size() != 64 || QByteArray::fromHex(hash).toHex() != hash || size <= 0 || size > MaxDownloadBytes)
             continue;
         if (name.endsWith("-win-x64.zip", Qt::CaseInsensitive) && m_archiveAsset.url.isEmpty())
-            m_archiveAsset = {name, url, true};
+            m_archiveAsset = {name, url, true, hash, size};
         else if (name.endsWith("-setup.exe", Qt::CaseInsensitive) && m_installerAsset.url.isEmpty())
-            m_installerAsset = {name, url, false};
+            m_installerAsset = {name, url, false, hash, size};
     }
+    if (manifest && m_archiveAsset.url.isEmpty() && m_installerAsset.url.isEmpty()) {
+        m_parseError = "更新清单缺少有效的 Windows x64 文件或 SHA256";
+        m_latestVersion.clear();
+        m_releaseNotes.clear();
+        m_releaseUrl = QUrl(QString::fromLatin1(ReleasesPage));
+        return false;
+    }
+    m_checking = false;
     m_updateAvailable = compareVersions(m_latestVersion, m_currentVersion) > 0;
     if (!m_updateAvailable) {
         setStatus("当前已是最新版本 · " + displayVersion(m_currentVersion));
     } else if (m_archiveAsset.url.isEmpty() && m_installerAsset.url.isEmpty()) {
         m_updateAvailable = false;
-        setStatus("发现新版本，但发布页缺少 Windows x64 下载文件");
+        setStatus("发现新版本，但缺少有效的 Windows x64 文件或 SHA256，请打开发布页");
     } else {
         setStatus("发现新版本 · " + displayVersion(m_latestVersion));
     }
     emit stateChanged();
     emit checkFinished(m_updateAvailable);
+    return true;
 }
 
 void UpdateService::installUpdate() {
@@ -195,14 +271,24 @@ void UpdateService::download(const ReleaseAsset &asset) {
     emit stateChanged();
 
     const QString base = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QDir().mkpath(base);
-    m_downloadPath = QDir(base).filePath(asset.name);
-    QFile::remove(m_downloadPath);
+    QTemporaryDir directory(QDir(base).filePath("Worldbench-update-download-XXXXXX"));
+    if (!directory.isValid()) {
+        m_downloading = false;
+        setStatus("无法创建更新下载目录，请打开发布页手动下载");
+        emit failed(m_status);
+        emit stateChanged();
+        return;
+    }
+    directory.setAutoRemove(false); // The detached updater consumes it after this process exits.
+    m_downloadPath = directory.filePath(asset.name);
     QNetworkRequest request(asset.url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QString::fromLatin1(UserAgent));
     request.setRawHeader("Accept", "application/octet-stream");
     request.setTransferTimeout(60000);
     m_reply = m_network.get(request);
+    connect(m_reply, &QIODevice::readyRead, this, [this, asset] {
+        if (m_reply && m_reply->bytesAvailable() > asset.size) m_reply->abort();
+    });
     connect(m_reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
         m_progress = total > 0 ? int(std::clamp<qint64>(received * 100 / total, 0, 100)) : 0;
         emit stateChanged();
@@ -212,7 +298,16 @@ void UpdateService::download(const ReleaseAsset &asset) {
         m_reply = nullptr;
         m_downloading = false;
         if (reply->error() != QNetworkReply::NoError) {
-            const QString message = "更新下载失败：" + reply->errorString();
+            const QString message = "更新下载失败：" + replyFailure(reply, reply->readAll());
+            setStatus(message);
+            emit failed(message);
+            reply->deleteLater();
+            emit stateChanged();
+            return;
+        }
+        const auto data = reply->readAll();
+        if (data.size() != asset.size || QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex() != asset.sha256) {
+            const QString message = "更新文件完整性校验失败，未安装。请重试下载或打开发布页。";
             setStatus(message);
             emit failed(message);
             reply->deleteLater();
@@ -220,7 +315,7 @@ void UpdateService::download(const ReleaseAsset &asset) {
             return;
         }
         QSaveFile file(m_downloadPath);
-        if (!file.open(QIODevice::WriteOnly) || file.write(reply->readAll()) < 0 || !file.commit()) {
+        if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
             const QString message = "更新文件无法保存到临时目录";
             setStatus(message);
             emit failed(message);
