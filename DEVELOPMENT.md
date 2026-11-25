@@ -35,7 +35,7 @@
 - Inno Setup 7.1.1 和 6.7.3 是上一轮在开发机安装的编译工具，未打入 Worldbench。发布载荷只来自 dist 的运行目录，不包含 ISCC/Compil32 或 Inno 安装器。此轮不擅自卸载用户机器上的工具。
 - 配置保持 Documents/Worldbench（遵循 Windows Documents 重定向），日志在根目录，INI 在 Worldbench/Worldbench.ini；旧原生设置首次迁移。卸载默认保留数据，选择删除仅清理已知配置/日志及旧迁移源，不递归删除用户可能放入该目录的工程/资源；静默卸载保留数据。
 - 标准安装向导、用户级安装、文件关联、嵌入图标、注册卸载入口沿用 pre2。ZIP 覆盖不会刷新旧安装器的注册版本和卸载器，直接安装 pre3 才同步这些安装元数据。
-- 本轮验证结果和 pre2→pre3 验收步骤以唯一 `TESTING.md` 为准。WorldPainter 功能及渲染范围不扩展。
+- `e6eef33` 已通过 26 项更新窗口检查；computer-use 实测修复版 pre2 通过公开 GitHub ZIP 完成退出、覆盖和自动重启，pre3 手动检查显示最新版，安装后 EXE 哈希匹配、Documents INI 哈希不变，5 个发布资产哈希匹配。本轮验证结果和 pre2→pre3 验收步骤以唯一 `TESTING.md` 为准。WorldPainter 功能及渲染范围不扩展。
 
 ## 2. 产品目标与技术基线
 

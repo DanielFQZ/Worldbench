@@ -29,7 +29,8 @@ ZIP 更新保留旧安装器及 Windows 卸载注册元数据，因此 Windows �
 - `worldbench_ui_tests --updates-only`：26 项通过；验证实际 QML 弹窗、最新版提示、失败提示、pre2/pre3 版本选择和打包脚本资源。
 - computer-use 实际安装向导：自选目录、中文任务项及完成页“启动 Worldbench”正常。
 - 两个发布 ZIP/安装运行目录不包含 Inno Setup 编译器。
-- 完整公开网络升级实测结果在发布后补充；以上不代表用户验收通过。
+- 真实端到端升级通过：在独立安装目录运行修复版 pre2，经界面检查 GitHub、下载公开 ZIP、自动退出覆盖、自动重启为 pre3；再手动检查显示“当前已是最新版本”。安装后 EXE SHA256 与发布构建一致，Documents INI SHA256 升级前后不变；5 个公开资产的 GitHub SHA256 与本地一致。
+- 代码提交 `e6eef33`；证据 `test-output/pre3-validation.json`、`pre3-update-tests.log`、`pre3-latest-ui.txt`。仅开发方验证通过，UP01–UP08 仍待用户验收。
 
 ## WorldPainter 相关进度
 
