@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Package
 powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 ```
 
-`build.ps1 -Package` 会生成可运行目录，`package.ps1` 会生成 Windows x64 ZIP、IExpress EXE 安装包、自签名证书和 SHA-256 校验文件。自签名证书用于标识和完整性校验，Windows 初次运行时可能显示发布者未受信任。
+`build.ps1 -Package` 会生成可运行目录，`package.ps1` 会生成 Windows x64 ZIP、Inno Setup 标准安装包、自签名证书和 SHA-256 校验文件。安装器支持自选安装目录、开始菜单/桌面快捷方式、`.wbench` 文件关联和标准卸载；卸载时可选择是否删除 `Documents\\Worldbench` 用户数据。自签名证书用于标识和完整性校验，Windows 初次运行时可能显示发布者未受信任。
 
 ## 许可
 

@@ -1,5 +1,6 @@
 /build/
 /dist/
+/\.worldbench-tools/
 /test-output/
 /.vs/
 *.user

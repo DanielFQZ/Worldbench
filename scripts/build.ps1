@@ -24,7 +24,7 @@ $ninja = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja
 if (-not (Test-Path -LiteralPath $ninja)) { $ninja = (Get-Command ninja -ErrorAction Stop).Source }
 if (-not (Test-Path -LiteralPath "$QtRoot\bin\qsb.exe")) { throw 'Qt 6.8.3 MSVC x64 with ShaderTools is required.' }
 $build = Join-Path $root 'build'
-$argsList = @('-S', $root, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$ninja", '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG', "-DCMAKE_PREFIX_PATH=$QtRoot")
+$argsList = @('-S', $root, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$ninja", '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG', "-DCMAKE_PREFIX_PATH=$QtRoot", "-DWORLDBENCH_APP_VERSION=$Version")
 if ($DockSource) { $argsList += "-DFETCHCONTENT_SOURCE_DIR_KDDOCKWIDGETS=$DockSource" }
 & $cmake @argsList
 if ($LASTEXITCODE) { throw 'CMake configure failed.' }

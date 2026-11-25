@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QJsonArray>
@@ -15,6 +16,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QStandardPaths>
+#include <QSettings>
 #include <QTimer>
 #include <kddockwidgets/Config.h>
 #include <kddockwidgets/qtquick/Platform.h>
@@ -38,7 +40,24 @@ int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
-    app.setApplicationVersion("0.26.2-pre.1");
+    app.setApplicationVersion(QStringLiteral(WORLDBENCH_APP_VERSION));
+    // Keep user-editable settings and diagnostics together in Documents so a
+    // normal uninstall can leave the creator's preferences and resource
+    // choices intact. Migrate the old native settings store once.
+    const auto documents = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    const auto dataRoot = QDir(documents).filePath("Worldbench");
+    QDir().mkpath(dataRoot);
+    QSettings oldSettings(QSettings::NativeFormat, QSettings::UserScope, "Worldbench", "Worldbench");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dataRoot);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, dataRoot);
+    QSettings migrated;
+    const auto settingsFile = migrated.fileName();
+    if (!QFileInfo::exists(settingsFile) && !oldSettings.allKeys().isEmpty()) {
+        for (const auto &key : oldSettings.allKeys())
+            migrated.setValue(key, oldSettings.value(key));
+        migrated.sync();
+    }
     // KDDockWidgets floating frames use the application palette rather than
     // inheriting the QML window palette. Keep both surfaces on the same theme.
     QPalette palette;
@@ -71,16 +90,14 @@ int main(int argc, char **argv) {
         painter.drawPolyline(QPolygonF{{14, 19}, {22, 46}, {32, 27}, {42, 46}, {50, 19}});
     }
     app.setWindowIcon(QIcon(logo));
-    const auto local = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    QDir().mkpath(local);
-    logPath = local + "/Worldbench.log";
+    logPath = dataRoot + "/Worldbench.log";
     QFile old(logPath);
     if (old.size() > 2 * 1024 * 1024) {
         QFile::remove(logPath + ".previous");
         old.rename(logPath + ".previous");
     }
     qInstallMessageHandler(logMessage);
-    qInfo("Worldbench 0.26.2-pre.1 starting (D3D11 / Qt 6.8.3)");
+    qInfo("Worldbench %s starting (D3D11 / Qt 6.8.3)", WORLDBENCH_APP_VERSION);
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
@@ -100,8 +117,22 @@ int main(int argc, char **argv) {
     // CI smoke path uses the same renderer and window; it does not replace manual tests.
     const auto args = app.arguments();
     const int openIndex = args.indexOf("--open");
-    if (openIndex >= 0 && !args.value(openIndex + 1).isEmpty())
-        editor.open(QUrl::fromLocalFile(args.value(openIndex + 1)));
+    QString projectPath;
+    if (openIndex >= 0 && openIndex + 1 < args.size())
+        projectPath = args.value(openIndex + 1);
+    else {
+        // File associations invoke the executable with the project as a plain
+        // positional argument. Keep command-line switches available for tests.
+        for (int i = 1; i < args.size(); ++i) {
+            const auto candidate = args.value(i);
+            if (!candidate.startsWith('-') && candidate.endsWith(".wbench", Qt::CaseInsensitive)) {
+                projectPath = candidate;
+                break;
+            }
+        }
+    }
+    if (!projectPath.isEmpty() && QFileInfo::exists(projectPath))
+        editor.open(QUrl::fromLocalFile(projectPath));
     else
         editor.initializeResources();
     if (args.contains("--frame-world"))

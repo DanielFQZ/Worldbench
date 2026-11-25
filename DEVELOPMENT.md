@@ -2,6 +2,15 @@
 
 > 0.26.2 · BN · 2026-11-25。起点 06a8e27。本轮修复高精度方块材质错绑导致的红色图案和拖动时的异常阴影。本文是唯一开发基准，TESTING.md 是当期验收单。
 
+### 1.3 本轮分发与安装器改造（pre.2-updatetest）
+
+- 将旧 IExpress 自解压脚本替换为 Inno Setup 标准 Windows x64 安装向导。安装器支持自选安装目录（默认 `%LocalAppData%\\Programs\\Worldbench`）、开始菜单和可选桌面快捷方式，并注册标准卸载程序。
+- 为可执行文件加入 `app/icons/worldbench.ico` 和 Windows 资源 `app/worldbench.rc`，安装器、快捷方式、文件关联和卸载项都使用同一图标。注册 `.wbench` 到 `Worldbench.Project`，双击或拖入编辑器时将普通工程路径传给程序；程序保留 `--open` 测试参数。
+- 用户配置、资源来源、对话框路径记忆和日志统一放入 `%USERPROFILE%\\Documents\\Worldbench`。启动时会从旧的 Qt 原生用户配置位置迁移一次已有键值；工程文件仍由用户选择保存，更新器不覆盖 Documents 数据。
+- 卸载时由 Inno Setup 询问是否删除 Documents 用户数据；选择保留时只删除安装目录、快捷方式、文件关联和卸载项，不删除配置、日志、资源来源或用户工程。
+- `scripts/package.ps1` 现在生成标准 setup.exe、可直接替换的 ZIP、签名证书和 SHA256SUMS；使用 Inno Setup 6 `ISCC.exe`。本轮更新测试版本为 `0.26.2-pre.2-updatetest`，保留 GitHub 更新服务的 ZIP 优先、安装器回退策略。
+- 自动验证：Release 构建完成；Inno 安装器静默安装到自定义目录成功，`Worldbench.exe`、`unins000.exe`、`.wbench` 关联和 Documents 日志目录均存在；安装目录程序完成 smoke capture。用户验收见当前 `TESTING.md`，不能把自动验证写成用户通过。
+
 ## 1. 持续有效的协作规定与当前状态
 
 ### 1.1 文档、开发与验收规定
