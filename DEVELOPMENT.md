@@ -1,6 +1,6 @@
 # Worldbench 开发文档
 
-> 0.26.4-pre.3 · UG · 2026-11-27。本轮改为管理员安装及非 C 盘默认安装目录。本文是唯一开发基准，TESTING.md 是当期验收单。
+> 0.26.4-pre.4 · UH · 2026-11-27。本轮增强已安装目录识别，资产库默认改为 Ctrl+Space。本文是唯一开发基准，TESTING.md 是当期验收单。
 
 ## 1. 持续有效的协作规定与当前状态
 
@@ -86,6 +86,13 @@
 - 软件内启动安装器统一经 Windows `runas`，取消授权保留编辑器。安装结束启动选项默认不勾选，用户勾选时使用原用户权限；编辑器自身仍无需管理员权限。
 - 配置仍在 Documents/Worldbench；资源缓存位置沿用 §1.4，本轮不搬迁用户文件。UF 用户明确暂不测试，归档到仓库外 `Worldbench-test-archive/0.26.4-pre2-20261127-deferred/`，当前单为 UG。
 - Windows x64 构建及 Inno Setup Pascal 编译成功，更新服务 46 项与更新界面 27 项通过。`v0.26.4-pre.3` 已发布（源码 `8a8b455`），安装包自签名，四个发布资产的长度与 GitHub SHA256 digest 匹配；ZIP 内版本、源码提交及 EXE 摘要核对通过。静态更新清单同步为 pre.3；真实 Qt 更新器从公开静态清单发现并下载 pre.3，长度与 SHA256 校验通过。真实 UAC/目录页/安装卸载留给用户验收，不代为覆盖用户安装。
+
+### 1.9 安装识别与 UE 资产库快捷键（2026-11-27）
+
+- Epic 官方 Content Browser 文档确认 Windows 内容抽屉快捷键为 **Ctrl+Space**：https://dev.epicgames.com/documentation/en-us/unreal-engine/content-browser-in-unreal-engine?application_version=5.6 。Worldbench 默认键与恢复默认统一改为 Ctrl+Space，偏好设置继续可改绑。未改绑的旧用户自动使用新默认；已有自定义与主动清空保留。若其他自定义功能占用 Ctrl+Space，资产库暂用未被占用的 Shift+Space，否则不绑定，由用户在冲突界面自行决定。
+- 安装器按 HKLM64、HKCU64、HKLM32、HKCU32 查本项目固定 AppId 的 InstallLocation，并确认 EXE 存在；忽略失效登记。无登记时检查 C–Z 固定盘的 Program Files/Worldbench，必须同时有程序与卸载器，才识别为旧安装。仍未找到才按 §1.8 选择非 C 盘新目录；显式 /DIR 与手动选目录优先，不全盘搜索或搬移已有安装。
+- 机器级 UAC、普通权限编辑器、配置 Documents、一个开发文档及当期测试单基线保持。UG 未逐项验收，归档 `Worldbench-test-archive/0.26.4-pre3-20261127-next-update/`；当前 UH 测试从 pre.3 软件内升级 pre.4。
+- 构建、专项测试及公开发布验证完成后补记；不代用户覆盖安装。
 
 ## 2. 产品目标与技术基线
 

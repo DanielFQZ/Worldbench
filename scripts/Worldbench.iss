@@ -15,7 +15,7 @@ DefaultGroupName=Worldbench
 DisableDirPage=no
 DisableProgramGroupPage=no
 PrivilegesRequired=admin
-UsePreviousAppDir=yes
+UsePreviousAppDir=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
@@ -61,19 +61,41 @@ const
 function GetDriveTypeW(RootPath: string): Cardinal;
   external 'GetDriveTypeW@kernel32.dll stdcall';
 
+function RegisteredInstall(RootKey: Integer): string;
+var
+  Candidate: string;
+begin
+  Result := '';
+  if RegQueryStringValue(RootKey, LegacyUninstallKey, 'InstallLocation', Candidate) then
+    if FileExists(AddBackslash(Candidate) + 'Worldbench.exe') then
+      Result := RemoveBackslashUnlessRoot(Candidate);
+end;
+
 function GetDefaultInstallDir(Param: string): string;
 var
   Drive: Integer;
-  Root, PreviousDir: string;
+  Root, Candidate: string;
 begin
-  { Preserve an existing legacy installation; /DIR and the directory page
-    remain available for an explicit move. New installs never use AppData. }
-  if RegQueryStringValue(HKCU, LegacyUninstallKey, 'InstallLocation', PreviousDir) then
-    if FileExists(AddBackslash(PreviousDir) + 'Worldbench.exe') then begin
-      Result := PreviousDir;
-      exit;
+  { Explicit /DIR is handled by Inno. Validate registered paths ourselves,
+    including both legacy registry views, rather than reuse stale entries. }
+  Result := RegisteredInstall(HKLM64);
+  if Result = '' then Result := RegisteredInstall(HKCU64);
+  if Result = '' then Result := RegisteredInstall(HKLM32);
+  if Result = '' then Result := RegisteredInstall(HKCU32);
+  if Result <> '' then exit;
+  { Recover standard installations whose uninstall registration is missing.
+    Require both application and uninstaller, not just a same-named folder. }
+  for Drive := Ord('C') to Ord('Z') do begin
+    Root := Chr(Drive) + ':\';
+    if (GetDriveTypeW(Root) = 3) and DirExists(Root) then begin
+      Candidate := Root + 'Program Files\Worldbench';
+      if FileExists(Candidate + '\Worldbench.exe') and
+         FileExists(Candidate + '\unins000.exe') then begin
+        Result := Candidate;
+        exit;
+      end;
     end;
-  { Fixed, mounted drives only: skip removable/network/optical drives. }
+  end;
   for Drive := Ord('D') to Ord('Z') do begin
     Root := Chr(Drive) + ':\';
     if (GetDriveTypeW(Root) = 3) and DirExists(Root) then begin

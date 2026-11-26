@@ -30,7 +30,7 @@ QString defaultShortcut(const QString &action) {
         {"rotateGizmo", "E"},        {"scaleGizmo", "R"}, {"toolCycle", "1"},
         {"toolFlatten", "2"},        {"toolCarve", "3"},  {"toolFill", "4"},
         {"toolPaint", "5"},          {"toolSmooth", "6"}, {"toolSelect", "7"},
-        {"toolNavigate", "0"}, {"assetLibrary", "Shift+Space"}, {"redoAlternate", "Ctrl+Shift+Z"}, {"cancelSelection", "Esc"},
+        {"toolNavigate", "0"}, {"assetLibrary", "Ctrl+Space"}, {"redoAlternate", "Ctrl+Shift+Z"}, {"cancelSelection", "Esc"},
         {"brushSmaller", "["}, {"brushLarger", "]"}};
     return defaults.value(action);
 }
@@ -354,7 +354,19 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
 }
 
 QString Editor::shortcut(const QString &action) const {
-    const auto fallback = defaultShortcut(action);
+    auto fallback = defaultShortcut(action);
+    // Defaults were never persisted. Follow UE for uncustomized bindings,
+    // but never steal Ctrl+Space from a user-defined action on upgrade.
+    if (action == "assetLibrary" && !QSettings().contains("shortcuts/assetLibrary")) {
+        QSettings settings;
+        settings.beginGroup("shortcuts");
+        QStringList occupied;
+        for (const auto &key : settings.childKeys())
+            occupied << QKeySequence::fromString(settings.value(key).toString(),
+                                                QKeySequence::PortableText).toString(QKeySequence::PortableText);
+        if (occupied.contains(fallback))
+            fallback = occupied.contains("Shift+Space") ? QString{} : QStringLiteral("Shift+Space");
+    }
     if (fallback.isEmpty())
         return {};
     return QKeySequence::fromString(QSettings().value("shortcuts/" + action, fallback).toString(),

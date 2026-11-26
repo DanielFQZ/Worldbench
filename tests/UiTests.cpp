@@ -140,15 +140,23 @@ int main(int argc, char **argv) {
         check(QTest::qWaitFor([&] { return !editor.meshBusy() && v->frameCounter()->load() > 0; }, 15000),
               "initial GPU render");
         if (app.arguments().contains("--preferences-only")) {
+            editor.setShortcut("focus", "Ctrl+Space");
+            check(editor.shortcut("assetLibrary") == "Shift+Space", "upgrade preserves custom Ctrl Space owner");
+            editor.setShortcut("assetLibrary", "Alt+B");
+            check(editor.shortcut("assetLibrary") == "Alt+B", "upgrade preserves custom asset shortcut");
+            editor.setShortcut("assetLibrary", "");
+            check(editor.shortcut("assetLibrary").isEmpty(), "upgrade preserves explicit unbinding");
+            editor.resetShortcuts();
+            check(editor.shortcut("assetLibrary") == "Ctrl+Space", "reset adopts UE default");
             auto *shelf = win->findChild<QQuickItem *>("assetShelf");
             check(shelf, "asset shelf exists");
             v->forceActiveFocus();
-            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);
+            QTest::keyClick(win, Qt::Key_Space, Qt::ControlModifier);
             QTest::qWait(80);
-            check(shelf->property("expanded").toBool(), "Shift Space opens shelf");
-            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);
+            check(shelf->property("expanded").toBool(), "Ctrl Space opens shelf");
+            QTest::keyClick(win, Qt::Key_Space, Qt::ControlModifier);
             QTest::qWait(80);
-            check(!shelf->property("expanded").toBool(), "Shift Space closes shelf");
+            check(!shelf->property("expanded").toBool(), "Ctrl Space closes shelf");
             auto *settings = win->findChild<QObject *>("settingsContent");
             auto *dialog = win->findChild<QObject *>("editorSettingsDialog");
             check(settings && dialog, "preferences window exists");
@@ -170,7 +178,7 @@ int main(int argc, char **argv) {
             QTest::keyClick(win, Qt::Key_S, Qt::ControlModifier);
             check(editor.projectPath().isEmpty(), "recording Ctrl S does not save");
             click("shortcutSave");
-            check(editor.shortcut("assetLibrary")=="Shift+Space" && editor.shortcut("save")=="Ctrl+S", "conflict changes nothing before confirm");
+            check(editor.shortcut("assetLibrary")=="Ctrl+Space" && editor.shortcut("save")=="Ctrl+S", "conflict changes nothing before confirm");
             click("shortcutCancel");
             check(!editor.shortcutRecording() && editor.shortcut("save")=="Ctrl+S", "cancel conflict preserves original binding");
             capture("assetLibrary", "资产库");
@@ -189,7 +197,7 @@ int main(int argc, char **argv) {
             QTest::keyClick(win, Qt::Key_S, Qt::ControlModifier);
             check(!shelf->property("expanded").toBool() && editor.projectPath().isEmpty(), "cleared shortcut executes neither former action");
             editor.resetShortcuts();
-            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);QTest::qWait(80);
+            QTest::keyClick(win, Qt::Key_Space, Qt::ControlModifier);QTest::qWait(80);
             check(shelf->property("expanded").toBool(), "reset restores shelf shortcut");
             check(!v->blockGrid(), "block grid defaults off");
             v->setBlockGrid(true);

@@ -1,26 +1,22 @@
-# Worldbench 0.26.4-pre.3 测试单（UG）
+# Worldbench 0.26.4-pre.4 测试单（UH）
 
-UF 本轮用户明确暂不测试，已归档到仓库外；唯一开发基准仍为 DEVELOPMENT.md。
-
-## 本轮测试
-
-下载本版 setup.exe 后直接双击，无需先卸载。当前旧客户端请使用安装包完成这次升级。
+UG 未逐项验收，已归档；唯一开发文档仍为 DEVELOPMENT.md。
 
 | 编号 | 操作 | 预期 |
 | --- | --- | --- |
-| UG01 | 普通权限直接双击安装器。 | Windows 请求 UAC，取消则不安装。自签名发布者可能显示未受信任。 |
-| UG02 | 查看安装目录页。 | 已安装时保留原目录（本机为 E:/Program Files/Worldbench），仍可手动选择；全新安装按 D–Z 选择首个固定磁盘的 Program Files/Worldbench，无可用非 C 固定盘才回退系统 Program Files，不默认装到 Local。 |
-| UG03 | 覆盖安装原目录后正常启动。 | 版本 0.26.4-pre.3，JAR 缓存、配置与工程保留；应用列表同一路径不重复留下旧版卸载项。 |
-| UG04 | 将工程文件及资产文件夹拖入编辑器。 | 正常打开/导入，编辑器没有管理员权限。 |
-| UG05 | 帮助 → 检查更新。 | 显示最新版；未来版本使用安装器时会请求 UAC，取消授权不关闭编辑器。本轮未来升级未具备更高版本时暂不测。 |
-| UG06 | 检查上轮功能。 | Shift+Space 资产库、快捷键录制及冲突处理、网格按钮、保存视角和各向异性过滤保留，可继续按这些功能验收。 |
+| UH01 | 在 pre.3 中保存工程，帮助 → 检查更新，下载并安装 pre.4。 | 发现 0.26.4-pre.4；受保护目录下载安装器，请求 UAC，目录默认保持当前实际安装位置。取消 UAC 应保持编辑器打开。 |
+| UH02 | 同意 UAC，完成覆盖安装，正常启动。 | 显示 pre.4，保留配置、资源和工程；无需卸载，拖放正常。 |
+| UH03 | 单独双击新版 setup.exe，到目录页观察后取消。 | 自动识别本机已有安装目录，优先有效注册登记；缺少登记时可识别固定盘标准 Program Files 内同时含程序/卸载器的安装。仍可手动修改。无需为测试删除注册表。 |
+| UH04 | 视口获得焦点，连续按 Ctrl+Space。 | 资产库展开/收起，偏好设置显示相同绑定；未自定义时 Shift+Space 不再切换。 |
+| UH05 | 自定义资产库快捷键、清空或恢复默认。 | 自定义与清空跨启动保留，恢复默认回到 Ctrl+Space。旧配置若将 Ctrl+Space 分给其他功能，保留原功能，资产库回退空闲 Shift+Space 或不绑定，避免抢键。 |
+| UH06 | 帮助 → 检查更新。 | 完成本轮升级后显示最新版。 |
 
-安装结束的“启动 Worldbench”默认不勾选；普通双击安装器后若勾选该项，应以原用户权限启动。配置仍在 Documents/Worldbench，卸载保留原有可选删除配置流程。
+UE 官方参考：[Content Browser / Content Drawer](https://dev.epicgames.com/documentation/en-us/unreal-engine/content-browser-in-unreal-engine?application_version=5.6)。Windows 默认 Ctrl+Space，Mac 为 Cmd+Space。
 
 ## 开发方验证
 
-Windows x64 与 Inno Setup 编译成功，管理员安装指令及固定盘目录选择逻辑已纳入正式包；更新服务 46 项、更新界面 27 项通过。自签名安装包及 ZIP 已发布，四个资产长度/SHA256 digest、ZIP 内版本/源码/EXE 摘要核对通过。真实 Qt 更新器从公开静态清单发现并下载 pre.3，长度与 SHA256 校验通过。不自动运行 UAC 安装、不覆盖用户安装；真实安装交互待 UG 验收。
+专项检查、安装包编译和公开下载结果完成后补记。实际 UAC 与覆盖升级待用户验证，不改用户安装或原工程。
 
-## WorldPainter 相关进度
+## WorldPainter 复刻进度
 
-本轮只修改安装/升级流程，没有新增 WorldPainter 编辑功能；编辑功能进度继续以 DEVELOPMENT.md 为准。
+本轮仅安装识别与快捷键修正，没有新增地形编辑功能；其他功能进度见 DEVELOPMENT.md。
