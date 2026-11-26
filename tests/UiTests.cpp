@@ -139,6 +139,33 @@ int main(int argc, char **argv) {
         v->setRawInput(false);
         check(QTest::qWaitFor([&] { return !editor.meshBusy() && v->frameCounter()->load() > 0; }, 15000),
               "initial GPU render");
+        if (app.arguments().contains("--drops-only")) {
+            QTemporaryDir files;
+            const auto project = QUrl::fromLocalFile(files.filePath("中文 project.wbench"));
+            check(editor.save(project), "save drop fixture");
+            auto drop = [&](const QList<QUrl> &urls, QPoint point) {
+                QMimeData mime; mime.setUrls(urls);
+                QDragEnterEvent enter(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(win, &enter);
+                check(enter.isAccepted(), "native drag accepted");
+                QDropEvent event(point, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(win, &event);
+                check(event.isAccepted(), "native drop accepted");
+            };
+            drop({project}, v->mapToScene({v->width()*.5,v->height()*.5}).toPoint());
+            check(editor.projectPath() == project.toLocalFile(), "project drop opens native project");
+            check(QTest::qWaitFor([&]{return !editor.meshBusy();},15000), "project settles");
+            auto *shelf=win->findChild<QQuickItem *>("assetShelf");
+            check(shelf, "asset library exists"); shelf->setProperty("expanded",true); QTest::qWait(250);
+            const auto folder=files.filePath("地貌 folder"); check(QDir().mkpath(folder), "create dropped directory");
+            QImage gray(8,8,QImage::Format_Grayscale8); gray.fill(Qt::black);
+            check(gray.save(folder+"/A.png") && gray.save(files.filePath("B.png")), "create file and folder assets");
+            drop({QUrl::fromLocalFile(folder),QUrl::fromLocalFile(files.filePath("B.png"))},
+                 shelf->mapToScene({shelf->width()*.5,shelf->height()*.5}).toPoint());
+            check(editor.world().heights.instances.size()==2, "mixed file and folder drop imports both assets");
+            std::cout << checks << " drop checks passed\n";
+            return 0;
+        }
         if (app.arguments().contains("--preferences-only")) {
             editor.setShortcut("focus", "Ctrl+Space");
             check(editor.shortcut("assetLibrary") == "Shift+Space", "upgrade preserves custom Ctrl Space owner");

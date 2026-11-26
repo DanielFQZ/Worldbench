@@ -1,3 +1,4 @@
+#include "WindowsStartup.h"
 #include "Editor.h"
 #include "Viewport.h"
 #include "UpdateService.h"
@@ -37,7 +38,27 @@ void logMessage(QtMsgType type, const QMessageLogContext &, const QString &messa
 }
 } // namespace
 int main(int argc, char **argv) {
+#ifdef Q_OS_WIN
+    std::wstring startupError;
+    const auto startupResult = wb::startup::ensureDesktopUser(startupError);
+    if (startupResult == wb::startup::Result::Relaunched) return 0;
+    if (startupResult == wb::startup::Result::Failed) {
+        MessageBoxW(nullptr, startupError.c_str(), L"Worldbench startup", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+#endif
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    const auto startupContext = wb::startup::context(GetCurrentProcess());
+    const int probe = app.arguments().indexOf("--startup-check");
+    if (probe >= 0) {
+        QFile report(app.arguments().value(probe + 1));
+        if (!report.open(QIODevice::WriteOnly)) return 2;
+        report.write(QByteArray("{\"elevated\":") + (startupContext.elevated ? "true" : "false") +
+            ",\"integrity\":" + QByteArray::number(startupContext.integrity) + "}");
+        return 0;
+    }
+#endif
     app.setOrganizationName("Worldbench");
     app.setApplicationName("Worldbench");
     app.setApplicationVersion(QStringLiteral(WORLDBENCH_APP_VERSION));
@@ -98,6 +119,10 @@ int main(int argc, char **argv) {
     }
     qInstallMessageHandler(logMessage);
     qInfo("Worldbench %s starting (D3D11 / Qt 6.8.3)", WORLDBENCH_APP_VERSION);
+#ifdef Q_OS_WIN
+    qInfo("Startup security: elevated=%d integrity=%lu pid=%lu", startupContext.elevated,
+          static_cast<unsigned long>(startupContext.integrity), GetCurrentProcessId());
+#endif
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
     QQuickStyle::setStyle("Basic");
     KDDockWidgets::initFrontend(KDDockWidgets::FrontendType::QtQuick);
