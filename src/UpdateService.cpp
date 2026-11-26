@@ -441,6 +441,8 @@ QString UpdateService::installerParameters(const QString &directory, const QStri
 void UpdateService::launchInstaller(const QString &path) {
 #ifdef Q_OS_WIN
     const QString directory = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    QString expectedVersion = m_latestVersion.trimmed();
+    if (expectedVersion.startsWith('v', Qt::CaseInsensitive)) expectedVersion.remove(0, 1);
     const auto downloadDir = QFileInfo(path).dir();
     const QString logPath = downloadDir.filePath("installation.log");
     const QString monitorPath = downloadDir.filePath("WorldbenchInstallMonitor.ps1");
@@ -470,7 +472,7 @@ void UpdateService::launchInstaller(const QString &path) {
     const auto installerPid = GetProcessId(info.hProcess);
     const QStringList arguments{"-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", monitorPath,
         "-InstallerProcessId", QString::number(installerPid), "-InstallDir", directory,
-        "-ExpectedVersion", m_latestVersion, "-LogPath", logPath};
+        "-ExpectedVersion", expectedVersion, "-LogPath", logPath};
     const bool monitoring = installerPid && QProcess::startDetached("powershell.exe", arguments);
     if (info.hProcess) CloseHandle(info.hProcess);
     if (!monitoring) {

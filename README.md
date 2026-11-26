@@ -4,7 +4,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 当前版本
 
-当前公开测试版本为 **0.26.4-pre.6**。Minecraft 资源与导出基线为 **1.20.1**。本版在编辑器入口校验启动权限，纠正安装/更新继承的管理员权限，避免首次启动无法接收资源管理器拖放；保留 UAC 后静默覆盖和校验重启；保留已安装目录识别，资产库默认快捷键改为 UE 的 Ctrl+Space；安装器默认请求 UAC，新安装优先非 C 盘固定磁盘的 Program Files，支持手动选目录；升级保留原目录。保留受保护安装目录的更新权限与回滚修复：自动选用安装器请求授权，可写目录仍使用 ZIP。旧客户端需一次手动安装覆盖原目录。保留快捷键录制与冲突处理、Ctrl+Space 资产库开关、方块网格线开关、工程视角保存和各向异性贴图过滤，保留静态更新清单与跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
+当前公开测试版本为 **0.26.4-pre.7**。Minecraft 资源与导出基线为 **1.20.1**。本版修复安装成功后因版本标签前导 v 导致的校验误报；保留编辑器入口启动权限校验，纠正安装/更新继承的管理员权限，避免首次启动无法接收资源管理器拖放；保留 UAC 后静默覆盖和校验重启；保留已安装目录识别，资产库默认快捷键改为 UE 的 Ctrl+Space；安装器默认请求 UAC，新安装优先非 C 盘固定磁盘的 Program Files，支持手动选目录；升级保留原目录。保留受保护安装目录的更新权限与回滚修复：自动选用安装器请求授权，可写目录仍使用 ZIP。旧客户端需一次手动安装覆盖原目录。保留快捷键录制与冲突处理、Ctrl+Space 资产库开关、方块网格线开关、工程视角保存和各向异性贴图过滤，保留静态更新清单与跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
 
 ## 已实现能力
 
@@ -51,7 +51,7 @@ Worldbench is an open-source 3D terrain and asset editor for large Minecraft wor
 
 ## Current version
 
-The current public preview is **0.26.4-pre.6**. In-app installer updates now run silently after UAC and restart normally only after validation. The standalone installer requests administrator authorization by default and prefers Program Files on a non-C fixed drive for new installs, with manual directory selection and existing-path preservation for upgrades. It retains fixes for updates in protected installation folders by selecting the installer with Windows authorization, and hardens ZIP preflight and rollback. Older clients need one manual installer run. It retains shortcut capture with conflict handling, Ctrl+Space asset-library access, a block-grid toggle, saved project cameras, and anisotropic texture filtering. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
+The current public preview is **0.26.4-pre.7**. In-app installer updates now run silently after UAC and restart normally only after validation. The standalone installer requests administrator authorization by default and prefers Program Files on a non-C fixed drive for new installs, with manual directory selection and existing-path preservation for upgrades. It retains fixes for updates in protected installation folders by selecting the installer with Windows authorization, and hardens ZIP preflight and rollback. Older clients need one manual installer run. It retains shortcut capture with conflict handling, Ctrl+Space asset-library access, a block-grid toggle, saved project cameras, and anisotropic texture filtering. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
 
 ## Features
 

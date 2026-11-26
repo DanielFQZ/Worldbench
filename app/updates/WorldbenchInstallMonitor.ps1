@@ -29,7 +29,13 @@ public static class WorldbenchInstallWait {
         if ($code -ne 0) { throw "Installer failed with exit code $code. Check installation.log." }
     } finally { [WorldbenchInstallWait]::CloseHandle($handle) | Out-Null }
     $info = Get-Content -LiteralPath (Join-Path $InstallDir 'build-info.json') -Raw | ConvertFrom-Json
-    if ($info.version -ne $ExpectedVersion) { throw 'Installed version does not match downloaded update.' }
+    # GitHub tags use a leading v; build-info stores the application version.
+    # Strip only that presentation prefix, never prerelease/build components.
+    $actualVersion = ([string]$info.version).Trim() -replace '^[vV]', ''
+    $wantedVersion = $ExpectedVersion.Trim() -replace '^[vV]', ''
+    if ([string]::IsNullOrWhiteSpace($actualVersion) -or $actualVersion -cne $wantedVersion) {
+        throw "Installed version '$($info.version)' does not match expected '$ExpectedVersion'."
+    }
     $exe = Join-Path $InstallDir 'Worldbench.exe'
     $stream = [IO.File]::OpenRead($exe)
     $sha = [Security.Cryptography.SHA256]::Create()
