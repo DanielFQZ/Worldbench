@@ -2,23 +2,23 @@
   "schema": 1,
   "releases": [
     {
-      "tag_name": "v0.26.4-pre.6",
+      "tag_name": "v0.26.4-pre.7",
       "draft": false,
       "prerelease": true,
-      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.6",
-      "body": "修复安装或更新后启动链可能继承管理员权限，导致无法接收普通资源管理器拖放的问题。程序在 Qt 初始化前检查实际权限；高权限启动时使用桌面 Explorer 的普通用户令牌重新启动，保留命令行与工程路径。普通启动不额外创建进程，权限无法恢复时明确报错而不打开高权限编辑器。\n\n保留 pre.5 静默更新与更新结果校验。可直接从 pre.5 软件内更新，第一次自动打开后立即测试工程、资产文件和资产文件夹拖放，无需先重启。日志新增权限诊断。\n\n11 项启动检查、正式程序普通权限探针、26 项独立拖放检查通过。现场未捕获到异常首次进程，实际 UAC 降权与首次拖放仍待用户验收。完整 UI 回归存在远程笔刷撤销和资产变换断言失败，已如实记录于 DEVELOPMENT.md。Windows x64，自签名；验收见 TESTING.md（UJ）。",
+      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.7",
+      "body": "修复安装成功后版本校验误报：GitHub 标签带 v，build-info 版本不带 v，旧监视器误判为不同版本并阻止重启。本版在调用方和监视器仅统一前导 v/V，保留真实版本差异、退出码及 EXE SHA256 检查。\n\n现场已确认 pre.6 安装成功，1371 个发布文件逐一核对无差异，可以正常启动，无需回滚或卸载。此前测试漏掉真实标签前缀，本版已补有/无 v、不同 prerelease/build、退出失败与摘要错误回归。\n\n注意：pre.6→pre.7 仍由旧监视器运行，可能安装成功后再误报一次；日志成功且版本为 pre.7 时正常启动即可。修复在 pre.7 发起后续更新时生效。\n\n保留静默安装、普通权限启动与拖放修复。Windows x64，自签名；当前验收见 TESTING.md（UK）。",
       "assets": [
         {
-          "name": "Worldbench-0.26.4-pre.6-setup.exe",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.6/Worldbench-0.26.4-pre.6-setup.exe",
-          "size": 41398984,
-          "digest": "sha256:c1bceac3f7cc57405866c9ad870c6bfde839ace48614118b09b0b6e813d5308b"
+          "name": "Worldbench-0.26.4-pre.7-setup.exe",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.7/Worldbench-0.26.4-pre.7-setup.exe",
+          "size": 41404016,
+          "digest": "sha256:1499040de4133d59695912f7dd50df5f1f71060014a2f6c09b97e8cac60e5c32"
         },
         {
-          "name": "Worldbench-0.26.4-pre.6-win-x64.zip",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.6/Worldbench-0.26.4-pre.6-win-x64.zip",
-          "size": 52591036,
-          "digest": "sha256:c404f372715100c9b9ca54decb14f42275ff3f6d58824ed0ecaf7ac09bf9927c"
+          "name": "Worldbench-0.26.4-pre.7-win-x64.zip",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.7/Worldbench-0.26.4-pre.7-win-x64.zip",
+          "size": 52591230,
+          "digest": "sha256:9d8e9c351959b2b4bd85c0796209a58fd6117e8703cff6df99c28c4a23e12c82"
         }
       ]
     }
