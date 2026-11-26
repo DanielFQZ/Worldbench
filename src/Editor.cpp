@@ -1,4 +1,7 @@
 #include "Editor.h"
+#include "Viewport.h"
+#include <QKeyEvent>
+#include <QKeySequence>
 #include "McpServer.h"
 #include "core/Project.h"
 #include "core/RenderSupport.h"
@@ -27,7 +30,8 @@ QString defaultShortcut(const QString &action) {
         {"rotateGizmo", "E"},        {"scaleGizmo", "R"}, {"toolCycle", "1"},
         {"toolFlatten", "2"},        {"toolCarve", "3"},  {"toolFill", "4"},
         {"toolPaint", "5"},          {"toolSmooth", "6"}, {"toolSelect", "7"},
-        {"toolNavigate", "0"}};
+        {"toolNavigate", "0"}, {"assetLibrary", "Shift+Space"}, {"redoAlternate", "Ctrl+Shift+Z"}, {"cancelSelection", "Esc"},
+        {"brushSmaller", "["}, {"brushLarger", "]"}};
     return defaults.value(action);
 }
 } // namespace
@@ -353,16 +357,15 @@ QString Editor::shortcut(const QString &action) const {
     const auto fallback = defaultShortcut(action);
     if (fallback.isEmpty())
         return {};
-    return QSettings().value("shortcuts/" + action, fallback).toString();
+    return QKeySequence::fromString(QSettings().value("shortcuts/" + action, fallback).toString(),
+                                    QKeySequence::PortableText).toString(QKeySequence::PortableText);
 }
 
 void Editor::setShortcut(const QString &action, const QString &sequence) {
     if (defaultShortcut(action).isEmpty())
         return;
     const auto value = sequence.trimmed();
-    if (value.isEmpty())
-        return;
-    QSettings().setValue("shortcuts/" + action, value);
+    QSettings().setValue("shortcuts/" + action, QKeySequence::fromString(value, QKeySequence::PortableText).toString(QKeySequence::PortableText));
     emit shortcutsChanged();
     emit changed();
 }
@@ -375,12 +378,37 @@ void Editor::resetShortcuts() {
           QStringLiteral("focus"), QStringLiteral("translateGizmo"), QStringLiteral("rotateGizmo"),
           QStringLiteral("scaleGizmo"), QStringLiteral("toolCycle"), QStringLiteral("toolFlatten"),
           QStringLiteral("toolCarve"), QStringLiteral("toolFill"), QStringLiteral("toolPaint"),
-          QStringLiteral("toolSmooth"), QStringLiteral("toolSelect"), QStringLiteral("toolNavigate")})
+          QStringLiteral("toolSmooth"), QStringLiteral("toolSelect"), QStringLiteral("toolNavigate"), QStringLiteral("assetLibrary"), QStringLiteral("redoAlternate"),
+          QStringLiteral("cancelSelection"), QStringLiteral("brushSmaller"), QStringLiteral("brushLarger")})
         settings.remove("shortcuts/" + action);
     emit shortcutsChanged();
     emit changed();
 }
+void Editor::setShortcutRecording(bool recording) {
+    if (m_shortcutRecording == recording) return;
+    m_shortcutRecording = recording;
+    if (recording) qApp->installEventFilter(this);
+    else qApp->removeEventFilter(this);
+    emit shortcutRecordingChanged();
+}
+bool Editor::eventFilter(QObject *object, QEvent *event) {
+    if (m_shortcutRecording) {
+        if (event->type() == QEvent::ShortcutOverride) { event->accept(); return true; }
+        if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (event->type() == QEvent::KeyPress && !key->isAutoRepeat() &&
+                key->key() != Qt::Key_unknown && key->key() != Qt::Key_Shift &&
+                key->key() != Qt::Key_Control && key->key() != Qt::Key_Alt &&
+                key->key() != Qt::Key_Meta && key->key() != Qt::Key_AltGr) {
+                emit shortcutCaptured(QKeySequence(key->keyCombination()).toString(QKeySequence::PortableText));
+            }
+            event->accept(); return true;
+        }
+    }
+    return QObject::eventFilter(object, event);
+}
 Editor::~Editor() {
+    if (m_shortcutRecording) qApp->removeEventFilter(this);
     if (m_meshCancel)
         m_meshCancel->store(true);
     if (m_regionControl)
@@ -719,6 +747,8 @@ bool Editor::save(const QUrl &url) {
     if (!path.endsWith(".wbench", Qt::CaseInsensitive))
         path += ".wbench";
     QString error;
+    if (auto *viewport = qobject_cast<Viewport *>(m_cameraController.data()))
+        m_world.savedCamera = viewport->cameraState();
     if (!wb::saveProject(path, m_world, error)) {
         emit failure(error);
         return false;

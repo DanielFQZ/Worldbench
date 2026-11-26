@@ -58,6 +58,8 @@ struct GpuChunk {
     int opaqueCount = 0, transparentCount = 0, waterCount = 0, indexCount = 0;
 };
 class Renderer final : public QQuickRhiItemRenderer {
+    int m_textureAnisotropy = 8;
+    bool m_blockGrid = false;
     QRhi *m_rhi = nullptr;
     std::unique_ptr<QRhiBuffer> m_uniform, m_reflectionUniform;
     std::array<std::unique_ptr<QRhiBuffer>, 2> m_shadowUniform;
@@ -293,7 +295,12 @@ class Renderer final : public QQuickRhiItemRenderer {
                     qFatal("Unable to create sampler");
                 return s;
             };
-            m_atlasSampler = sampler(QRhiSampler::Nearest, QRhiSampler::Linear);
+            // The shader preserves magnified pixel art using texelFetch, then blends
+            // to trilinear filtering before the texture reaches pixel frequency.
+            m_atlasSampler.reset(rhi()->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                                  QRhiSampler::Linear, QRhiSampler::ClampToEdge,
+                                                  QRhiSampler::ClampToEdge));
+            if (!m_atlasSampler->create()) qFatal("Unable to create atlas sampler");
             m_nearest = sampler(QRhiSampler::Nearest, QRhiSampler::None);
             m_linear = sampler(QRhiSampler::Linear, QRhiSampler::None);
             m_surfaceSampler = sampler(QRhiSampler::Linear, QRhiSampler::Linear);
@@ -387,6 +394,8 @@ class Renderer final : public QQuickRhiItemRenderer {
             m_creation = v->editor()->renderCreation();
             updateBounds(*v);
             m_environment = v->editor()->world().environment;
+            m_blockGrid = v->blockGrid();
+            m_textureAnisotropy = v->textureAnisotropy();
             m_radius = v->editor()->radius();
             m_tool = v->editor()->tool();
             m_brushShape = v->editor()->brushShape();
@@ -500,6 +509,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         u[138] = m_environment.waterFoamWidth / 64.f;
         u[139] = m_environment.clouds && m_environment.sky;
         u[140] = m_skyTextureValid && !m_skyTexturePath.isEmpty() && m_environment.sky;
+        u[141] = float(m_textureAnisotropy);
         u[144] = m_environment.waterFogDensity / 100.f;
         u[145] = float(m_environment.waterFogStart);
         u[146] = m_environment.water;
@@ -508,6 +518,7 @@ class Renderer final : public QQuickRhiItemRenderer {
         color(156, m_environment.waterReflectionColor, 1);
         color(160, m_environment.waterFoamColor, 1);
         u[166] = float(m_atlas->pixelSize().width());
+        u[167] = m_blockGrid;
         u[164] = 1.f / m_shadowSizes[1];
         QMatrix4x4 identity;
         std::memcpy(u.data() + 168, identity.constData(), 64);

@@ -17,6 +17,7 @@ class McpServer;
 
 class Editor : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool shortcutRecording READ shortcutRecording WRITE setShortcutRecording NOTIFY shortcutRecordingChanged)
     Q_PROPERTY(int tool READ tool WRITE setTool NOTIFY changed)
     Q_PROPERTY(int radius READ radius WRITE setRadius NOTIFY changed)
     Q_PROPERTY(int strength READ strength WRITE setStrength NOTIFY changed)
@@ -238,6 +239,9 @@ class Editor : public QObject {
     Q_INVOKABLE QString shortcut(const QString &action) const;
     Q_INVOKABLE void setShortcut(const QString &action, const QString &sequence);
     Q_INVOKABLE void resetShortcuts();
+    bool shortcutRecording() const { return m_shortcutRecording; }
+    void setShortcutRecording(bool recording);
+    bool eventFilter(QObject *object, QEvent *event) override;
     void setCameraController(QObject *controller) {
         m_cameraController = controller;
         emit changed();
@@ -291,6 +295,8 @@ class Editor : public QObject {
     void changed();
     void placementChanged();
     void shortcutsChanged();
+    void shortcutRecordingChanged();
+    void shortcutCaptured(const QString &sequence);
     void sceneChanged();
     void worldReset();
     void failure(const QString &message);
@@ -303,6 +309,7 @@ class Editor : public QObject {
     void regionProgressChanged();
 
   private:
+    bool m_shortcutRecording = false;
     bool startHeightRegion(const QRect &area, int offset, QString &error);
     QJsonObject regionJobInfo() const;
     void dirtyAll();

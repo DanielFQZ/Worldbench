@@ -61,6 +61,7 @@ QJsonObject projectMetadata(const World &w, bool inlinePayload) {
                      {"resources", paths},
                      {"resourceVersion", w.resourceVersion}};
     root["creation"] = saveCreation(w.creation);
+    if (!w.savedCamera.isEmpty()) root["camera"] = w.savedCamera;
     return root;
 }
 bool loadLegacyProject(const QString &path, World &world, QString &error) {
@@ -95,6 +96,14 @@ bool decodeProjectMetadata(const QJsonObject &o, World &world, QString &error, P
         return false;
     };
     World w;
+    const auto camera = o["camera"].toObject();
+    const auto position = camera["position"].toArray();
+    auto finite = [](const QJsonValue &v, double limit) {
+        return v.isDouble() && std::isfinite(v.toDouble()) && std::abs(v.toDouble()) <= limit;
+    };
+    if (position.size() == 3 && finite(position[0], 1000000) && finite(position[1], 1000000) &&
+        finite(position[2], 1000000) && finite(camera["yaw"], 360000) && finite(camera["pitch"], 89))
+        w.savedCamera = {{"position", position}, {"yaw", camera["yaw"]}, {"pitch", camera["pitch"]}};
     auto integer = [&](const QJsonValue &v, int lo, int hi) {
         return v.isDouble() && v.toDouble() == v.toInt(INT_MIN) && v.toInt() >= lo && v.toInt() <= hi;
     };

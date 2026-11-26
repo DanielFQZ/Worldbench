@@ -49,6 +49,53 @@ int main(int argc, char **argv) {
                   "updated frame renders");
             QTest::qWait(60);
         };
+        if (app.arguments().contains("--display-options")) {
+            check(editor.createWorld(128, 42, 24, 0, -60, true, 128), "create filter fixture");
+            settle();
+            QImage tile(32,32,QImage::Format_RGBA8888);
+            for(int y=0;y<32;++y)for(int x=0;x<32;++x)
+                tile.setPixelColor(x,y,((x+y)%2)?QColor(220,220,220):QColor(30,30,30));
+            QByteArray png;QBuffer buffer(&png);buffer.open(QIODevice::WriteOnly);
+            check(tile.save(&buffer,"PNG"), "encode frequency fixture");
+            const auto pack=temp.filePath("filter.zip");
+            QZipWriter zip(pack);
+            zip.addFile("assets/minecraft/textures/block/grass_block_top.png",png);zip.close();
+            editor.importResource(QUrl::fromLocalFile(pack),false);settle();
+            editor.setEnvironment({{"enabled",false},{"atmosphere",false},{"water",false}});
+            v->applyCamera({{"position",QJsonArray{.5,27.5,30.5}},{"yaw",0},{"pitch",-12}});
+            v->setBlockGrid(false);v->setTextureAnisotropy(1);settle();
+            const auto isotropic=window.grabWindow();
+            v->setTextureAnisotropy(8);settle();
+            const auto anisotropic=window.grabWindow();
+            double delta=0;int count=0;
+            for(int y=350;y<700;++y)for(int x=200;x<1000;++x){
+                delta+=std::abs(qGray(isotropic.pixel(x,y))-qGray(anisotropic.pixel(x,y)));++count;
+            }
+            check(delta/count>.1, "filtering changes actual grazing-angle GPU pixels");
+            check(isotropic.save("test-output/filter-1x.png")&&anisotropic.save("test-output/filter-8x.png"), "capture filter comparison");
+            for(bool lit:{false,true}){
+                editor.setEnvironment({{"enabled",lit}});
+                v->applyCamera({{"position",QJsonArray{.5,38,12.5}},{"yaw",0},{"pitch",-55}});
+                v->setBlockGrid(false);settle();const auto off=window.grabWindow();
+                v->setBlockGrid(true);settle();const auto on=window.grabWindow();
+                int darkened=0,brightened=0;
+                for(int y=300;y<700;++y)for(int x=250;x<1000;++x){
+                    int change=qGray(off.pixel(x,y))-qGray(on.pixel(x,y));
+                    darkened+=change>1;brightened+=change< -1;
+                }
+                std::cout<<"grid lit="<<lit<<" darkened="<<darkened<<" brightened="<<brightened<<std::endl;
+                check(darkened>1000 && brightened<100, "grid only darkens edges in lit and unlit modes");
+                check(on.save(QString("test-output/grid-%1-on.png").arg(lit))&&off.save(QString("test-output/grid-%1-off.png").arg(lit)), "capture grid comparison");
+                v->setBlockGrid(false);settle();
+                const auto restored=window.grabWindow();
+                double restoredDelta=0;
+                for(int y=300;y<700;++y)for(int x=250;x<1000;++x)
+                    restoredDelta+=std::abs(qGray(restored.pixel(x,y))-qGray(off.pixel(x,y)));
+                std::cout<<"restored delta="<<restoredDelta/300000<<std::endl;
+                check(restoredDelta/300000<.1,"grid disable restores original ground pixels");
+            }
+            std::cout<<checks<<" display checks passed"<<std::endl;return 0;
+        }
         auto groundVisible = [&](const QString &label) {
             settle();
             const auto img = window.grabWindow();

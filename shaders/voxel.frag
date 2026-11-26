@@ -5,7 +5,7 @@ layout(location=2) in vec4 baseColor;
 layout(location=3) in vec2 textureUV;
 layout(binding=1) uniform sampler2D atlas;
 layout(location=0) out vec4 fragColor;
-layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;vec4 waterFog;vec4 waterFogColor;vec4 waterTint;vec4 waterReflectionTint;vec4 waterFoamColor;vec4 renderData;mat4 model;} u;
+layout(std140,binding=0) uniform Scene {mat4 mvp;vec4 camera;vec4 brush;vec4 params;vec4 selection;vec4 flags;vec4 sunDirection;vec4 skyColor;vec4 groundColor;vec4 sunColor;vec4 horizonColor;vec4 envFlags;mat4 inverseView;mat4 shadowNearMatrix;mat4 shadowFarMatrix;mat4 reflectionMatrix;vec4 water;vec4 effects;vec4 shadowData;vec4 skyEffects;float skyTextureEnabled;float textureAnisotropy;vec4 waterFog;vec4 waterFogColor;vec4 waterTint;vec4 waterReflectionTint;vec4 waterFoamColor;vec4 renderData;mat4 model;} u;
 
 layout(binding=2) uniform sampler2D shadowNear;
 layout(binding=3) uniform sampler2D shadowFar;
@@ -36,21 +36,50 @@ float shadowVisibility(vec3 position, vec3 normal) {
     return mix(farLight,nearLight,smoothstep(.01,.08,margin));
 }
 
+// QRhi 6.8 has no anisotropy sampler setting. Integrate the pixel footprint
+// along its major axis with at most 8 mip-filtered taps. Clamp each atlas tap
+// to the current 32px tile, including the selected mip's texel border.
+vec4 filteredTexture(){
+    vec2 size=vec2(textureSize(atlas,0));
+    vec2 dx=dFdx(textureUV)*size, dy=dFdy(textureUV)*size;
+    float a=dx.x*dx.x+dy.x*dy.x, b=dx.x*dx.y+dy.x*dy.y;
+    float c=dx.y*dx.y+dy.y*dy.y;
+    float disc=sqrt(max(0.0,(a-c)*(a-c)+4.0*b*b));
+    float major=sqrt(max(1e-8,.5*(a+c+disc)));
+    float minor=sqrt(max(1.0,.5*(a+c-disc)));
+    vec2 axis=abs(b)>1e-6?normalize(vec2(b,.5*(c-a+disc))):(a>=c?vec2(1,0):vec2(0,1));
+    float limit=clamp(u.textureAnisotropy,1.0,8.0);
+    minor=max(minor,major/limit);
+    int taps=int(clamp(ceil(major/minor),1.0,8.0));
+    float lod=log2(minor);
+    bool blockAtlas=all(equal(size,vec2(u.renderData.z)));
+    if(blockAtlas)lod=min(lod,5.0);
+    vec2 tile=floor(textureUV*size/32.0)*32.0;
+    float border=.5*exp2(ceil(lod));
+    vec4 result=vec4(0);
+    if(textureUV.x<0.0)return vec4(1);
+    for(int i=0;i<taps;++i){
+        vec2 uv=textureUV+axis*((float(i)+.5)/float(taps)-.5)*major/size;
+        if(blockAtlas)uv=clamp(uv,(tile+border)/size,(tile+32.0-border)/size);
+        result+=textureLod(atlas,uv,lod);
+    }
+    result/=float(taps);
+    if(blockAtlas && major<1.0){
+        vec4 pixel=texelFetch(atlas,ivec2(clamp(textureUV*size,vec2(0),size-1.0)),0);
+        result=mix(pixel,result,smoothstep(.5,1.0,major));
+    }
+    return result;
+}
 void main(){
     if(u.effects.z>.5 && worldPos.y<u.water.w-.02)discard;
-    vec2 size = vec2(textureSize(atlas, 0));
-    vec2 dx = dFdx(textureUV) * size, dy = dFdy(textureUV) * size;
-    float lod = .5 * log2(max(1., max(dot(dx, dx), dot(dy, dy))));
-    // Block atlas has 32px aligned tiles. Terrain color pages have their own mip chain.
-    if (all(equal(size, vec2(u.renderData.z)))) lod = min(lod, 5.);
-    vec4 sampled=(textureUV.x<0.0 ? vec4(1.0) : textureLod(atlas, textureUV, lod))*baseColor;
+    vec4 sampled = filteredTexture() * baseColor;
     if(sampled.a<0.05)discard;
     float light=0.52+0.48*max(0.0,dot(faceNormal,normalize(vec3(-0.45,0.85,0.3))));
     vec3 col=sampled.rgb*light;
     vec2 uv=abs(faceNormal.y)>0.5?worldPos.xz:(abs(faceNormal.x)>0.5?worldPos.zy:worldPos.xy);
     vec2 cell=abs(fract(uv-0.5)-0.5)/max(fwidth(uv),vec2(0.0001));
     float edge=1.0-smoothstep(0.0,0.65,min(cell.x,cell.y));
-    col*=1.0-edge*0.17*(1.0-smoothstep(100.0,300.0,distance(worldPos,u.camera.xyz)));
+
     if(u.sunColor.w>0.5){
         vec3 ambient=mix(u.groundColor.rgb,u.skyColor.rgb,faceNormal.y*.5+.5)*u.skyColor.w;
         vec3 direct=u.sunColor.rgb*max(0.0,dot(faceNormal,u.sunDirection.xyz))*u.sunDirection.w*shadowVisibility(worldPos,faceNormal);
@@ -67,6 +96,8 @@ void main(){
         }
         col=col/(vec3(1.0)+col*.35);
     }
+    if(u.renderData.w>.5)
+        col*=1.0-edge*.17*(1.0-smoothstep(100.0,300.0,distance(worldPos,u.camera.xyz)));
     // Beer-Lambert extinction along the actual visible ray inside the water.
     // The terrain/structures below the surface are fogged, not the surface alpha.
     if(u.waterFog.z>.5 && min(worldPos.y,u.camera.y)<u.water.w){

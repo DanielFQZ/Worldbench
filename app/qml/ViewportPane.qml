@@ -12,6 +12,7 @@ Rectangle {
     signal assetRequested(string id)
     signal importRequested()
     signal graphRequested(bool material)
+    function toggleAssetLibrary(){assetShelf.expanded=!assetShelf.expanded}
     function focusViewport(){viewport.forceActiveFocus()}
     ColumnLayout {
         anchors.fill:parent;spacing:1
@@ -28,6 +29,7 @@ Rectangle {
                 }
                 ViewportIconButton {objectName:"snapToggle";glyph:"magnet";hint:"变换吸附 · 位移4格 / 旋转15° / 缩放10%（Ctrl临时开启）";checkable:true;checked:viewport.snapEnabled;onClicked:{viewport.snapEnabled=!viewport.snapEnabled;viewport.forceActiveFocus()}}
                 Rectangle{Layout.preferredWidth:1;Layout.preferredHeight:16;color:Theme.border;Layout.margins:5}
+                ViewportIconButton {objectName:"blockGridToggle";glyph:"grid";hint:"显示 / 隐藏方块网格线";checkable:true;checked:viewport.blockGrid;onClicked:viewport.blockGrid=!viewport.blockGrid}
                 ViewportIconButton {objectName:"environmentToggle";glyph:"sun";hint:"环境光照预览 · 参数见环境组件";checkable:true;checked:editor.environmentDetails.enabled;onClicked:editor.setEnvironment({enabled:!editor.environmentDetails.enabled})}
                 ViewportIconButton {objectName:"frameWorld";glyph:"map";hint:"显示全图 · 双击远处地表进入精确编辑";onClicked:{viewport.frameWorld();viewport.forceActiveFocus()}}
                 ViewportIconButton {glyph:"focus";hint:"聚焦 · F";onClicked:{viewport.focusTarget();viewport.forceActiveFocus()}}

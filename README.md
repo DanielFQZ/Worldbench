@@ -4,7 +4,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 当前版本
 
-当前公开测试版本为 **0.26.3-pre.2**。Minecraft 资源与导出基线为 **1.20.1**。本版修复 GitHub API 限流导致的更新失败，保留旧工程材质修复和跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
+当前公开测试版本为 **0.26.4-pre.1**。Minecraft 资源与导出基线为 **1.20.1**。本版增加快捷键录制与冲突处理、Shift+Space 资产库开关、方块网格线开关、工程视角保存和各向异性贴图过滤，保留静态更新清单与跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
 
 ## 已实现能力
 
@@ -51,7 +51,7 @@ Worldbench is an open-source 3D terrain and asset editor for large Minecraft wor
 
 ## Current version
 
-The current public preview is **0.26.3-pre.2**. This build fixes update checks failing under GitHub API rate limits, and retains the terrain-texture fix and persistent resource cache. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
+The current public preview is **0.26.4-pre.1**. This build adds shortcut capture with conflict handling, Shift+Space asset-library access, a block-grid toggle, saved project cameras, and anisotropic texture filtering. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
 
 ## Features
 

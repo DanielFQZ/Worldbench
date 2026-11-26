@@ -1,6 +1,7 @@
 import "Theme.js" as Theme
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
@@ -10,6 +11,52 @@ Item {
     property string page: "camera"
     property int pageIndex: page === "camera" ? 0 : page === "performance" ? 1 : page === "shortcuts" ? 2 : 3
 
+    property int shortcutRevision: 0
+    Connections {target:editor;function onShortcutsChanged(){panel.shortcutRevision++}}
+    function binding(action){shortcutRevision;return editor.shortcut(action)}
+    function recordShortcut(action,label){
+        capture.action=action;capture.actionLabel=label;capture.candidate=editor.shortcut(action)
+        capture.conflicts=[];capture.open()
+    }
+    Controls.Dialog {
+        id:capture;objectName:"shortcutCaptureDialog";parent:Overlay.overlay
+        width:460;anchors.centerIn:parent;modal:true;focus:true;closePolicy:Popup.NoAutoClose
+        title:"快捷键 · "+actionLabel
+        property string action:""
+        property string actionLabel:""
+        property string candidate:""
+        property var conflicts:[]
+        function saveBinding(){
+            const found=[]
+            if(candidate.length) for(let i=0;i<shortcutModel.count;++i){
+                const row=shortcutModel.get(i)
+                if(row.action!==action && editor.shortcut(row.action)===candidate)found.push({action:row.action,label:row.label})
+            }
+            conflicts=found
+            if(!found.length) commitBinding()
+        }
+        function commitBinding(){
+            for(const row of conflicts)editor.setShortcut(row.action,"")
+            editor.setShortcut(action,candidate);close()
+        }
+        onAboutToShow:editor.shortcutRecording=true
+        onClosed:editor.shortcutRecording=false
+        Component.onDestruction:editor.shortcutRecording=false
+        Connections {target:editor;function onShortcutCaptured(sequence){if(capture.visible&&!capture.conflicts.length)capture.candidate=sequence}}
+        contentItem:ColumnLayout {
+            spacing:16
+            Label {text:capture.conflicts.length?"此快捷键已被占用":"按下需要绑定的快捷键";color:Theme.text;font.pixelSize:17;Layout.fillWidth:true}
+            Label {objectName:"shortcutCandidate";text:capture.candidate||"未绑定";color:Theme.accent;font.pixelSize:22;Layout.fillWidth:true}
+            Label {visible:capture.conflicts.length>0;text:"占用功能："+capture.conflicts.map(row=>row.label).join("、")+"\n确认将解除以上绑定，优先绑定到“"+capture.actionLabel+"”。";wrapMode:Text.WordWrap;color:Theme.secondary;Layout.fillWidth:true}
+            RowLayout {
+                Layout.fillWidth:true
+                WorkbenchButton {objectName:"shortcutClear";text:"清除绑定";visible:!capture.conflicts.length;onClicked:capture.candidate=""}
+                Item {Layout.fillWidth:true}
+                WorkbenchButton {objectName:"shortcutCancel";text:"取消";onClicked:capture.close()}
+                WorkbenchButton {objectName:"shortcutSave";text:capture.conflicts.length?"确认":"保存";onClicked:capture.conflicts.length?capture.commitBinding():capture.saveBinding()}
+            }
+        }
+    }
     RowLayout {
         anchors.fill: parent
         spacing: 0
@@ -86,6 +133,9 @@ Item {
                     Label { text: "性能与精度"; font.pixelSize: 19; color: Theme.text; Layout.margins: 20; Layout.bottomMargin: 0 }
                     WorkbenchCheckBox { text: "4× 多重采样抗锯齿"; checked: editor.cameraController ? editor.cameraController.antialiasing : true; Layout.leftMargin: 20; onToggled: if (editor.cameraController) editor.cameraController.antialiasing = checked }
                     Label { text: "使用视口原生多重采样平滑体素轮廓和水面边缘。关闭后使用单采样，可在低端设备上节省显存与带宽。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: Theme.secondary }
+                    Label {text:"方块贴图各向异性过滤";Layout.leftMargin:20;color:Theme.text}
+                    WorkbenchComboBox {objectName:"textureAnisotropy";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;model:["关闭 · 常规 MIP","4× · 均衡","8× · 清晰（默认）"];currentIndex:editor.cameraController?(editor.cameraController.textureAnisotropy===8?2:editor.cameraController.textureAnisotropy===4?1:0):2;onActivated:if(editor.cameraController)editor.cameraController.textureAnisotropy=[1,4,8][currentIndex]}
+                    Label {text:"斜视地面时沿像素覆盖方向过滤贴图，减少闪烁与摩尔纹；8× 需要更多纹理采样。";wrapMode:Text.WordWrap;Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;color:Theme.secondary}
                     Label {text:"视口渲染比例 · "+(editor.cameraController?editor.cameraController.renderScale:100)+"%";Layout.leftMargin:20;color:Theme.text}
                     WorkbenchSlider {objectName:"renderScale";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;from:50;to:100;stepSize:5;value:editor.cameraController?editor.cameraController.renderScale:100;onMoved:if(editor.cameraController)editor.cameraController.renderScale=Math.round(value)}
                     Label {text:"只缩放3D像素缓冲，界面文字、命中位置和地形精度不变。大窗口GPU耗时较高时可试75%。这是空间缩放，不是DLSS/FSR或插帧。";Layout.fillWidth:true;Layout.leftMargin:20;Layout.rightMargin:20;wrapMode:Text.WordWrap;color:Theme.secondary}
@@ -105,14 +155,19 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 8
                     Label { text: "快捷键绑定"; font.pixelSize: 19; color: Theme.text; Layout.margins: 20; Layout.bottomMargin: 0 }
-                    Label { text: "修改后立即保存为本机偏好；输入 Qt 支持的组合键，例如 Ctrl+Shift+S。视口内的 W/E/R 也会同步用于操纵器切换。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: Theme.secondary }
+                    Label { text: "点击绑定按钮后按下组合键，再保存。冲突时确认可解除原功能绑定，取消则不修改。录制时不会执行快捷键；支持清空绑定。"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20; color: Theme.secondary }
                     ListModel { id: shortcutModel
                         ListElement { action: "save"; label: "保存工程" }
                         ListElement { action: "open"; label: "打开工程" }
                         ListElement { action: "new"; label: "新建工程" }
                         ListElement { action: "undo"; label: "撤销" }
                         ListElement { action: "redo"; label: "重做" }
+                        ListElement { action: "redoAlternate"; label: "重做（备用）" }
+                        ListElement { action: "assetLibrary"; label: "展开 / 收起资产库" }
                         ListElement { action: "clearSelection"; label: "清除选区" }
+                        ListElement { action: "cancelSelection"; label: "取消选择 / 当前操作" }
+                        ListElement { action: "brushSmaller"; label: "减小笔刷" }
+                        ListElement { action: "brushLarger"; label: "增大笔刷" }
                         ListElement { action: "deleteTerrain"; label: "删除地貌实例" }
                         ListElement { action: "focus"; label: "聚焦" }
                         ListElement { action: "translateGizmo"; label: "位移操纵器" }
@@ -129,12 +184,10 @@ Item {
                     }
                     Repeater { model: shortcutModel; delegate: RowLayout { required property string action; required property string label; Layout.fillWidth: true; Layout.leftMargin: 20; Layout.rightMargin: 20
                         Label { text: label; Layout.fillWidth: true; color: Theme.text }
-                        WorkbenchTextField {
-                            id: shortcutInput
-                            property string key: action
-                            text: editor.shortcut(key); selectByMouse: true; Layout.preferredWidth: 170
-                            onEditingFinished: editor.setShortcut(key, text)
-                            Connections { target: editor; function onShortcutsChanged() { shortcutInput.text = editor.shortcut(shortcutInput.key) } }
+                        WorkbenchButton {
+                            objectName:"shortcutBind-"+action
+                            text: panel.binding(action)||"未绑定";Layout.preferredWidth:170
+                            onClicked:panel.recordShortcut(action,label)
                         }
                     }}
                     WorkbenchButton { text: "恢复默认快捷键"; Layout.leftMargin: 20; onClicked: editor.resetShortcuts() }

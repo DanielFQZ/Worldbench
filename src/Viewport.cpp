@@ -33,6 +33,9 @@ bool matchesShortcut(const QKeyEvent *event, const QString &sequence) {
 } // namespace
 
 Viewport::Viewport(QQuickItem *parent) : QQuickRhiItem(parent) {
+    m_textureAnisotropy = QSettings().value("rendering/textureAnisotropy", 8).toInt();
+    if (m_textureAnisotropy != 1 && m_textureAnisotropy != 4 && m_textureAnisotropy != 8) m_textureAnisotropy = 8;
+    m_blockGrid = QSettings().value("rendering/blockGrid", false).toBool();
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton | Qt::MiddleButton);
     setAcceptHoverEvents(true);
     setFlag(ItemIsFocusScope);
@@ -104,6 +107,18 @@ void Viewport::setShadowQuality(int value) {
     update();
     emit cameraChanged();
 }
+void Viewport::setTextureAnisotropy(int value) {
+    if ((value != 1 && value != 4 && value != 8) || value == m_textureAnisotropy) return;
+    m_textureAnisotropy = value;
+    QSettings().setValue("rendering/textureAnisotropy", value);
+    emit cameraChanged(); update();
+}
+void Viewport::setBlockGrid(bool enabled) {
+    if (m_blockGrid == enabled) return;
+    m_blockGrid = enabled;
+    QSettings().setValue("rendering/blockGrid", enabled);
+    emit cameraChanged(); update();
+}
 void Viewport::setAntialiasing(bool enabled) {
     const bool current = sampleCount() > 1;
     if (current == enabled)
@@ -150,7 +165,10 @@ void Viewport::setEditor(Editor *e) {
             update();
             emit cameraChanged();
         });
-        connect(e, &Editor::worldReset, this, &Viewport::resetCamera);
+        connect(e, &Editor::worldReset, this, [this] {
+            if (m_editor->world().savedCamera.isEmpty()) resetCamera();
+            else applyCamera(m_editor->world().savedCamera);
+        });
         if (e->inspectionOnly())
             resetCamera();
     }
@@ -683,7 +701,7 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
-    if (e->key() == Qt::Key_Escape) {
+    if (matchesShortcut(e, m_editor->shortcut("cancelSelection"))) {
         if (!m_gizmoDragging && m_editor->placementAsset().isEmpty() && !m_sculpting && !m_altNav)
             m_editor->setSelectedNode({});
         m_editor->beginPlacement("");
@@ -699,12 +717,12 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         e->accept();
         return;
     }
-    if (e->key() == Qt::Key_BracketLeft) {
+    if (matchesShortcut(e, m_editor->shortcut("brushSmaller"))) {
         m_editor->setRadius(m_editor->radius() - 1);
         e->accept();
         return;
     }
-    if (e->key() == Qt::Key_BracketRight) {
+    if (matchesShortcut(e, m_editor->shortcut("brushLarger"))) {
         m_editor->setRadius(m_editor->radius() + 1);
         e->accept();
         return;
@@ -907,6 +925,10 @@ void Viewport::navigate(float dx, float dy) {
     }
     changedCamera();
 }
+QJsonObject Viewport::cameraState() const {
+    return {{"position", QJsonArray{m_camera.x(), m_camera.y(), m_camera.z()}},
+            {"yaw", double(m_yaw)}, {"pitch", double(m_pitch)}};
+}
 void Viewport::applyCamera(const QJsonObject &a) {
     if (a.isEmpty())
         return;
@@ -936,6 +958,7 @@ void Viewport::applyCamera(const QJsonObject &a) {
     m_camera = camera;
     m_yaw = yaw;
     m_pitch = pitch;
+    m_pivot = m_camera + forward() * 75.f;
     changedCamera();
 }
 

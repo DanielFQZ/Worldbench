@@ -86,6 +86,9 @@ int main(int argc, char **argv) {
     KDDockWidgets::QtQuick::Platform::instance()->setQmlEngine(&engine);
     engine.rootContext()->setContextProperty("editor", &editor);
     engine.rootContext()->setContextProperty("updater", &updater);
+    QObject::connect(&engine, &QQmlEngine::warnings, [](const QList<QQmlError> &errors) {
+        for (const auto &error : errors) std::cerr << error.toString().toStdString() << std::endl;
+    });
     engine.load(QUrl("qrc:/main.qml"));
     try {
         QJSEngine expressionEngine;
@@ -136,6 +139,76 @@ int main(int argc, char **argv) {
         v->setRawInput(false);
         check(QTest::qWaitFor([&] { return !editor.meshBusy() && v->frameCounter()->load() > 0; }, 15000),
               "initial GPU render");
+        if (app.arguments().contains("--preferences-only")) {
+            auto *shelf = win->findChild<QQuickItem *>("assetShelf");
+            check(shelf, "asset shelf exists");
+            v->forceActiveFocus();
+            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);
+            QTest::qWait(80);
+            check(shelf->property("expanded").toBool(), "Shift Space opens shelf");
+            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);
+            QTest::qWait(80);
+            check(!shelf->property("expanded").toBool(), "Shift Space closes shelf");
+            auto *settings = win->findChild<QObject *>("settingsContent");
+            auto *dialog = win->findChild<QObject *>("editorSettingsDialog");
+            check(settings && dialog, "preferences window exists");
+            settings->setProperty("page", "shortcuts");
+            QMetaObject::invokeMethod(dialog, "open");
+            QTest::qWait(120);
+            auto capture = [&](const QString &action, const QString &label) {
+                check(QMetaObject::invokeMethod(settings, "recordShortcut", Q_ARG(QVariant, action), Q_ARG(QVariant, label)), "open key recorder");
+                QTest::qWait(150);
+                check(editor.shortcutRecording(), "recording intercepts keys before shortcuts");
+            };
+            auto click = [&](const QString &name) {
+                auto *button=visualItem(win->contentItem(),name);
+                check(button, "shortcut dialog button exists");
+                QTest::mouseClick(win,Qt::LeftButton,Qt::NoModifier,button->mapToScene({button->width()/2,button->height()/2}).toPoint());
+                QTest::qWait(150);
+            };
+            capture("assetLibrary", "资产库");
+            QTest::keyClick(win, Qt::Key_S, Qt::ControlModifier);
+            check(editor.projectPath().isEmpty(), "recording Ctrl S does not save");
+            click("shortcutSave");
+            check(editor.shortcut("assetLibrary")=="Shift+Space" && editor.shortcut("save")=="Ctrl+S", "conflict changes nothing before confirm");
+            click("shortcutCancel");
+            check(!editor.shortcutRecording() && editor.shortcut("save")=="Ctrl+S", "cancel conflict preserves original binding");
+            capture("assetLibrary", "资产库");
+            QTest::keyClick(win, Qt::Key_S, Qt::ControlModifier);
+            click("shortcutSave");click("shortcutSave");
+            check(editor.shortcut("assetLibrary")=="Ctrl+S" && editor.shortcut("save").isEmpty(), "confirm conflict unbinds old owner");
+            { Editor other; check(other.shortcut("save").isEmpty(), "empty binding persists across editor lifetime"); }
+            capture("assetLibrary", "资产库");
+            QTest::keyClick(win, Qt::Key_Escape);
+            QTest::qWait(50);
+            check(editor.shortcutRecording(), "Escape is recordable, not implicit cancellation");
+            click("shortcutClear");click("shortcutSave");
+            check(editor.shortcut("assetLibrary").isEmpty(), "clear leaves shortcut unbound");
+            QMetaObject::invokeMethod(dialog, "close");QTest::qWait(150);
+            v->forceActiveFocus();
+            QTest::keyClick(win, Qt::Key_S, Qt::ControlModifier);
+            check(!shelf->property("expanded").toBool() && editor.projectPath().isEmpty(), "cleared shortcut executes neither former action");
+            editor.resetShortcuts();
+            QTest::keyClick(win, Qt::Key_Space, Qt::ShiftModifier);QTest::qWait(80);
+            check(shelf->property("expanded").toBool(), "reset restores shelf shortcut");
+            check(!v->blockGrid(), "block grid defaults off");
+            v->setBlockGrid(true);
+            { Viewport other; check(other.blockGrid(), "grid preference persists"); }
+            v->setBlockGrid(false);
+            QTemporaryDir cameraDir;
+            v->applyCamera({{"position",QJsonArray{12.25,78.5,-25.75}},{"yaw",37.5},{"pitch",-22.25}});
+            const auto saved=v->cameraState();
+            const auto url=QUrl::fromLocalFile(cameraDir.filePath("camera.wbench"));
+            check(editor.save(url), "save camera with project");
+            v->resetCamera();check(v->cameraState()!=saved, "reset changes camera");
+            check(editor.open(url) && v->cameraState()==saved, "open restores exact camera position and orientation");
+            check(QTest::qWaitFor([&]{return !editor.meshBusy()&&!editor.assetBusy();},15000) && v->cameraState()==saved, "background rebuild preserves restored camera");
+            wb::World old=wb::World::create();QString cameraError;
+            check(wb::saveProject(cameraDir.filePath("old.wbench"),old,cameraError), "legacy camera-less fixture");
+            check(editor.open(QUrl::fromLocalFile(cameraDir.filePath("old.wbench"))) && v->cameraState()!=saved, "camera-less project uses default framing");
+            std::cout<<checks<<" preference checks passed\n";
+            return 0;
+        }
         check(win->findChild<QQuickItem *>("sceneOutliner"), "actual outliner QML loaded");
         auto *brushPanel = win->findChild<QQuickItem *>("leftBrushSettings");
         check(brushPanel && brushPanel->isVisible() &&

@@ -31,6 +31,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     Q_PROPERTY(int gizmoMode READ gizmoMode WRITE setGizmoMode NOTIFY cameraChanged)
     Q_PROPERTY(bool snapEnabled READ snapEnabled WRITE setSnapEnabled NOTIFY cameraChanged)
     Q_PROPERTY(int rawPackets READ rawPackets NOTIFY cameraChanged)
+    Q_PROPERTY(int textureAnisotropy READ textureAnisotropy WRITE setTextureAnisotropy NOTIFY cameraChanged)
+    Q_PROPERTY(bool blockGrid READ blockGrid WRITE setBlockGrid NOTIFY cameraChanged)
     Q_PROPERTY(bool antialiasing READ antialiasing WRITE setAntialiasing NOTIFY cameraChanged)
     Q_PROPERTY(int renderScale READ renderScale WRITE setRenderScale NOTIFY cameraChanged)
     Q_PROPERTY(int shadowQuality READ shadowQuality WRITE setShadowQuality NOTIFY cameraChanged)
@@ -40,6 +42,10 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     bool rawInput() const { return m_rawInput; }
     bool rawActive() const { return m_rawActive; }
     int rawPackets() const { return m_rawPackets; }
+    int textureAnisotropy() const { return m_textureAnisotropy; }
+    void setTextureAnisotropy(int value);
+    bool blockGrid() const { return m_blockGrid; }
+    void setBlockGrid(bool enabled);
     bool antialiasing() const { return sampleCount() > 1; }
     void setAntialiasing(bool enabled);
     int renderScale() const { return m_renderScale; }
@@ -63,6 +69,7 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void setFlightInertia(bool value);
     bool nativeEventFilter(const QByteArray &type, void *message, qintptr *result) override;
     void applyCamera(const QJsonObject &arguments);
+    QJsonObject cameraState() const;
     QVariantMap gizmoOverlay() const;
     QVariantList creationOverlay() const;
     Q_INVOKABLE bool dropAsset(const QString &id, double x, double y);
@@ -106,6 +113,8 @@ class Viewport : public QQuickRhiItem, public QAbstractNativeEventFilter {
     void mouseUngrabEvent() override;
 
   private:
+    int m_textureAnisotropy = 8;
+    bool m_blockGrid = false;
     int m_renderScale = 100, m_shadowQuality = 2;
     void updateRenderSize();
     QString m_ghostId, m_ghostName;

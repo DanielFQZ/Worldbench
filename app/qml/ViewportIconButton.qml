@@ -29,6 +29,8 @@ WorkbenchButton {
     c.arc(12,12,4,0,Math.PI*2);c.stroke();c.beginPath();for(var a=0;a<8;a++){var t=a*Math.PI/4;c.moveTo(12+7*Math.cos(t),12+7*Math.sin(t));c.lineTo(12+10*Math.cos(t),12+10*Math.sin(t))}c.stroke()
    }else if(root.glyph==="map"){
     c.moveTo(2,5);c.lineTo(8,2);c.lineTo(16,5);c.lineTo(22,2);c.lineTo(22,19);c.lineTo(16,22);c.lineTo(8,19);c.lineTo(2,22);c.closePath();c.moveTo(8,2);c.lineTo(8,19);c.moveTo(16,5);c.lineTo(16,22);c.stroke()
+   }else if(root.glyph==="grid"){
+    c.rect(3,3,18,18);for(var n=9;n<21;n+=6){c.moveTo(n,3);c.lineTo(n,21);c.moveTo(3,n);c.lineTo(21,n)}c.stroke()
    }else if(root.glyph==="stats"){
     c.moveTo(4,20);c.lineTo(4,13);c.moveTo(10,20);c.lineTo(10,5);c.moveTo(16,20);c.lineTo(16,10);c.moveTo(22,20);c.lineTo(22,2);c.stroke()
    }else if(root.glyph==="magnet"){

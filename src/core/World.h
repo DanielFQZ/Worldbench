@@ -157,6 +157,7 @@ class World {
                          bool reuseScatter = false);
     QStringList resourcePaths;
     QString resourceVersion;
+    QJsonObject savedCamera; // Optional editor metadata; never participates in terrain history.
     Block intern(const BlockState &state);
     void setAssets(std::shared_ptr<const AssetLibrary> library);
     static World create(int size = 128, int seed = 2026);

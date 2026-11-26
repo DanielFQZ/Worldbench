@@ -26,7 +26,9 @@ Rectangle {
     property string saveId:""
     property bool dragActive:false
     property bool dragCancelled:false
-    Shortcut{sequence:"Esc";enabled:root.dragActive;onActivated:{root.dragCancelled=true;root.dragActive=false;root.viewport.clearAssetPreview()}}
+    property int shortcutRevision:0
+    Connections {target:editor;function onShortcutsChanged(){root.shortcutRevision++}}
+    Shortcut{sequence:{root.shortcutRevision;return editor.shortcut("cancelSelection")} enabled:root.dragActive;onActivated:{root.dragCancelled=true;root.dragActive=false;root.viewport.clearAssetPreview()}}
     DropArea {
         objectName:"assetLibraryDrop";anchors.fill:parent;z:10
         onEntered:(drag)=>{drag.accepted=drag.hasUrls && !editor.assetBusy && !editor.exportBusy && !editor.acceptsProjectDrop(drag.urls)}

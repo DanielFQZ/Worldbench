@@ -334,6 +334,7 @@ ApplicationWindow {
                 anchors.fill:parent
                 ViewportPane {
                     id:sceneViewport;visible:win.inScene
+                    Shortcut {sequence:win.shortcut("assetLibrary");enabled:win.inScene&&!win.editingText()&&!editor.shortcutRecording;onActivated:sceneViewport.toggleAssetLibrary()}
                     onAssetRequested:id=>win.openAsset(id)
                     onImportRequested:win.importAsset()
                     onGraphRequested:material=>win.newGraph(material)
@@ -473,7 +474,7 @@ ApplicationWindow {
     Shortcut { sequence: win.shortcut("open"); onActivated: win.requestAction("open") }
     Shortcut { sequence: win.shortcut("new"); onActivated: win.requestAction("new") }
     Shortcut { sequence: win.shortcut("undo"); enabled: !win.editingText() && !editor.commandBusy; onActivated: editor.undo() }
-    Shortcut { sequences: [win.shortcut("redo"), "Ctrl+Shift+Z"]; enabled: !win.editingText() && !editor.commandBusy; onActivated: editor.redo() }
+    Shortcut { sequences: [win.shortcut("redo"), win.shortcut("redoAlternate")]; enabled: !win.editingText() && !editor.commandBusy; onActivated: editor.redo() }
     FileDialog {
         id: saveDialog; title: "保存 Worldbench 工程"; fileMode: FileDialog.SaveFile
         nameFilters: ["Worldbench 工程 (*.wbench)"]; defaultSuffix: "wbench"
