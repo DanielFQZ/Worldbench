@@ -2,23 +2,23 @@
   "schema": 1,
   "releases": [
     {
-      "tag_name": "v0.26.3-pre.2",
+      "tag_name": "v0.26.4-pre.1",
       "draft": false,
       "prerelease": true,
-      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.3-pre.2",
-      "body": "修复检查更新时因 GitHub 匿名 API 额度用完而失败的问题。\n\n### 如何升级\n你正在使用的 pre3 / 0.26.3-pre.1 尚不具备此修复。若软件内更新失败，请先保存工程并退出旧程序，下载 `Worldbench-0.26.3-pre.2-setup.exe`，选择原安装目录覆盖安装一次，无需先卸载。配置和工程保留。\n\n### 本版改动\n- 默认读取项目的静态更新清单，正常检查不请求 GitHub REST API，也无需登录或令牌。\n- 静态清单失败时尝试官方 API；403/429 限流及其他失败显示明确原因，保留重新检查和打开发布页入口。\n- 更新文件在独立临时目录下载，核对大小和 SHA256 后才允许安装。\n- 包含上一版的旧工程材质修复和跨启动资源缓存。\n\nWindows x64，自签名，标准安装向导支持选择安装目录。测试单见仓库主分支 TESTING.md；用户 UD 验收待完成。\n",
+      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.1",
+      "body": "新增快捷键录制、可配置资产库快捷键、方块网格开关、工程视角保存和各向异性贴图过滤。\n\n### 软件内升级\n在 0.26.3-pre.2 中先保存工程，再使用“帮助 → 检查更新”升级到本版。下载校验通过后覆盖原安装目录并重启，保留配置与工程。也可下载安装器并选择原目录覆盖，无需先卸载。\n\n### 本版改动\n- Shift+Space 展开/收起场景资产库，可在“偏好设置 → 快捷键”改绑。\n- 点击绑定后录制按键；冲突时指出占用功能，确认才解绑原功能，取消保留原设置；支持清空与恢复默认。\n- 视口右上角方格按钮控制方块网格线，默认关闭，有无光照都可使用。\n- 工程保存当前相机位置及朝向；旧工程首次打开保留默认构图，重新保存后记住新视角。\n- 默认 8× 各向异性足迹过滤，性能偏好提供关闭/4×/8×；近处保持像素风格，缩小时过滤纹理。采用最多 8 点 shader 采样，不宣称 Qt 的硬件各向异性支持。\n\nWindows x64，自签名。标准向导支持自选安装目录及卸载。测试步骤见 TESTING.md（UX01–UX10），用户验收待完成。\n",
       "assets": [
         {
-          "name": "Worldbench-0.26.3-pre.2-setup.exe",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.2/Worldbench-0.26.3-pre.2-setup.exe",
-          "size": 41384280,
-          "digest": "sha256:40619677287562d25658193e6a016625507172a99f6c2784d01b2f1e9582995e"
+          "name": "Worldbench-0.26.4-pre.1-setup.exe",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.1/Worldbench-0.26.4-pre.1-setup.exe",
+          "size": 41390672,
+          "digest": "sha256:c401ebbedaf043ac0dc3613a61209570e6915ff154a8e8006a451361d26b6f6a"
         },
         {
-          "name": "Worldbench-0.26.3-pre.2-win-x64.zip",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.3-pre.2/Worldbench-0.26.3-pre.2-win-x64.zip",
-          "size": 52571597,
-          "digest": "sha256:61e8a4121500c3db98404087b30712cece2a5feec5c63baac2a7db4213a6357d"
+          "name": "Worldbench-0.26.4-pre.1-win-x64.zip",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.1/Worldbench-0.26.4-pre.1-win-x64.zip",
+          "size": 52579245,
+          "digest": "sha256:ccf92a0fda98f2794edee2f52ada321671af610d89028a544116493180714125"
         }
       ]
     }
