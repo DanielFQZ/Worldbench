@@ -10,11 +10,12 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Worldbench Project
 AppPublisherURL=https://github.com/DanielFQZ/Worldbench
-DefaultDirName={localappdata}\Programs\Worldbench
+DefaultDirName={code:GetDefaultInstallDir}
 DefaultGroupName=Worldbench
 DisableDirPage=no
 DisableProgramGroupPage=no
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+UsePreviousAppDir=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
@@ -45,15 +46,57 @@ Name: "{group}\卸载 Worldbench"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Worldbench"; Filename: "{app}\Worldbench.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Classes\.wbench"; ValueType: string; ValueName: ""; ValueData: "Worldbench.Project"; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\Worldbench.Project"; ValueType: string; ValueName: ""; ValueData: "Worldbench 工程"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Worldbench.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\Worldbench.exe,0"
-Root: HKCU; Subkey: "Software\Classes\Worldbench.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Worldbench.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.wbench"; ValueType: string; ValueName: ""; ValueData: "Worldbench.Project"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Worldbench.Project"; ValueType: string; ValueName: ""; ValueData: "Worldbench 工程"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Worldbench.Project\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\Worldbench.exe,0"
+Root: HKA; Subkey: "Software\Classes\Worldbench.Project\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Worldbench.exe"" ""%1"""
 
 [Run]
-Filename: "{app}\Worldbench.exe"; Description: "启动 Worldbench"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "{app}\Worldbench.exe"; Description: "启动 Worldbench"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent unchecked runasoriginaluser
 
 [Code]
+const
+  LegacyUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8A9D5A83-5C7B-4A7E-9A69-8A9BD7E7F6D4}_is1';
+
+function GetDriveTypeW(RootPath: string): Cardinal;
+  external 'GetDriveTypeW@kernel32.dll stdcall';
+
+function GetDefaultInstallDir(Param: string): string;
+var
+  Drive: Integer;
+  Root, PreviousDir: string;
+begin
+  { Preserve an existing legacy installation; /DIR and the directory page
+    remain available for an explicit move. New installs never use AppData. }
+  if RegQueryStringValue(HKCU, LegacyUninstallKey, 'InstallLocation', PreviousDir) then
+    if FileExists(AddBackslash(PreviousDir) + 'Worldbench.exe') then begin
+      Result := PreviousDir;
+      exit;
+    end;
+  { Fixed, mounted drives only: skip removable/network/optical drives. }
+  for Drive := Ord('D') to Ord('Z') do begin
+    Root := Chr(Drive) + ':\';
+    if (GetDriveTypeW(Root) = 3) and DirExists(Root) then begin
+      Result := Root + 'Program Files\Worldbench';
+      exit;
+    end;
+  end;
+  Result := ExpandConstant('{autopf}\Worldbench');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  PreviousDir: string;
+begin
+  { Replace only the same-path legacy per-user uninstall registration after
+    a successful machine-wide installation. Never remove another install. }
+  if CurStep = ssPostInstall then
+    if RegQueryStringValue(HKCU, LegacyUninstallKey, 'InstallLocation', PreviousDir) then
+      if CompareText(RemoveBackslashUnlessRoot(PreviousDir),
+                     RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0 then
+        RegDeleteKeyIncludingSubkeys(HKCU, LegacyUninstallKey);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: string;

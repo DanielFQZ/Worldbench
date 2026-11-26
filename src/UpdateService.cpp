@@ -433,30 +433,28 @@ void UpdateService::launchArchiveUpdater(const QString &path) {
 
 void UpdateService::launchInstaller(const QString &path) {
     const QString directory = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
-    const QStringList arguments{"/DIR=" + directory, "/SP-"};
 #ifdef Q_OS_WIN
-    QString reason;
-    if (!canUpdateInPlace(directory, reason)) {
-        const QString native = QDir::toNativeSeparators(path);
-        const QString parameters = "/DIR=\"" + directory + "\" /SP-";
-        SHELLEXECUTEINFOW info{};
-        info.cbSize = sizeof(info); info.fMask = SEE_MASK_NOCLOSEPROCESS;
-        info.lpVerb = L"runas";
-        info.lpFile = reinterpret_cast<const wchar_t *>(native.utf16());
-        info.lpParameters = reinterpret_cast<const wchar_t *>(parameters.utf16());
-        info.nShow = SW_SHOWNORMAL;
-        if (!ShellExecuteExW(&info)) {
-            setStatus(GetLastError() == ERROR_CANCELLED ? "已取消管理员授权，当前程序保持打开，安装文件未修改" :
-                                                        "无法启动安装器，当前程序保持打开，请手动运行下载的安装器");
-            return;
-        }
-        if (info.hProcess) CloseHandle(info.hProcess);
-    } else
-#endif
+    const QString native = QDir::toNativeSeparators(path);
+    const QString parameters = "/DIR=\"" + directory + "\" /SP-";
+    SHELLEXECUTEINFOW info{};
+    info.cbSize = sizeof(info); info.fMask = SEE_MASK_NOCLOSEPROCESS;
+    info.lpVerb = L"runas";
+    info.lpFile = reinterpret_cast<const wchar_t *>(native.utf16());
+    info.lpParameters = reinterpret_cast<const wchar_t *>(parameters.utf16());
+    info.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&info)) {
+        setStatus(GetLastError() == ERROR_CANCELLED ? "已取消管理员授权，当前程序保持打开，安装文件未修改" :
+                                                    "无法启动安装器，当前程序保持打开，请手动运行下载的安装器");
+        return;
+    }
+    if (info.hProcess) CloseHandle(info.hProcess);
+#else
+    const QStringList arguments{"/DIR=" + directory, "/SP-"};
     if (!QProcess::startDetached(path, arguments)) {
         setStatus("无法启动安装器，请在临时目录手动运行下载文件");
         return;
     }
+#endif
     setStatus("安装器已启动，Worldbench 将关闭");
     emit exitingForUpdate();
     QCoreApplication::quit();
