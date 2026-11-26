@@ -92,7 +92,7 @@
 - Epic 官方 Content Browser 文档确认 Windows 内容抽屉快捷键为 **Ctrl+Space**：https://dev.epicgames.com/documentation/en-us/unreal-engine/content-browser-in-unreal-engine?application_version=5.6 。Worldbench 默认键与恢复默认统一改为 Ctrl+Space，偏好设置继续可改绑。未改绑的旧用户自动使用新默认；已有自定义与主动清空保留。若其他自定义功能占用 Ctrl+Space，资产库暂用未被占用的 Shift+Space，否则不绑定，由用户在冲突界面自行决定。
 - 安装器按 HKLM64、HKCU64、HKLM32、HKCU32 查本项目固定 AppId 的 InstallLocation，并确认 EXE 存在；忽略失效登记。无登记时检查 C–Z 固定盘的 Program Files/Worldbench，必须同时有程序与卸载器，才识别为旧安装。仍未找到才按 §1.8 选择非 C 盘新目录；显式 /DIR 与手动选目录优先，不全盘搜索或搬移已有安装。
 - 机器级 UAC、普通权限编辑器、配置 Documents、一个开发文档及当期测试单基线保持。UG 未逐项验收，归档 `Worldbench-test-archive/0.26.4-pre3-20261127-next-update/`；当前 UH 测试从 pre.3 软件内升级 pre.4。
-- 构建、专项测试及公开发布验证完成后补记；不代用户覆盖安装。
+- Windows x64 与 Inno Setup 编译完成，52 项偏好设置检查（含新默认、冲突保留、自定义与清空）及 46 项更新检查通过；公开发布 v0.26.4-pre.4，源码 e213b96，四个发布资产长度及 SHA256 digest 与本地一致，更新清单已切换。只读核对本机标准目录确实有 Worldbench.exe/unins000.exe，注册登记缺失时可由新后备规则识别。不代用户覆盖安装。
 
 ## 2. 产品目标与技术基线
 

@@ -15,7 +15,7 @@ UE 官方参考：[Content Browser / Content Drawer](https://dev.epicgames.com/d
 
 ## 开发方验证
 
-专项检查、安装包编译和公开下载结果完成后补记。实际 UAC 与覆盖升级待用户验证，不改用户安装或原工程。
+52 项偏好设置和 46 项更新检查通过，Windows x64 与 Inno Setup 编译成功，v0.26.4-pre.4 已发布，四个资产摘要/大小匹配，更新清单已切换。实际 UAC 与覆盖升级待用户验证，不改用户安装或原工程。
 
 ## WorldPainter 复刻进度
 

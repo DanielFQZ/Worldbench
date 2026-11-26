@@ -2,23 +2,23 @@
   "schema": 1,
   "releases": [
     {
-      "tag_name": "v0.26.4-pre.3",
+      "tag_name": "v0.26.4-pre.4",
       "draft": false,
       "prerelease": true,
-      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.3",
-      "body": "安装器默认请求 Windows UAC 管理员授权；新安装按 D–Z 选择首个可用固定磁盘的 Program Files/Worldbench，没有非 C 固定盘时回退系统 Program Files。目录可手动选择，升级优先保留原目录。\n\n旧客户端本次请直接下载安装器双击覆盖原目录，无需先卸载。成功覆盖同一路径后移除旧版每用户卸载登记，使用机器级登记。编辑器正常权限启动以保留拖放，安装结束启动选项默认不勾选。配置仍存放 Documents/Worldbench。\n\n保留 pre.2 的安装权限预检及回滚保护，保留快捷键录制、资产库快捷键、网格开关、工程视角保存和各向异性过滤。用户暂未验收 UF，本轮测试见 TESTING.md（UG）。Windows x64，自签名。",
+      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.4",
+      "body": "本版供 pre.3 → pre.4 软件内升级测试。保存工程后使用“帮助 → 检查更新”，受保护目录会下载安装器并请求 UAC，保留原安装目录与用户配置。\n\n- 安装器识别本项目 HKLM/HKCU 的 64/32 位安装登记，忽略失效路径；无登记时检查固定磁盘 Program Files/Worldbench 中的程序和卸载器。未找到才选择非 C 盘默认新目录，仍可手动选择。\n- 根据 Epic 官方文档，资产库默认快捷键改为 Ctrl+Space。未自定义的旧用户自动采用新默认，自定义或清空保留，不抢占其他功能已有绑定。\n- 保留 UAC 安装、普通权限编辑器、配置 Documents、更新权限预检和失败回滚。\n\nWindows x64，自签名。测试步骤见 TESTING.md（UH）。",
       "assets": [
         {
-          "name": "Worldbench-0.26.4-pre.3-setup.exe",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.3/Worldbench-0.26.4-pre.3-setup.exe",
-          "size": 41400848,
-          "digest": "sha256:15b77ab45273892e9c53ef7962b13ed447e3913dcc8c702239c4e535040c37ea"
+          "name": "Worldbench-0.26.4-pre.4-setup.exe",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.4/Worldbench-0.26.4-pre.4-setup.exe",
+          "size": 41393544,
+          "digest": "sha256:cbd2944ddb351b899ebcc99c6ca66697d1ae3eb652c2fc7ef22f7f251b487775"
         },
         {
-          "name": "Worldbench-0.26.4-pre.3-win-x64.zip",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.3/Worldbench-0.26.4-pre.3-win-x64.zip",
-          "size": 52583345,
-          "digest": "sha256:a7ecebbf83fa8101e8e012d943cb37d92d7e62b5f866540235307a897c6fb30c"
+          "name": "Worldbench-0.26.4-pre.4-win-x64.zip",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.4/Worldbench-0.26.4-pre.4-win-x64.zip",
+          "size": 52584006,
+          "digest": "sha256:48fd0c89e56f7265f230e2fdaea886b3e2fd103b4b4a50a739e8d64d933570b1"
         }
       ]
     }
