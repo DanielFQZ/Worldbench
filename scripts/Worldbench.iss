@@ -13,6 +13,7 @@ AppPublisherURL=https://github.com/DanielFQZ/Worldbench
 DefaultDirName={code:GetDefaultInstallDir}
 DefaultGroupName=Worldbench
 DisableDirPage=no
+DirExistsWarning=no
 DisableProgramGroupPage=no
 PrivilegesRequired=admin
 UsePreviousAppDir=no
@@ -60,6 +61,36 @@ const
 
 function GetDriveTypeW(RootPath: string): Cardinal;
   external 'GetDriveTypeW@kernel32.dll stdcall';
+
+function OpenProcess(Access: Cardinal; Inherit: Boolean; ProcessId: Cardinal): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: Cardinal): Cardinal;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function InstallGetLastError(): Cardinal;
+  external 'GetLastError@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function PrepareToInstall(var NeedsRestart: Boolean): string;
+var
+  EditorPid: Integer;
+  Handle: THandle;
+begin
+  Result := '';
+  if ExpandConstant('{param:WBAUTOUPDATE|0}') <> '1' then exit;
+  EditorPid := StrToIntDef(ExpandConstant('{param:WBPID|0}'), 0);
+  if EditorPid <= 0 then begin
+    Result := 'Missing editor process ID. No files were changed.';
+    exit;
+  end;
+  Handle := OpenProcess($00100000, False, EditorPid);
+  if Handle <> 0 then begin
+    if WaitForSingleObject(Handle, 60000) <> 0 then
+      Result := 'Worldbench is still running. Update cancelled before installation.';
+    CloseHandle(Handle);
+  end else if InstallGetLastError() <> 87 then
+    Result := 'Cannot confirm editor exit. No files were changed.';
+end;
 
 function RegisteredInstall(RootKey: Integer): string;
 var

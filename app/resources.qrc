@@ -31,4 +31,5 @@
 <file alias="WorkbenchTabButton.qml">qml/WorkbenchTabButton.qml</file>
 <file alias="AssetShelf.qml">qml/AssetShelf.qml</file>
 <file alias="WorldbenchUpdate.ps1">updates/WorldbenchUpdate.ps1</file>
+<file alias="WorldbenchInstallMonitor.ps1">updates/WorldbenchInstallMonitor.ps1</file>
 </qresource></RCC>

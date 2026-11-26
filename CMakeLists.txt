@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(Worldbench VERSION 0.26.4 LANGUAGES CXX)
-set(WORLDBENCH_APP_VERSION "0.26.4-pre.4" CACHE STRING "Displayed application version")
+set(WORLDBENCH_APP_VERSION "0.26.4-pre.5" CACHE STRING "Displayed application version")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

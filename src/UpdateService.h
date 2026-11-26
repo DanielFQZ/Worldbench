@@ -63,6 +63,7 @@ private:
     static bool canUpdateInPlace(const QString &directory, QString &reason);
     void launchArchiveUpdater(const QString &path);
     void launchInstaller(const QString &path);
+    static QString installerParameters(const QString &directory, const QString &log, qint64 pid);
     static int compareVersions(const QString &left, const QString &right);
     static QString normalizedVersion(const QString &version);
     static QString displayVersion(const QString &version);

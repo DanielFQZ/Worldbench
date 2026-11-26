@@ -68,6 +68,10 @@ QByteArray api() { return QJsonDocument(QJsonArray{release()}).toJson(); }
 class UpdateServiceTests {
 public:
     static void run() {
+        const auto args = UpdateService::installerParameters("E:/Program Files/Worldbench", "C:/中文/log file.log", 123);
+        check(args.contains("/VERYSILENT") && args.contains("/SUPPRESSMSGBOXES") && args.contains("/NORESTART"), "installer skips wizard and suppresses reboot");
+        check(args.contains("/WBPID=123") && args.contains("/WBAUTOUPDATE=1") && args.contains("/NOCLOSEAPPLICATIONS"), "installer waits for authorized editor exit without force closing others");
+        check(args.contains("/DIR=\"E:\\Program Files\\Worldbench\"") && args.contains("/LOG=\"C:\\中文\\log file.log\""), "silent update preserves quoted original directory and log");
         {
             QTemporaryDir directory;
             QFile file(directory.filePath("nested-file.bin"));

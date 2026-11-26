@@ -20,6 +20,7 @@
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 #include <QScopeGuard>
+#include <QTimer>
 #include <algorithm>
 #include <array>
 #ifdef Q_OS_WIN
@@ -431,33 +432,72 @@ void UpdateService::launchArchiveUpdater(const QString &path) {
     QCoreApplication::quit();
 }
 
+QString UpdateService::installerParameters(const QString &directory, const QString &log, qint64 pid) {
+    return QString("/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCLOSEAPPLICATIONS "
+                   "/NORESTARTAPPLICATIONS /WBAUTOUPDATE=1 /WBPID=%1 /DIR=\"%2\" /LOG=\"%3\"")
+        .arg(pid).arg(QDir::toNativeSeparators(directory), QDir::toNativeSeparators(log));
+}
+
 void UpdateService::launchInstaller(const QString &path) {
-    const QString directory = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
 #ifdef Q_OS_WIN
+    const QString directory = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    const auto downloadDir = QFileInfo(path).dir();
+    const QString logPath = downloadDir.filePath("installation.log");
+    const QString monitorPath = downloadDir.filePath("WorldbenchInstallMonitor.ps1");
+    QFile resource(":/WorldbenchInstallMonitor.ps1"), monitor(monitorPath);
+    if (!resource.open(QIODevice::ReadOnly) || !monitor.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        setStatus("无法准备更新监视器，当前程序保持打开"); return;
+    }
+    const auto bytes = resource.readAll();
+    if (monitor.write(bytes) != bytes.size() || !monitor.flush()) {
+        setStatus("无法写入更新监视器，当前程序保持打开"); return;
+    }
+    monitor.close();
     const QString native = QDir::toNativeSeparators(path);
-    const QString parameters = "/DIR=\"" + directory + "\" /SP-";
+    const QString parameters = installerParameters(directory, logPath, QCoreApplication::applicationPid());
     SHELLEXECUTEINFOW info{};
     info.cbSize = sizeof(info); info.fMask = SEE_MASK_NOCLOSEPROCESS;
     info.lpVerb = L"runas";
     info.lpFile = reinterpret_cast<const wchar_t *>(native.utf16());
     info.lpParameters = reinterpret_cast<const wchar_t *>(parameters.utf16());
-    info.nShow = SW_SHOWNORMAL;
+    info.nShow = SW_HIDE;
     if (!ShellExecuteExW(&info)) {
         setStatus(GetLastError() == ERROR_CANCELLED ? "已取消管理员授权，当前程序保持打开，安装文件未修改" :
-                                                    "无法启动安装器，当前程序保持打开，请手动运行下载的安装器");
+                                                    "无法启动更新，当前程序保持打开，请重试");
         return;
     }
+    QFile::remove(logPath + ".ready");
+    const auto installerPid = GetProcessId(info.hProcess);
+    const QStringList arguments{"-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", monitorPath,
+        "-InstallerProcessId", QString::number(installerPid), "-InstallDir", directory,
+        "-ExpectedVersion", m_latestVersion, "-LogPath", logPath};
+    const bool monitoring = installerPid && QProcess::startDetached("powershell.exe", arguments);
     if (info.hProcess) CloseHandle(info.hProcess);
-#else
-    const QStringList arguments{"/DIR=" + directory, "/SP-"};
-    if (!QProcess::startDetached(path, arguments)) {
-        setStatus("无法启动安装器，请在临时目录手动运行下载文件");
-        return;
+    if (!monitoring) {
+        // PrepareToInstall waits for us; keeping the editor alive makes it time out
+        // without overwriting files when we cannot observe the result.
+        setStatus("无法启动更新监视器；当前程序保持打开，安装将在等待超时后取消"); return;
     }
+    m_ready = false;
+    emit stateChanged();
+    setStatus("正在准备后台更新，完成后将以普通权限重新打开 Worldbench");
+    auto *handshake = new QTimer(this);
+    handshake->setInterval(100);
+    connect(handshake, &QTimer::timeout, this, [this, handshake, logPath, attempts = 0]() mutable {
+        if (QFile::exists(logPath + ".ready")) {
+            handshake->stop(); handshake->deleteLater();
+            QFile::remove(logPath + ".ready");
+            emit exitingForUpdate();
+            QCoreApplication::quit();
+        } else if (++attempts >= 100) {
+            handshake->stop(); handshake->deleteLater();
+            setStatus("更新监视器未就绪，当前程序保持打开；安装将等待超时后取消。日志：" + logPath);
+        }
+    });
+    handshake->start();
+#else
+    setStatus("请使用适用于当前系统的安装器");
 #endif
-    setStatus("安装器已启动，Worldbench 将关闭");
-    emit exitingForUpdate();
-    QCoreApplication::quit();
 }
 
 void UpdateService::openReleasePage() {
