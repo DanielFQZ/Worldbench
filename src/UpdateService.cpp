@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -21,6 +22,12 @@
 #include <QScopeGuard>
 #include <algorithm>
 #include <array>
+#ifdef Q_OS_WIN
+#define NOMINMAX
+#include <windows.h>
+#include <aclapi.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 constexpr auto ReleasesEndpoint = "https://api.github.com/repos/DanielFQZ/Worldbench/releases?per_page=10";
@@ -249,6 +256,55 @@ bool UpdateService::parseRelease(const QByteArray &payload, bool manifest) {
     return true;
 }
 
+bool UpdateService::canUpdateInPlace(const QString &directory, QString &reason) {
+    reason.clear();
+    QStringList paths{directory};
+    QDirIterator entries(directory, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                         QDirIterator::Subdirectories);
+    while (entries.hasNext()) paths << entries.next();
+#ifdef Q_OS_WIN
+    HANDLE primary = nullptr, token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &primary)) {
+        reason = "无法检查当前安装目录权限"; return false;
+    }
+    const bool duplicated = DuplicateToken(primary, SecurityImpersonation, &token);
+    CloseHandle(primary);
+    if (!duplicated) { reason = "无法检查当前用户权限"; return false; }
+    const auto tokenGuard = qScopeGuard([&] { CloseHandle(token); });
+#endif
+    for (const auto &path : paths) {
+        const QFileInfo file(path);
+        bool writable = file.exists() && !file.isSymLink();
+#ifdef Q_OS_WIN
+        const auto native = QDir::toNativeSeparators(path);
+        const auto wide = reinterpret_cast<const wchar_t *>(native.utf16());
+        const DWORD attributes = GetFileAttributesW(wide);
+        writable = writable && attributes != INVALID_FILE_ATTRIBUTES &&
+                   !(attributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+                   (file.isDir() || !(attributes & FILE_ATTRIBUTE_READONLY));
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        if (writable && GetNamedSecurityInfoW(const_cast<wchar_t *>(wide), SE_FILE_OBJECT,
+                         OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                         nullptr, nullptr, nullptr, nullptr, &descriptor) == ERROR_SUCCESS) {
+            const auto descriptorGuard = qScopeGuard([&] { LocalFree(descriptor); });
+            GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
+            DWORD desired = file.isDir() ? FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY : FILE_WRITE_DATA;
+            DWORD granted = 0, privilegeBytes = sizeof(PRIVILEGE_SET);
+            PRIVILEGE_SET privileges{}; BOOL allowed = FALSE;
+            writable = AccessCheck(descriptor, token, desired, &mapping, &privileges, &privilegeBytes,
+                                   &granted, &allowed) && allowed;
+        } else writable = false;
+#else
+        writable = writable && file.isWritable();
+#endif
+        if (!writable) {
+            reason = "安装目录中存在受保护或不可写的文件：" + path;
+            return false;
+        }
+    }
+    return true;
+}
+
 void UpdateService::installUpdate() {
     if (!m_updateAvailable || m_downloading)
         return;
@@ -256,7 +312,11 @@ void UpdateService::installUpdate() {
         emit installReady();
         return;
     }
-    if (!m_archiveAsset.url.isEmpty())
+    QString reason;
+    if (!canUpdateInPlace(QCoreApplication::applicationDirPath(), reason)) {
+        if (!m_installerAsset.url.isEmpty()) download(m_installerAsset);
+        else { setStatus(reason + "。请打开发布页获取安装器，尚未修改安装文件。"); emit failed(m_status); }
+    } else if (!m_archiveAsset.url.isEmpty())
         download(m_archiveAsset);
     else if (!m_installerAsset.url.isEmpty())
         download(m_installerAsset);
@@ -326,7 +386,7 @@ void UpdateService::download(const ReleaseAsset &asset) {
         reply->deleteLater();
         m_progress = 100;
         m_ready = true;
-        setStatus("更新已下载，准备安装");
+        setStatus(asset.archive ? "更新已下载，准备安装" : "安装器已下载；受保护目录需要 Windows 管理员授权，取消授权将保留当前程序");
         emit stateChanged();
         emit installReady();
     });
@@ -334,13 +394,19 @@ void UpdateService::download(const ReleaseAsset &asset) {
 
 void UpdateService::applyUpdate() {
     if (!m_ready || m_downloading || m_downloadPath.isEmpty()) return;
+    QString reason;
+    if (m_downloadIsArchive && !canUpdateInPlace(QCoreApplication::applicationDirPath(), reason)) {
+        m_ready = false;
+        if (!m_installerAsset.url.isEmpty()) download(m_installerAsset);
+        else { setStatus(reason + "。尚未修改安装文件，请使用安装器。"); emit failed(m_status); emit stateChanged(); }
+        return;
+    }
     if (m_downloadIsArchive) launchArchiveUpdater(m_downloadPath);
     else launchInstaller(m_downloadPath);
 }
 
 void UpdateService::launchArchiveUpdater(const QString &path) {
-    const QString scriptPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
-                                   .filePath("WorldbenchUpdate.ps1");
+    const QString scriptPath = QFileInfo(path).dir().filePath("WorldbenchUpdate.ps1");
     QFile script(scriptPath);
     if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         setStatus("无法准备更新程序，请下载安装器手动更新");
@@ -366,7 +432,28 @@ void UpdateService::launchArchiveUpdater(const QString &path) {
 }
 
 void UpdateService::launchInstaller(const QString &path) {
-    if (!QProcess::startDetached(path, {})) {
+    const QString directory = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    const QStringList arguments{"/DIR=" + directory, "/SP-"};
+#ifdef Q_OS_WIN
+    QString reason;
+    if (!canUpdateInPlace(directory, reason)) {
+        const QString native = QDir::toNativeSeparators(path);
+        const QString parameters = "/DIR=\"" + directory + "\" /SP-";
+        SHELLEXECUTEINFOW info{};
+        info.cbSize = sizeof(info); info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = L"runas";
+        info.lpFile = reinterpret_cast<const wchar_t *>(native.utf16());
+        info.lpParameters = reinterpret_cast<const wchar_t *>(parameters.utf16());
+        info.nShow = SW_SHOWNORMAL;
+        if (!ShellExecuteExW(&info)) {
+            setStatus(GetLastError() == ERROR_CANCELLED ? "已取消管理员授权，当前程序保持打开，安装文件未修改" :
+                                                        "无法启动安装器，当前程序保持打开，请手动运行下载的安装器");
+            return;
+        }
+        if (info.hProcess) CloseHandle(info.hProcess);
+    } else
+#endif
+    if (!QProcess::startDetached(path, arguments)) {
         setStatus("无法启动安装器，请在临时目录手动运行下载文件");
         return;
     }

@@ -11,6 +11,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTest>
+#include <QTemporaryDir>
 #include <iostream>
 #include <stdexcept>
 
@@ -67,6 +68,17 @@ QByteArray api() { return QJsonDocument(QJsonArray{release()}).toJson(); }
 class UpdateServiceTests {
 public:
     static void run() {
+        {
+            QTemporaryDir directory;
+            QFile file(directory.filePath("nested-file.bin"));
+            check(file.open(QIODevice::WriteOnly) && file.write("fixture") == 7, "create permission fixture");
+            file.close();
+            QString reason;
+            check(UpdateService::canUpdateInPlace(directory.path(), reason), "user-owned directory accepts in-place update");
+            check(file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ReadUser), "make read-only fixture");
+            check(!UpdateService::canUpdateInPlace(directory.path(), reason) && reason.contains("nested-file.bin"), "nested read-only file routes to installer");
+            file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadUser | QFileDevice::WriteUser);
+        }
         {
             HttpFixture http;
             http.responses = {{200, manifest(), {}}};
@@ -149,6 +161,12 @@ public:
             QDir().rmdir(directory); // Only this test-created, now-empty directory.
         }
     }
+    static void permissionCheck(const QString &path) {
+        QString reason;
+        const bool allowed = UpdateService::canUpdateInPlace(path, reason);
+        std::cout << "in_place=" << allowed << " " << reason.toStdString() << std::endl;
+        check(!allowed, "protected installation must use installer");
+    }
     static void live(bool download) {
         UpdateService service;
         service.m_currentVersion = "0.26.2-pre.3-updatetest";
@@ -171,7 +189,8 @@ int main(int argc, char **argv) {
     app.setApplicationName("Worldbench update tests");
     app.setApplicationVersion("0.26.2-pre.3-updatetest");
     try {
-        if (app.arguments().contains("--live-check")) UpdateServiceTests::live(app.arguments().contains("--download"));
+        if (app.arguments().contains("--permission-check")) UpdateServiceTests::permissionCheck(app.arguments().value(app.arguments().indexOf("--permission-check")+1));
+        else if (app.arguments().contains("--live-check")) UpdateServiceTests::live(app.arguments().contains("--download"));
         else UpdateServiceTests::run();
         std::cout << "PASS " << checks << " update checks" << std::endl;
         return 0;

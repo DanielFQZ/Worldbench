@@ -60,6 +60,7 @@ private:
     void requestCheckSource();
     static QString replyFailure(QNetworkReply *reply, const QByteArray &payload);
     void download(const ReleaseAsset &asset);
+    static bool canUpdateInPlace(const QString &directory, QString &reason);
     void launchArchiveUpdater(const QString &path);
     void launchInstaller(const QString &path);
     static int compareVersions(const QString &left, const QString &right);
