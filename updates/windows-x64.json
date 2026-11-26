@@ -2,23 +2,23 @@
   "schema": 1,
   "releases": [
     {
-      "tag_name": "v0.26.4-pre.2",
+      "tag_name": "v0.26.4-pre.3",
       "draft": false,
       "prerelease": true,
-      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.2",
-      "body": "修复受保护安装目录更新时“访问被拒绝”和回滚失败。保留 0.26.4-pre.1 全部快捷键、视角和纹理改进。\n\n旧客户端需要一次手动安装：若安装在 E:/Program Files/Worldbench 等受保护目录，下载本版 setup.exe，右键以管理员身份运行并选择原目录覆盖，无需卸载。安装完成后正常权限启动编辑器，以保留拖放功能。旧客户端的更新脚本不能由新 ZIP 自行修复。\n\n新客户端先检查整个安装目录实际权限：可写目录使用 ZIP；受保护目录自动下载已校验安装器，并请求 Windows UAC 授权。取消授权保持当前软件打开。ZIP 覆盖前检查所有文件及占用，完整备份校验后逐文件写入；失败逆序恢复并清理新增文件，保留恢复包。\n\n已通过 46 项更新服务、27 项更新界面、22 项 PowerShell 5.1 安装/拒绝访问/占用/回滚检查。Windows x64 标准安装器，自签名。用户验收见 TESTING.md（UF）。",
+      "html_url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.3",
+      "body": "安装器默认请求 Windows UAC 管理员授权；新安装按 D–Z 选择首个可用固定磁盘的 Program Files/Worldbench，没有非 C 固定盘时回退系统 Program Files。目录可手动选择，升级优先保留原目录。\n\n旧客户端本次请直接下载安装器双击覆盖原目录，无需先卸载。成功覆盖同一路径后移除旧版每用户卸载登记，使用机器级登记。编辑器正常权限启动以保留拖放，安装结束启动选项默认不勾选。配置仍存放 Documents/Worldbench。\n\n保留 pre.2 的安装权限预检及回滚保护，保留快捷键录制、资产库快捷键、网格开关、工程视角保存和各向异性过滤。用户暂未验收 UF，本轮测试见 TESTING.md（UG）。Windows x64，自签名。",
       "assets": [
         {
-          "name": "Worldbench-0.26.4-pre.2-setup.exe",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.2/Worldbench-0.26.4-pre.2-setup.exe",
-          "size": 41395680,
-          "digest": "sha256:59ca37889240379635c0c8a97ce0a345476e44663a64744064355eb15eee9abd"
+          "name": "Worldbench-0.26.4-pre.3-setup.exe",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.3/Worldbench-0.26.4-pre.3-setup.exe",
+          "size": 41400848,
+          "digest": "sha256:15b77ab45273892e9c53ef7962b13ed447e3913dcc8c702239c4e535040c37ea"
         },
         {
-          "name": "Worldbench-0.26.4-pre.2-win-x64.zip",
-          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.2/Worldbench-0.26.4-pre.2-win-x64.zip",
-          "size": 52583530,
-          "digest": "sha256:555b31802a316813ce06a91b3e62e4adee92e94383cb55781f5fb0e4a54d285f"
+          "name": "Worldbench-0.26.4-pre.3-win-x64.zip",
+          "browser_download_url": "https://github.com/DanielFQZ/Worldbench/releases/download/v0.26.4-pre.3/Worldbench-0.26.4-pre.3-win-x64.zip",
+          "size": 52583345,
+          "digest": "sha256:a7ecebbf83fa8101e8e012d943cb37d92d7e62b5f866540235307a897c6fb30c"
         }
       ]
     }
