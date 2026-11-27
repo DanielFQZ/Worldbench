@@ -19,7 +19,14 @@ $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
 # Import the environment produced by the trusted Visual Studio bootstrap script.
 $bootstrap = 'call "' + $vcvars + '" >nul && set'
 & $env:ComSpec /d /c $bootstrap | ForEach-Object {
-    if ($_ -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') }
+    if ($_ -match '^([^=]+)=(.*)$') {
+        # Git's inherited command-line config may contain meaningful empty values.
+        # SetEnvironmentVariable(name, '') deletes them in Windows PowerShell 5.1.
+        # The VS bootstrap does not own these variables; leave them untouched.
+        if ($matches[1] -notlike 'GIT_CONFIG_*') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+        }
+    }
 }
 $cmake = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 $ninja = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
