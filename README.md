@@ -4,7 +4,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 当前版本
 
-本轮稳定性修复版本为 **0.26.4-pre.8**（最终发布状态见 [DEVELOPMENT.md](DEVELOPMENT.md) §1.14）。修复生成期间关闭 MCP 的崩溃，增加同工程只读/另存为与外部修改保护，纠正小选区导出的实体范围和非法资产坐标处理。数值拖动一次提交/撤销，整理 PCG 节点位置不再重生成，洞穴剖面复用可取消的分析结果。发布构建强制完整自动测试、源码身份及文件摘要校验。Minecraft 资源与导出基线仍为 **1.20.1**；资产编辑器改版和方块建筑工具待设计确认，本轮未新增。项目仍处于预发布阶段。
+当前公开稳定性测试版本为 **0.26.4-pre.8**（验证记录见 [DEVELOPMENT.md](DEVELOPMENT.md) §1.14）。修复生成期间关闭 MCP 的崩溃，增加同工程只读/另存为与外部修改保护，纠正小选区导出的实体范围和非法资产坐标处理。数值拖动一次提交/撤销，整理 PCG 节点位置不再重生成，洞穴剖面复用可取消的分析结果。发布构建强制完整自动测试、源码身份及文件摘要校验。Minecraft 资源与导出基线仍为 **1.20.1**；资产编辑器改版和方块建筑工具待设计确认，本轮未新增。项目仍处于预发布阶段。
 
 ## 已实现能力
 
@@ -51,7 +51,7 @@ Worldbench is an open-source 3D terrain and asset editor for large Minecraft wor
 
 ## Current version
 
-The stability release is **0.26.4-pre.8** (see DEVELOPMENT.md §1.14 for final publication status). It fixes MCP disconnection during generation, adds read-only/Save As and external-change protection for project files, corrects selection-export entity boundaries, and rejects malformed asset coordinates. Numeric dragging commits once, graph layout changes no longer regenerate terrain, and cave slices reuse cancellable analysis. Release builds now require complete automated tests and matching source/binary identities. Minecraft resource loading and export target **1.20.1**. Asset-editor redesign and block-building tools remain pending design confirmation. This is pre-release software.
+The current public stability preview is **0.26.4-pre.8** (see DEVELOPMENT.md §1.14 for validation records). It fixes MCP disconnection during generation, adds read-only/Save As and external-change protection for project files, corrects selection-export entity boundaries, and rejects malformed asset coordinates. Numeric dragging commits once, graph layout changes no longer regenerate terrain, and cave slices reuse cancellable analysis. Release builds now require complete automated tests and matching source/binary identities. Minecraft resource loading and export target **1.20.1**. Asset-editor redesign and block-building tools remain pending design confirmation. This is pre-release software.
 
 ## Features
 
