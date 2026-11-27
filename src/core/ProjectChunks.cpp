@@ -62,7 +62,8 @@ bool backupLegacy(const QString &path, QString &error) {
 }
 } // namespace
 
-bool saveProject(const QString &path, const World &world, QString &error) {
+bool saveProject(const QString &path, const World &world, QString &error,
+                 const std::function<bool(QString &)> &beforeCommit) {
     try {
         Environment environment;
         if (!validateTerrain(world.heights.instances, error) ||
@@ -203,6 +204,8 @@ bool saveProject(const QString &path, const World &world, QString &error) {
         qToLittleEndian<uint32_t>(uint32_t(compressed.size()), header.data() + 16);
         if (!file.seek(0) || file.write(header) != header.size())
             return fail(file.errorString());
+        if (beforeCommit && !beforeCommit(error))
+            return false;
         if (!backupLegacy(path, error))
             return false;
         if (!file.commit())

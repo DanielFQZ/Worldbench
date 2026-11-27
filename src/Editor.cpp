@@ -22,6 +22,37 @@
 #include <algorithm>
 
 namespace {
+QJsonObject graphEvaluation(QJsonObject graph) {
+    graph.remove("name");
+    graph.remove("diagnostics");
+    auto nodes = graph["nodes"].toArray();
+    for (int i = 0; i < nodes.size(); ++i) {
+        auto node = nodes[i].toObject();
+        auto params = node["parameters"].toObject();
+        params.remove("uiX"); params.remove("uiY");
+        if (node["type"] == "subgraph" && params["graph"].isObject())
+            params["graph"] = graphEvaluation(params["graph"].toObject());
+        node["parameters"] = params;
+        nodes[i] = node;
+    }
+    graph["nodes"] = nodes;
+    return graph;
+}
+bool sameGraphEvaluation(const std::vector<wb::PcgGraph> &a, const std::vector<wb::PcgGraph> &b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (a[i] != b[i] && graphEvaluation(a[i].toJson()) != graphEvaluation(b[i].toJson()))
+            return false;
+    return true;
+}
+bool creationMetadataOnly(const wb::CreationState &before, const wb::CreationState &after) {
+    auto metadata = before;
+    metadata.pcgAssets = after.pcgAssets;
+    metadata.folders = after.folders;
+    metadata.assetFolders = after.assetFolders;
+    if (sameGraphEvaluation(before.graphs, after.graphs)) metadata.graphs = after.graphs;
+    return metadata == after;
+}
 QString defaultShortcut(const QString &action) {
     static const QHash<QString, QString> defaults{
         {"save", "Ctrl+S"},          {"open", "Ctrl+O"},  {"new", "Ctrl+N"},
@@ -274,6 +305,16 @@ bool independentMove(const wb::World &world, const wb::CreationState &before,
 } // namespace
 bool Editor::commitCreation(wb::CreationState next, const QString &label,
                             const std::vector<wb::TerrainInstance> *terrains) {
+    if (m_parameterStart) {
+        QString error;
+        if (!m_previewingParameter || terrains || !wb::validateCreation(next, error)) {
+            emit failure(error.isEmpty() ? "请先结束当前数值拖动" : error);
+            return false;
+        }
+        // Keep authoritative content and generation untouched until release.
+        m_parameterPending = std::make_shared<const wb::CreationState>(std::move(next));
+        return true;
+    }
     auto terrainNames = terrains ? *terrains : m_world.heights.instances;
     QString nameError;
     if (!prepareLibraryNames(next, terrainNames, false, nameError) ||
@@ -304,10 +345,7 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
     const auto previousGenerated = m_world.generated;
     m_creationPending = command.creationAfter;
     QString error;
-    auto metadataOnly = m_world.creation;
-    metadataOnly.pcgAssets = candidate.creation.pcgAssets;
-    metadataOnly.folders = candidate.creation.folders;
-    metadataOnly.assetFolders = candidate.creation.assetFolders;
+    const bool metadataOnly = !terrainChanged && creationMetadataOnly(m_world.creation, candidate.creation);
     auto materialVolumes = [](const wb::CreationState &state) {
         std::vector<wb::PcgVolume> result;
         for (const auto &v : state.volumes) {
@@ -320,14 +358,14 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
     };
     const auto &before = m_world.creation;
     const auto &after = candidate.creation;
-    const bool reuseMaterials = !terrainChanged && before.graphs == after.graphs &&
+    const bool reuseMaterials = !terrainChanged && sameGraphEvaluation(before.graphs, after.graphs) &&
                                 before.roadNodes == after.roadNodes && before.roadEdges == after.roadEdges &&
                                 materialVolumes(before) == materialVolumes(after);
     QElapsedTimer generationTimer;
     generationTimer.start();
     const bool isolated = !terrainChanged && independentMove(m_world, before, after);
     const bool prepared = isolated ? candidate.rebuildCreation(error, {}, true, true)
-                          : !terrainChanged && metadataOnly == candidate.creation
+                          : metadataOnly
                               ? wb::validateCreation(candidate.creation, error)
                               : prepareCreation(candidate, error, true, reuseMaterials);
     m_placementGenerationMs = generationTimer.nsecsElapsed() / 1e6;
@@ -342,7 +380,7 @@ bool Editor::commitCreation(wb::CreationState next, const QString &label,
     ++m_revision;
     if (terrainChanged)
         dirtyAll();
-    else
+    else if (!metadataOnly)
         dirtyCreation(previousGenerated);
     pushCommand(std::move(command), false);
     m_status = label + " · Ctrl+Z 撤销";
@@ -530,7 +568,7 @@ void Editor::setMaterial(int v) {
     emit changed();
 }
 QString Editor::projectName() const {
-    return m_path.isEmpty() ? "未命名工程" : QFileInfo(m_path).completeBaseName();
+    return m_path.isEmpty() ? "未命名工程" : QFileInfo(m_path).completeBaseName() + (projectReadOnly() ? "（只读）" : "");
 }
 QString Editor::sceneStats() const {
     return QString("%1 × %2 方块 · 精确 %3 区块 / %5 远景块 · %4 万三角形")
@@ -651,6 +689,7 @@ void Editor::pushCommand(wb::Command c, bool notify) {
 void Editor::undo() {
     if (assetBusy())
         return;
+    endCreationParameterEdit();
     endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
@@ -672,6 +711,7 @@ void Editor::undo() {
 void Editor::redo() {
     if (assetBusy())
         return;
+    endCreationParameterEdit();
     endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
@@ -691,6 +731,12 @@ void Editor::redo() {
     emit changed();
 }
 void Editor::resetHistory() {
+    m_caveCache.reset();
+    m_caveAsset = {};
+    m_caveMarkers.clear();
+    m_parameterStart.reset();
+    m_parameterPending.reset();
+    m_creationStart.reset();
     m_thumbnailCache.clear();
     m_regionControl.reset();
     m_regionId.clear();
@@ -733,6 +779,7 @@ bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int
     m_selectionOnly = false;
     m_material = wb::Stone;
     m_path.clear();
+    m_projectSession.reset();
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
     dirtyAll();
@@ -749,6 +796,7 @@ bool Editor::createWorld(int width, int seed, int baseHeight, int variation, int
 bool Editor::save(const QUrl &url) {
     if (assetBusy())
         return false;
+    endCreationParameterEdit();
     endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
@@ -758,30 +806,65 @@ bool Editor::save(const QUrl &url) {
         return false;
     if (!path.endsWith(".wbench", Qt::CaseInsensitive))
         path += ".wbench";
+    path = wb::ProjectSession::canonicalPath(path);
     QString error;
-    if (auto *viewport = qobject_cast<Viewport *>(m_cameraController.data()))
-        m_world.savedCamera = viewport->cameraState();
-    if (!wb::saveProject(path, m_world, error)) {
+    const bool sameFile = !m_path.isEmpty() && wb::ProjectSession::samePath(path, m_path);
+    if (sameFile && !m_projectSession) {
+        emit failure("此工程以只读方式打开，不能覆盖原文件；请使用另存为保存到新路径");
+        return false;
+    }
+    std::unique_ptr<wb::ProjectSession> nextSession;
+    auto *session = sameFile ? m_projectSession.get() : nullptr;
+    if (!session) {
+        nextSession = std::make_unique<wb::ProjectSession>(path);
+        if (!nextSession->acquire(error)) {
+            emit failure(error);
+            return false;
+        }
+        session = nextSession.get();
+    }
+    if (!session->unchanged(error)) {
         emit failure(error);
         return false;
     }
+    if (auto *viewport = qobject_cast<Viewport *>(m_cameraController.data()))
+        m_world.savedCamera = viewport->cameraState();
+    if (!wb::saveProject(path, m_world, error, [session](QString &message) { return session->unchanged(message); })) {
+        emit failure(error);
+        return false;
+    }
+    const bool stamped = session->refresh(error);
+    if (nextSession)
+        m_projectSession = std::move(nextSession);
     m_path = path;
     m_savedState = m_state;
     m_savedResourceRevision = m_resourceRevision;
     m_status = "已保存：" + path;
+    if (!stamped)
+        emit failure("工程已保存，但无法重新确认磁盘内容；再次保存前请重新打开或另存副本。" + error);
     emit changed();
     return true;
 }
 bool Editor::open(const QUrl &url) {
     if (exportBusy() || assetBusy())
         return false;
+    endCreationParameterEdit();
     endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();
     endStroke();
     wb::World next;
     QString error;
-    if (!wb::loadProject(url.toLocalFile(), next, error)) {
+    const QString path = wb::ProjectSession::canonicalPath(url.toLocalFile());
+    const bool reuseSession = m_projectSession && wb::ProjectSession::samePath(path, m_path);
+    std::unique_ptr<wb::ProjectSession> nextSession;
+    if (!reuseSession) {
+        nextSession = std::make_unique<wb::ProjectSession>(path);
+        if (!nextSession->acquire(error))
+            nextSession.reset(); // Read-only viewing and Save As remain available.
+    }
+    QByteArray before, after;
+    if (!wb::ProjectSession::stamp(path, before, error) || !wb::loadProject(path, next, error)) {
         emit failure(error);
         return false;
     }
@@ -789,6 +872,14 @@ bool Editor::open(const QUrl &url) {
         emit failure(error);
         return false;
     }
+    if (!wb::ProjectSession::stamp(path, after, error) || before != after) {
+        emit failure("读取期间磁盘工程发生变化，未替换当前工程，请重试。" + error);
+        return false;
+    }
+    if (!reuseSession)
+        m_projectSession = std::move(nextSession);
+    if (m_projectSession)
+        m_projectSession->setBaseline(after);
     m_world = std::move(next);
     m_previewX = m_world.originX + m_world.width / 2;
     m_previewZ = m_world.originZ + m_world.depth / 2;
@@ -796,11 +887,11 @@ bool Editor::open(const QUrl &url) {
     m_selectionOnly = false;
     m_material = wb::Stone;
     emit catalogChanged();
-    m_path = url.toLocalFile();
+    m_path = path;
     resetHistory();
     m_scene = std::make_shared<wb::MeshScene>();
     dirtyAll();
-    m_status = "已打开工程";
+    m_status = projectReadOnly() ? "已只读打开工程 · 原文件被占用或目录不可写，请另存副本" : "已打开工程";
     emit sceneChanged();
     emit worldReset();
     emit changed();
@@ -849,6 +940,9 @@ void Editor::invalidateTerrainBounds(QRectF bounds) {
     }
 }
 bool Editor::dirtyCommand(const wb::Command &command, bool forward) {
+    if (command.creationBefore && command.creationAfter && !command.terrainAfter &&
+        creationMetadataOnly(*command.creationBefore, *command.creationAfter))
+        return true;
     if (command.creationAfter || (!m_world.creation.volumes.empty() || !m_world.creation.presets.empty() ||
                                   !m_world.creation.roadEdges.empty()) &&
                                      !command.environmentAfter) {
@@ -1561,6 +1655,7 @@ void Editor::startMesh() {
 void Editor::exportWorld(const QUrl &parent, const QString &name, bool selectedArea) {
     if (exportBusy() || assetBusy())
         return;
+    endCreationParameterEdit();
     endCreationTransform();
     endEnvironmentEdit();
     endTerrainEdit();

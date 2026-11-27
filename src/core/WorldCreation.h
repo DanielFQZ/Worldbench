@@ -261,7 +261,8 @@ bool canReuseScatter(const World &, const AssetPreset &, const AssetPreset &);
 bool importStructure(const QString &path, StructureAsset &asset, QString &error);
 bool parseCreationBlock(const QString &text, struct BlockState &state, QString &error);
 struct CaveAnalysis;
-CaveAnalysis analyzeAssetCave(const StructureAsset &asset, const std::vector<CaveMarker> &markers);
+CaveAnalysis analyzeAssetCave(const StructureAsset &asset, const std::vector<CaveMarker> &markers,
+                              const std::function<bool()> &keepGoing = {});
 
 QJsonObject saveCreation(const CreationState &state);
 bool loadCreation(const QJsonObject &object, CreationState &state, QString &error);
@@ -272,6 +273,8 @@ struct CaveAnalysis {
     std::vector<uint8_t> labels; // 0 outside, 1 inside, 2 portal, 3 leak, 4 unconfirmed chamber
     int chambers = 0;
     int unconfirmedChambers = 0;
+    int interior = 0, portals = 0;
+    bool cancelled = false;
     QStringList diagnostics;
     bool valid = false;
 };

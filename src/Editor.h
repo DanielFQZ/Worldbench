@@ -3,6 +3,7 @@
 #include "core/MinecraftExport.h"
 #include "core/RegionEdit.h"
 #include "core/World.h"
+#include "core/ProjectSession.h"
 #include <QCache>
 #include <QFutureWatcher>
 #include <QJsonObject>
@@ -32,6 +33,7 @@ class Editor : public QObject {
     Q_PROPERTY(int exportProgress READ exportProgress NOTIFY changed)
     Q_PROPERTY(QString projectName READ projectName NOTIFY changed)
     Q_PROPERTY(QString projectPath READ projectPath NOTIFY changed)
+    Q_PROPERTY(bool projectReadOnly READ projectReadOnly NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY placementChanged)
     Q_PROPERTY(QString sceneStats READ sceneStats NOTIFY placementChanged)
     Q_PROPERTY(Editor *assetInspector READ assetInspector CONSTANT)
@@ -173,6 +175,7 @@ class Editor : public QObject {
     QVariantList materialProperties() const;
     QStringList resourceSources() const { return m_world.resourcePaths; }
     bool mcpEnabled() const;
+    bool projectReadOnly() const { return !m_path.isEmpty() && !m_projectSession; }
     void setMcpEnabled(bool enabled);
     QString mcpConfiguration() const;
     QString mcpActivity() const;
@@ -195,14 +198,17 @@ class Editor : public QObject {
     }
     Q_INVOKABLE QString pcgPreview(const QString &graphId, const QString &nodeId,
                                    const QString &volumeId = QString()) const;
-    Q_INVOKABLE QVariantMap assetSlice(const QString &id, int y, bool classified = false) const;
+    Q_INVOKABLE QVariantMap assetSlice(const QString &id, int y, bool classified = false);
     QVariantMap creationState() const;
     QVariantMap creationDetails() const;
     QVariantList pcgNodeTypes() const { return wb::pcgNodeCatalog().toVariantList(); }
     Q_INVOKABLE bool creationEdit(const QString &action, const QVariantMap &data);
+    Q_INVOKABLE bool beginCreationParameterEdit();
+    Q_INVOKABLE bool previewCreationParameter(const QString &action, const QVariantMap &data);
+    Q_INVOKABLE void endCreationParameterEdit(bool cancel = false);
     Q_INVOKABLE QVariantMap graphData(const QString &id) const;
     Q_INVOKABLE QVariantMap assetData(const QString &id) const;
-    Q_INVOKABLE QVariantMap caveAnalysis(const QString &id) const;
+    Q_INVOKABLE QVariantMap caveAnalysis(const QString &id);
     Q_INVOKABLE bool creationFile(const QString &action, const QString &id, const QUrl &url);
     QString placementAsset() const { return m_placementAsset; }
     bool roadPlacement() const { return m_roadPlacement; }
@@ -250,7 +256,7 @@ class Editor : public QObject {
     uint64_t revision() const { return m_revision; }
     bool commandBusy() const {
         return bool(m_stroke) || bool(m_terrainStart) || bool(m_creationStart) || bool(m_environmentStart) ||
-               assetBusy();
+               bool(m_parameterStart) || assetBusy();
     }
     QJsonObject worldInfo() const;
     QJsonObject executeTool(const QString &name, const QJsonObject &args);
@@ -335,6 +341,10 @@ class Editor : public QObject {
     bool m_inspectionOnly = false;
     QString m_inspectionId;
     mutable QCache<QString, QString> m_thumbnailCache{256};
+    std::shared_ptr<const wb::CaveAnalysis> cachedCaveAnalysis(const QString &id, bool retryCancelled = false);
+    std::shared_ptr<const wb::CaveAnalysis> m_caveCache;
+    wb::StructureAsset m_caveAsset;
+    std::vector<wb::CaveMarker> m_caveMarkers;
     double m_placementGenerationMs = 0;
     mutable uint64_t m_creationSummaryRevision = 0;
     mutable QVariantMap m_creationSummary;
@@ -353,6 +363,8 @@ class Editor : public QObject {
     bool commitCreation(wb::CreationState next, const QString &label,
                         const std::vector<wb::TerrainInstance> *terrains = nullptr);
     std::shared_ptr<const wb::CreationState> m_creationStart;
+    std::shared_ptr<const wb::CreationState> m_parameterStart, m_parameterPending;
+    bool m_previewingParameter = false;
     std::shared_ptr<const wb::CreationState> m_creationPending;
     QString m_placementAsset;
     bool m_roadPlacement = false;
@@ -372,6 +384,7 @@ class Editor : public QObject {
     uint64_t m_state = 0, m_savedState = 0, m_nextState = 1, m_meshSerial = 0, m_epoch = 0, m_jobEpoch = 0;
     bool m_strokeChanged = false;
     QString m_path, m_status = "正在准备地形…";
+    std::unique_ptr<wb::ProjectSession> m_projectSession;
     QString m_resourceWarning;
     std::set<int> m_dirty;
     int m_previewX = 0, m_previewZ = 0;

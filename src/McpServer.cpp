@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLocalSocket>
+#include <QPointer>
 #include <QUuid>
 #include <stdexcept>
 
@@ -132,8 +133,9 @@ QJsonArray toolList() {
         "(bool); skyIntensity 0..200, sunIntensity 0..300 percent; azimuth -180..180, elevation 0..90 "
         "degrees; "
         "haze 0..100, exposure -30..30 tenths EV; skyColor,horizonColor,groundColor,sunColor #RRGGBB; "
-        "skyTexturePath is an optional local 2:1 equirectangular HDR/EXR/PNG/JPG/TGA/DDS/KTX2 (HDR is "
-        "decoded with RGBE tone mapping). Clouds use a low-cost spherical noise layer; "
+        "skyTexturePath is an optional local 2:1 equirectangular HDR/EXR/PNG/JPG/TGA/BMP image. "
+        "HDR/EXR retain linear high-dynamic-range values; DDS and KTX2 are not supported. "
+        "Clouds use a low-cost spherical noise layer; "
         "volumetric clouds and GI are not included.",
         {{"changes", QJsonObject{{"type", "object"}}}, {"expected_revision", revision}},
         {"changes", "expected_revision"}, false);
@@ -188,7 +190,13 @@ McpServer::McpServer(Editor *editor) : QObject(editor), m_editor(editor) {
                 m_clients.remove(socket);
                 socket->deleteLater();
             });
-            connect(socket, &QLocalSocket::readyRead, this, [this, socket, buffer, initialized] {
+            // executeTool may enter a nested event loop for generation. Disabling
+            // MCP there can delete the socket before this callback resumes.
+            const QPointer<QLocalSocket> guardedSocket(socket);
+            connect(socket, &QLocalSocket::readyRead, this, [this, guardedSocket, buffer, initialized] {
+                auto *socket = guardedSocket.data();
+                if (!socket)
+                    return;
                 buffer->append(socket->readAll());
                 if (buffer->size() > 8 * 1024 * 1024) {
                     socket->abort();
@@ -261,6 +269,8 @@ McpServer::McpServer(Editor *editor) : QObject(editor), m_editor(editor) {
                         emit m_editor->changed();
                     } else
                         protocolError(-32601, "Method not found");
+                    if (!guardedSocket || guardedSocket->state() != QLocalSocket::ConnectedState)
+                        return;
                     if (hasId) {
                         if (!response.contains("error"))
                             response["result"] = result;

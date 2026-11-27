@@ -34,6 +34,7 @@ static void check(bool b, const char *what) {
     if (!b)
         throw std::runtime_error(what);
 }
+#include "StabilityUiTests.h"
 class UpdateServiceTests {
 public:
     static void run(QQuickWindow *win, UpdateService &updater) {
@@ -108,6 +109,11 @@ int main(int argc, char **argv) {
         check(win, "native Qt window");
         win->requestActivate();
         check(QTest::qWaitForWindowExposed(win), "window exposed");
+        if (app.arguments().contains("--stability-only")) {
+            runStabilityChecks(editor, engine, win);
+            std::cout << "PASS " << checks << " stability GUI/stdio checks\n";
+            return 0;
+        }
         if (app.arguments().contains("--updates-only")) {
             UpdateServiceTests::run(win, updater);
             std::cout << checks << " update checks passed\n";

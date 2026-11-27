@@ -65,8 +65,16 @@ int main(int argc, char **argv) {
     // Keep user-editable settings and diagnostics together in Documents so a
     // normal uninstall can leave the creator's preferences and resource
     // choices intact. Migrate the old native settings store once.
+    const int automationIndex = app.arguments().indexOf("--automation-test");
+    const bool isolatedAutomation = automationIndex >= 0;
     const auto documents = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    const auto dataRoot = QDir(documents).filePath("Worldbench");
+    const auto dataRoot = isolatedAutomation ? app.arguments().value(automationIndex + 1)
+                                            : QDir(documents).filePath("Worldbench");
+    if (isolatedAutomation && (dataRoot.isEmpty() || !QDir::isAbsolutePath(dataRoot) ||
+        !QFileInfo(dataRoot).isDir() || !QDir(dataRoot).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty())) {
+        fprintf(stderr, "--automation-test requires an existing empty absolute directory\n");
+        return 2;
+    }
     QDir().mkpath(dataRoot);
     QSettings oldSettings(QSettings::NativeFormat, QSettings::UserScope, "Worldbench", "Worldbench");
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -74,7 +82,7 @@ int main(int argc, char **argv) {
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, dataRoot);
     QSettings migrated;
     const auto settingsFile = migrated.fileName();
-    if (!QFileInfo::exists(settingsFile) && !oldSettings.allKeys().isEmpty()) {
+    if (!isolatedAutomation && !QFileInfo::exists(settingsFile) && !oldSettings.allKeys().isEmpty()) {
         for (const auto &key : oldSettings.allKeys())
             migrated.setValue(key, oldSettings.value(key));
         migrated.sync();
@@ -158,14 +166,22 @@ int main(int argc, char **argv) {
     }
     if (!projectPath.isEmpty() && QFileInfo::exists(projectPath))
         editor.open(QUrl::fromLocalFile(projectPath));
-    else
-        editor.initializeResources();
+    else if (!isolatedAutomation)
+        editor.initializeResources(); // The isolated automation fixture uses built-in materials.
     if (args.contains("--frame-world"))
         if (auto *viewport = engine.rootObjects().first()->findChild<Viewport *>("voxelViewport"))
             viewport->frameWorld();
     if (args.contains("--model-preview")) {
         if (auto *viewport = engine.rootObjects().first()->findChild<Viewport *>("voxelViewport"))
             viewport->applyCamera({{"position", QJsonArray{9, 11, 17}}, {"yaw", -27}, {"pitch", -18}});
+    }
+    if (isolatedAutomation) {
+        editor.setMcpEnabled(true);
+        QFile configuration(dataRoot + "/mcp.json");
+        if (!configuration.open(QIODevice::WriteOnly) ||
+            configuration.write(editor.mcpConfiguration().toUtf8()) < 0) return 2;
+        configuration.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        configuration.close();
     }
     const int smoke = args.indexOf("--smoke-test");
     if (smoke >= 0) {

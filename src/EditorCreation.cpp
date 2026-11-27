@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QUuid>
 #include <QtConcurrent>
@@ -453,33 +454,86 @@ QVariantMap Editor::assetData(const QString &id) const {
         }
     return {};
 }
-QVariantMap Editor::caveAnalysis(const QString &id) const {
-    for (auto &a : m_world.creation.assets)
-        if (a.id == id) {
-            auto r = wb::analyzeAssetCave(a, m_world.creation.caveMarkers);
-            int inside = 0, portals = 0;
-            for (auto label : r.labels) {
-                inside += label == 1;
-                portals += label == 2;
-            }
-            QVariantList issues;
-            for (auto &s : r.diagnostics)
-                issues << s;
-            return {{"valid", r.valid},
-                    {"interior", inside},
-                    {"portals", portals},
-                    {"chambers", r.chambers},
-                    {"unconfirmedChambers", r.unconfirmedChambers},
-                    {"diagnostics", issues}};
+std::shared_ptr<const wb::CaveAnalysis> Editor::cachedCaveAnalysis(const QString &id, bool retryCancelled) {
+    const auto found = std::find_if(m_world.creation.assets.begin(), m_world.creation.assets.end(),
+                                    [&](const auto &asset) { return asset.id == id; });
+    if (found == m_world.creation.assets.end()) return {};
+    std::vector<wb::CaveMarker> markers;
+    for (const auto &m : m_world.creation.caveMarkers)
+        if (m.assetId == id) markers.push_back(m);
+    const auto &asset = *found;
+    if (m_caveCache && m_caveAsset.id == id && m_caveAsset.width == asset.width &&
+        m_caveAsset.height == asset.height && m_caveAsset.depth == asset.depth &&
+        m_caveAsset.blocks == asset.blocks && m_caveMarkers == markers &&
+        !(retryCancelled && m_caveCache->cancelled))
+        return m_caveCache;
+    if (assetBusy()) return {};
+    const auto snapshot = asset;
+    const auto revision = m_revision;
+    auto control = std::make_shared<CreationControl>();
+    m_creationControl = control;
+    m_creationBusy = m_creationCancellable = true;
+    emit changed();
+    QFutureWatcher<wb::CaveAnalysis> watcher;
+    QEventLoop loop;
+    connect(&watcher, &QFutureWatcherBase::finished, &loop, &QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run([snapshot, markers, control] {
+        try {
+            return wb::analyzeAssetCave(snapshot, markers, [control] { return !control->cancelled.load(); });
+        } catch (const std::exception &) {
+            wb::CaveAnalysis failed;
+            failed.diagnostics = {"洞穴分析失败或内存不足，工程未修改"};
+            return failed;
         }
-    return {{"valid", false}, {"diagnostics", QStringList{"资产不存在"}}};
+    }));
+    loop.exec();
+    auto result = std::make_shared<const wb::CaveAnalysis>(watcher.result());
+    // Publish cache before notification: refreshing QML can re-enter this reader.
+    if (m_revision == revision) {
+        m_caveAsset = snapshot;
+        m_caveMarkers = std::move(markers);
+        m_caveCache = result;
+    }
+    m_creationBusy = m_creationCancellable = false;
+    m_creationControl.reset();
+    emit changed();
+    return m_revision == revision ? result : nullptr;
+}
+QVariantMap Editor::caveAnalysis(const QString &id) {
+    const auto r = cachedCaveAnalysis(id, true);
+    if (!r) return {{"valid", false}, {"diagnostics", QStringList{"资产不存在或当前操作未结束"}}};
+    return {{"valid", r->valid}, {"cancelled", r->cancelled},
+            {"interior", r->interior}, {"portals", r->portals},
+            {"chambers", r->chambers}, {"unconfirmedChambers", r->unconfirmedChambers},
+            {"diagnostics", r->diagnostics}};
+}
+
+bool Editor::beginCreationParameterEdit() {
+    if (commandBusy() || exportBusy()) return false;
+    m_parameterStart = m_parameterPending = std::make_shared<const wb::CreationState>(m_world.creation);
+    return true;
+}
+bool Editor::previewCreationParameter(const QString &action, const QVariantMap &data) {
+    if (!m_parameterStart || (action != "patch" && action != "graph")) return false;
+    QScopedValueRollback<bool> preview(m_previewingParameter, true);
+    return creationEdit(action, data);
+}
+void Editor::endCreationParameterEdit(bool cancel) {
+    if (!m_parameterStart) return;
+    auto next = m_parameterPending;
+    m_parameterStart.reset();
+    m_parameterPending.reset();
+    if (!cancel && next && *next != m_world.creation)
+        commitCreation(*next, "调整创作参数");
+    // Also restore value bindings after cancellation/no-op/failed validation.
+    emit changed();
 }
 bool Editor::creationEdit(const QString &action, const QVariantMap &data) {
-    if (assetBusy() || m_creationStart) {
+    if (assetBusy() || m_creationStart || (m_parameterStart && !m_previewingParameter)) {
         emit failure("请等待当前创作操作完成");
         return false;
     }
-    auto next = m_world.creation;
+    auto next = m_previewingParameter ? *m_parameterPending : m_world.creation;
     auto d = QJsonObject::fromVariantMap(data);
     QString error;
     if (action == "replace") {
@@ -1288,7 +1342,7 @@ QString Editor::pcgPreview(const QString &graphId, const QString &nodeId, const 
     image.save(&buffer, "PNG");
     return "data:image/png;base64," + QString::fromLatin1(bytes.toBase64());
 }
-QVariantMap Editor::assetSlice(const QString &id, int y, bool classified) const {
+QVariantMap Editor::assetSlice(const QString &id, int y, bool classified) {
     for (auto &a : m_world.creation.assets)
         if (a.id == id) {
             QVariantList cells;
@@ -1297,11 +1351,11 @@ QVariantMap Editor::assetSlice(const QString &id, int y, bool classified) const 
                     cells << QVariant(QVariantList{b.x, b.z});
             QVariantList labels;
             if (classified) {
-                auto r = wb::analyzeAssetCave(a, m_world.creation.caveMarkers);
-                if (y >= 0 && y < a.height)
+                const auto r = cachedCaveAnalysis(id);
+                if (r && y >= 0 && y < a.height)
                     for (int z = 0; z < a.depth; ++z)
                         for (int x = 0; x < a.width; ++x) {
-                            int label = r.labels.empty() ? 0 : r.labels[(y * a.depth + z) * a.width + x];
+                            int label = r->labels.empty() ? 0 : r->labels[(y * a.depth + z) * a.width + x];
                             if (label)
                                 labels << QVariant(QVariantList{x, z, label});
                         }

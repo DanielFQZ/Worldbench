@@ -1,0 +1,147 @@
+{
+  "schema": 1,
+  "date": "2026-11-27",
+  "timezone": "Asia/Hong_Kong",
+  "scope": "repository audit before product fixes; no new release",
+  "source_commit": "0aa4f2a092c15d8df227f64bad8e3d25087a9c89",
+  "release_source_commit": "d8377ee12d7ce1329e2dbdef266e0a0d328ad826",
+  "baseline": {
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1",
+    "ctest_passed": 18,
+    "ctest_failed": 0,
+    "ctest_seconds": 346.72
+  },
+  "extra_tests": {
+    "return_codes": {
+      "startup": 0,
+      "zip": 0,
+      "silent": 0
+    },
+    "startup_checks": 11,
+    "zip_install_checks": 22,
+    "silent_monitor_cases": 10,
+    "isolated_installer_cases": 2
+  },
+  "core_probe": {
+    "cave_analysis": {
+      "bounding_voxels": 15990784,
+      "elapsed_ms": 238,
+      "labels": 15990784
+    },
+    "concurrent_save": {
+      "both_opened": true,
+      "both_saved": true,
+      "first_edit_preserved": false,
+      "reopened": true,
+      "second_edit_preserved": true
+    },
+    "invalid_coordinate": {
+      "decoded_x": 0,
+      "error": "",
+      "parsed": true,
+      "validated": true
+    },
+    "invalid_marker_end": {
+      "end": [
+        0,
+        0,
+        0
+      ],
+      "error": "",
+      "parsed": true,
+      "validated": true
+    },
+    "selection_export": {
+      "aligned_chunks": 1,
+      "aligned_entity_regions": 1,
+      "aligned_ok": true,
+      "partial_chunks": 1,
+      "partial_entity_regions": 0,
+      "partial_ok": true
+    }
+  },
+  "editor_probe": "layout_only_edit=1 busy_notifications=1 regenerated=1",
+  "real_stdio_disable": {
+    "transport": "real WorldbenchMcp.exe stdio; disable MCP during generation",
+    "exit_code": 3221225477,
+    "exit_hex": "0xc0000005",
+    "stdout": "layout_only_edit=1 busy_notifications=1 regenerated=1\ndisabling_MCP_during_stdio_generation\n",
+    "stderr": ""
+  },
+  "real_stdio_disconnect": {
+    "transport": "real WorldbenchMcp.exe stdio process",
+    "exit_code": 0,
+    "exit_hex": "0x0",
+    "stdout": "layout_only_edit=1 busy_notifications=1 regenerated=1\ndisconnecting_stdio_bridge_during_generation\nsurvived_disconnect=1\n",
+    "stderr": ""
+  },
+  "public_release": {
+    "release": {
+      "status": 200,
+      "tag": "v0.26.4-pre.7",
+      "draft": false,
+      "prerelease": true,
+      "target": "d8377ee12d7ce1329e2dbdef266e0a0d328ad826",
+      "assets": [
+        {
+          "name": "SHA256SUMS.txt",
+          "size": 204,
+          "digest": "sha256:077c929f2ee8251505428df451570c37194c88b662f8c7e5b977f7976ba26f0d",
+          "state": "uploaded"
+        },
+        {
+          "name": "Worldbench-0.26.4-pre.7-setup.exe",
+          "size": 41404016,
+          "digest": "sha256:1499040de4133d59695912f7dd50df5f1f71060014a2f6c09b97e8cac60e5c32",
+          "state": "uploaded"
+        },
+        {
+          "name": "Worldbench-0.26.4-pre.7-win-x64.zip",
+          "size": 52591230,
+          "digest": "sha256:9d8e9c351959b2b4bd85c0796209a58fd6117e8703cff6df99c28c4a23e12c82",
+          "state": "uploaded"
+        },
+        {
+          "name": "Worldbench-self-signed.cer",
+          "size": 782,
+          "digest": "sha256:53ded67fa55e31ca3f3e130e1e9d53178165d93471008c16cb982096933682c5",
+          "state": "uploaded"
+        }
+      ]
+    },
+    "feed": {
+      "status": 200,
+      "tag": "v0.26.4-pre.7",
+      "matches_local": true
+    },
+    "remote_refs": {
+      "exit_code": 0,
+      "stdout": "0aa4f2a092c15d8df227f64bad8e3d25087a9c89\trefs/heads/main\nd8377ee12d7ce1329e2dbdef266e0a0d328ad826\trefs/tags/v0.26.4-pre.7\n",
+      "stderr": ""
+    }
+  },
+  "evidence_sha256": {
+    "baseline-build-tests.log": "9317e5d60cc8c6aef7d5580a63ae0c62388b706c25f82072f7d779ddf4a31100",
+    "startup-tests.log": "66983a9f9550c8c966e1511ae77aa40aea54b094df8ec288c3a504f0875949c0",
+    "zip-update-tests.log": "e6e2625ccd1a5c86dbe92bf6335e6fe17d516397c983fa190199c784a4056848",
+    "silent-install-tests.log": "5649a8843dd968cd87d1d7a9da63d2f61d273d6c04aa9223b530977180f93426",
+    "core_probe.cpp": "40f84f5df1d5a6e58392f3a69bd35a0a72b44645080221aef7131e7e6e79e39a",
+    "editor_probe.cpp": "f707962c431af7593843911928554e50700290ad205cc1c8a54eee169ad5dfff",
+    "build_probes.py": "83c5e46b2aed6d42dd4201ab65a9e1013cd5da4cdd61c6b3dab52ba00bdab67d",
+    "core-probe.json": "5d0c83df6c2d94856dac6ac3dbe6d820992a01c61fbea7714b5ada7d3c893444",
+    "editor-probe.log": "de8292ac3104967eae4a669eab56e3cf91295182de9aafff68a67f020870e2f3",
+    "stdio-disable-probe.json": "bf0d9ce19ceccd033ed1be6f2dc04ec00f98d8f3aad3fe99363138d852f721d1",
+    "stdio-disconnect-probe.json": "f2bf3c538f4dfde68e4c8247f3ed13ee0856cc15876e1e7a48e06cc06b188e04",
+    "public-release-summary.json": "d087ac72f3c41c697252066e31baf904422949f4b0208680711ba213790182f4"
+  },
+  "limitations": [
+    "No production code fixes in this audit stage",
+    "Concurrent-save reproduction used two in-memory copies with production storage APIs; GUI protection inspected statically",
+    "Numeric scrub history assessed from code; physical mouse regression pending",
+    "No complete Minecraft client acceptance",
+    "No privileged installation into user installation",
+    "No full complex 8K/16K workflow certification",
+    "No line-by-line audit of third-party dependencies",
+    "Public release metadata/feed checked; complete public binaries not downloaded or installed in this audit"
+  ]
+}

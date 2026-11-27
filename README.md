@@ -4,7 +4,7 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 当前版本
 
-当前公开测试版本为 **0.26.4-pre.7**。Minecraft 资源与导出基线为 **1.20.1**。本版修复安装成功后因版本标签前导 v 导致的校验误报；保留编辑器入口启动权限校验，纠正安装/更新继承的管理员权限，避免首次启动无法接收资源管理器拖放；保留 UAC 后静默覆盖和校验重启；保留已安装目录识别，资产库默认快捷键改为 UE 的 Ctrl+Space；安装器默认请求 UAC，新安装优先非 C 盘固定磁盘的 Program Files，支持手动选目录；升级保留原目录。保留受保护安装目录的更新权限与回滚修复：自动选用安装器请求授权，可写目录仍使用 ZIP。旧客户端需一次手动安装覆盖原目录。保留快捷键录制与冲突处理、Ctrl+Space 资产库开关、方块网格线开关、工程视角保存和各向异性贴图过滤，保留静态更新清单与跨启动资源缓存。项目仍处于预发布阶段，工程文件格式、渲染性能和资产编辑器会继续演进。
+本轮稳定性修复版本为 **0.26.4-pre.8**（最终发布状态见 [DEVELOPMENT.md](DEVELOPMENT.md) §1.14）。修复生成期间关闭 MCP 的崩溃，增加同工程只读/另存为与外部修改保护，纠正小选区导出的实体范围和非法资产坐标处理。数值拖动一次提交/撤销，整理 PCG 节点位置不再重生成，洞穴剖面复用可取消的分析结果。发布构建强制完整自动测试、源码身份及文件摘要校验。Minecraft 资源与导出基线仍为 **1.20.1**；资产编辑器改版和方块建筑工具待设计确认，本轮未新增。项目仍处于预发布阶段。
 
 ## 已实现能力
 
@@ -30,14 +30,14 @@ Worldbench 是一个面向大型 Minecraft 世界的开源 3D 地形与资产编
 
 ## 构建
 
-构建环境为 Windows x64、Visual Studio 2022、Qt 6.8.3 MSVC x64、CMake 3.24 或更高版本。构建前需要准备 Qt ShaderTools 和可用的 CMake/Ninja。
+构建环境为 Windows x64、Visual Studio 2022、Qt 6.8.3 MSVC x64、CMake 3.24 或更高版本及 Python 3.11+。构建前需要准备 Qt ShaderTools 和可用的 CMake/Ninja。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Package
 powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 ```
 
-`build.ps1 -Package` 会生成可运行目录，`package.ps1` 会生成 Windows x64 ZIP、Inno Setup 标准安装包、自签名证书和 SHA-256 校验文件。安装器支持自选安装目录、开始菜单/桌面快捷方式、`.wbench` 文件关联和标准卸载；卸载时可选择是否删除 `Documents\\Worldbench` 用户数据。自签名证书用于标识和完整性校验，Windows 初次运行时可能显示发布者未受信任。
+先提交代码和文档，保持源码工作树干净。`build.ps1 -Package` 强制完整回归并生成可运行目录（不可搭配 `-SkipTests`），`package.ps1` 会生成 Windows x64 ZIP、Inno Setup 标准安装包、自签名证书和 SHA-256 校验文件。安装器支持自选安装目录、开始菜单/桌面快捷方式、`.wbench` 文件关联和标准卸载；卸载时可选择是否删除 `Documents\\Worldbench` 用户数据。自签名证书用于标识和完整性校验，Windows 初次运行时可能显示发布者未受信任。
 
 ## 许可
 
@@ -51,7 +51,7 @@ Worldbench is an open-source 3D terrain and asset editor for large Minecraft wor
 
 ## Current version
 
-The current public preview is **0.26.4-pre.7**. In-app installer updates now run silently after UAC and restart normally only after validation. The standalone installer requests administrator authorization by default and prefers Program Files on a non-C fixed drive for new installs, with manual directory selection and existing-path preservation for upgrades. It retains fixes for updates in protected installation folders by selecting the installer with Windows authorization, and hardens ZIP preflight and rollback. Older clients need one manual installer run. It retains shortcut capture with conflict handling, Ctrl+Space asset-library access, a block-grid toggle, saved project cameras, and anisotropic texture filtering. Minecraft resource loading and export currently target **1.20.1**. The project is pre-release software and its project format, rendering performance, and asset editors will continue to evolve.
+The stability release is **0.26.4-pre.8** (see DEVELOPMENT.md §1.14 for final publication status). It fixes MCP disconnection during generation, adds read-only/Save As and external-change protection for project files, corrects selection-export entity boundaries, and rejects malformed asset coordinates. Numeric dragging commits once, graph layout changes no longer regenerate terrain, and cave slices reuse cancellable analysis. Release builds now require complete automated tests and matching source/binary identities. Minecraft resource loading and export target **1.20.1**. Asset-editor redesign and block-building tools remain pending design confirmation. This is pre-release software.
 
 ## Features
 

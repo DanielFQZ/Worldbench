@@ -16,11 +16,15 @@ Item {
  property var markEnd:[0,0,0]
  signal placeRequested()
  property string signature:""
+ property bool parameterGesture:false
+ function beginParameter(){parameterGesture=editor.beginCreationParameterEdit()}
+ function finishParameter(cancel){if(parameterGesture){parameterGesture=false;signature="";editor.endCreationParameterEdit(cancel)}}
+ Component.onDestruction:finishParameter(true)
  function refresh(){if(editor.creationBusy)return;let a=editor.assetData(assetId),sig=JSON.stringify(a)+JSON.stringify(editor.caveMarkers);if(sig===signature)return;signature=sig;asset=a;if(visible)editor.showAssetPreview(assetId);refreshSlice()}
- onVisibleChanged:if(visible&&assetId)editor.showAssetPreview(assetId)
- onAssetIdChanged:{markStart=[0,0,0];markEnd=[0,0,0];analysis={};refresh()}
+ onVisibleChanged:{if(!visible)finishParameter(true);else if(assetId)editor.showAssetPreview(assetId)}
+ onAssetIdChanged:{finishParameter(true);markStart=[0,0,0];markEnd=[0,0,0];analysis={};refresh()}
  Connections{target:editor;function onChanged(){root.refresh()}}
- function patch(key,value){let c={};c[key]=value;editor.creationEdit("patch",{kind:"assets",id:assetId,changes:c})}
+ function patch(key,value,preview){let c={};c[key]=value;let d={kind:"assets",id:assetId,changes:c};if(preview)editor.previewCreationParameter("patch",d);else editor.creationEdit("patch",d)}
  ColumnLayout {
   anchors.fill:parent;spacing:8
   RowLayout {Layout.fillWidth:true;Layout.margins:8
@@ -70,7 +74,7 @@ Item {
      WorkbenchComboBox {Layout.fillWidth:true;model:[{id:"place",name:"Place · 仅放实体块"},{id:"carve",name:"Carve · 实体形状挖空"},{id:"ignore",name:"Ignore · 保留目标"},{id:"cave",name:"壳体 + 已标记内部挖空"}].filter(x=>x.id!=="cave"||root.kind==="closed");textRole:"name";valueRole:"id";currentIndex:Math.max(0,model.findIndex(x=>x.id===root.asset.placement));onActivated:root.patch("placement",currentValue)}
      WorkbenchComboBox {Layout.fillWidth:true;visible:root.kind==="closed";model:["刚性放置","切填地形","支撑地基（2格）"];currentIndex:root.asset.groundBlend||0;onActivated:root.patch("groundBlend",currentIndex)}
      Label{text:root.kind==="open"?"根部 / 放置枢轴 XYZ":"底座 / 放置枢轴 XYZ";color:Theme.secondary}
-     RowLayout {Layout.fillWidth:true;Repeater{model:3;delegate:WorkbenchSpinBox{required property int index;Layout.fillWidth:true;Layout.minimumWidth:0;Layout.preferredWidth:1;compact:true;from:-512;to:512;value:(root.asset.pivot||[0,0,0])[index];onValueModified:{let v=root.asset.pivot.slice();v[index]=value;root.patch("pivot",v)}}}}
+     RowLayout {Layout.fillWidth:true;Repeater{model:3;delegate:WorkbenchSpinBox{required property int index;Layout.fillWidth:true;Layout.minimumWidth:0;Layout.preferredWidth:1;compact:true;from:-512;to:512;objectName:"assetPivot"+index;value:(root.asset.pivot||[0,0,0])[index];onScrubStarted:root.beginParameter();onScrubFinished:function(cancelled){root.finishParameter(cancelled)};onValueModified:{let v=root.asset.pivot.slice();v[index]=value;root.patch("pivot",v,scrubbing)}}}}
      WorkbenchButton {text:"将剖面起点设为枢轴";onClicked:root.patch("pivot",root.markStart)}
      ColumnLayout { Layout.fillWidth:true; visible:root.kind==="closed"
      Label{text:"内部和入口标记";font.bold:true;Layout.topMargin:12}

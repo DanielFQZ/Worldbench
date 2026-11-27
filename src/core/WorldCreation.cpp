@@ -34,6 +34,13 @@ bool readVec3(const QJsonValue &value, QVector3D &out) {
     out = {float(a[0].toDouble()), float(a[1].toDouble()), float(a[2].toDouble())};
     return true;
 }
+bool readInteger(const QJsonValue &value, int &out, int low, int high) {
+    const double n = value.toDouble();
+    if (!value.isDouble() || !std::isfinite(n) || n != std::floor(n) || n < low || n > high)
+        return false;
+    out = int(n);
+    return true;
+}
 bool id(const QString &s) {
     return !s.isEmpty() && s.size() <= 96 && !s.contains(QRegularExpression("[^A-Za-z0-9_.-]"));
 }
@@ -225,18 +232,31 @@ bool StructureAsset::fromJson(const QJsonObject &o, StructureAsset &out, QString
         error = "结构资产数据无效";
         return false;
     }
-    out.width = o["width"].toInt();
-    out.height = o["height"].toInt();
-    out.depth = o["depth"].toInt();
-    out.groundBlend = o["groundBlend"].toInt(0);
+    out.groundBlend = 0;
+    if (!readInteger(o["width"], out.width, 0, 4096) ||
+        !readInteger(o["height"], out.height, 0, 4096) ||
+        !readInteger(o["depth"], out.depth, 0, 4096) ||
+        (o.contains("groundBlend") && !readInteger(o["groundBlend"], out.groundBlend, 0, 2)) ||
+        !o["blocks"].isArray()) {
+        error = "结构尺寸、地基参数或方块列表无效";
+        return false;
+    }
     out.placement = o["placement"].toString("place");
     for (const auto &v : o["markers"].toArray())
         out.markers << v.toString();
     out.blocks.clear();
     for (const auto &v : o["blocks"].toArray()) {
         auto b = v.toObject();
-        out.blocks.push_back({b["x"].toInt(), b["y"].toInt(), b["z"].toInt(), b["state"].toString(),
-                              QByteArray::fromBase64(b["nbt"].toString().toLatin1())});
+        StructureBlock block;
+        if (!v.isObject() || !readInteger(b["x"], block.x, 0, out.width - 1) ||
+            !readInteger(b["y"], block.y, 0, out.height - 1) ||
+            !readInteger(b["z"], block.z, 0, out.depth - 1) || !b["state"].isString()) {
+            error = "方块坐标必须是结构范围内的整数，方块状态必须是文本";
+            return false;
+        }
+        block.state = b["state"].toString();
+        block.nbt = QByteArray::fromBase64(b["nbt"].toString().toLatin1());
+        out.blocks.push_back(std::move(block));
     }
     out.entities.clear();
     for (auto e : o["entities"].toArray()) {
@@ -337,9 +357,12 @@ bool CaveMarker::fromJson(const QJsonObject &o, CaveMarker &out, QString &error)
         error = "洞穴标记数据无效";
         return false;
     }
-    if (o.contains("end"))
-        readVec3(o["end"], out.end);
-    else
+    if (o.contains("end")) {
+        if (!readVec3(o["end"], out.end)) {
+            error = "洞穴标记终点必须是有效三维数值坐标";
+            return false;
+        }
+    } else
         out.end = out.position;
     out.enabled = o["enabled"].toBool(true);
     return true;

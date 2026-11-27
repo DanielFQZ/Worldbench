@@ -15,16 +15,21 @@ Item {
  property string wiring: ""
  property string message: ""
  property string signature:""
+ property bool parameterGesture:false
+ function beginParameter(){parameterGesture=editor.beginCreationParameterEdit()}
+ function finishParameter(cancel){if(parameterGesture){parameterGesture=false;signature="";editor.endCreationParameterEdit(cancel)}}
+ onVisibleChanged:if(!visible)finishParameter(true)
+ Component.onDestruction:finishParameter(true)
  function refresh(){if(editor.creationBusy)return;let value=editor.graphData(graphId),sig=JSON.stringify(value);if(sig===signature)return;signature=sig;graph=value.nodes?value:{nodes:[],connections:[]};wires.requestPaint()}
 
- onGraphIdChanged:{selected="";wiring="";refresh()}
+ onGraphIdChanged:{finishParameter(true);selected="";wiring="";refresh()}
  Connections {target:editor;function onChanged(){root.refresh()}}
  function clone(){return JSON.parse(JSON.stringify(graph))}
  function spec(type){for(const s of editor.pcgNodeTypes)if(s.type===type)return s;return {name:type,inputs:[],parameters:{}}}
  function save(g){if(editor.creationEdit("graph",g))message="已更新 · Ctrl+Z 撤销";else message="未提交：请检查错误提示"}
  function addNode(){if(!graph.id||!nodeType.currentValue)return;let g=clone();g.nodes.push({id:"node-"+Date.now(),type:nodeType.currentValue,parameters:Object.assign({},spec(nodeType.currentValue).parameters,{uiX:80+g.nodes.length*20,uiY:150+g.nodes.length*25})});save(g)}
  function remove(){let g=clone();g.nodes=g.nodes.filter(n=>n.id!==selected);g.connections=g.connections.filter(c=>c.fromNode!==selected&&c.toNode!==selected);save(g);selected=""}
- function patchParam(key,value){let g=clone();for(let n of g.nodes)if(n.id===selected)n.parameters[key]=value;save(g)}
+ function patchParam(key,value,preview){let g=clone();for(let n of g.nodes)if(n.id===selected)n.parameters[key]=value;if(preview)editor.previewCreationParameter("graph",g);else save(g)}
  function paramName(k){return ({name:"暴露参数名",default:"默认值",graph:"内嵌字段子图",value:"输入值",threshold:"阈值",block:"表层方块",under:"下层方块",depth:"材料深度（格）",alternatives:"加权材料 [{block,weight}]",assets:"加权资产 [{id,weight}]",assetId:"散布资产",density:"密度 0–1",spacing:"采样格距（最小间距为一半）",rotation:"随机朝向",minScale:"最小整数缩放",maxScale:"最大整数缩放",embed:"根部埋入深度",scale:"噪声尺度（格）",octaves:"噪声层数",amplitude:"幅度",offset:"偏移",min:"下限",max:"上限",feather:"过渡宽度",inMin:"输入下限",inMax:"输入上限",outMin:"输出下限",outMax:"输出上限",exponent:"曲线指数",radius:"蒙版笔刷半径",points:"蒙版点 [[x,z]]"})[k]||k}
  function node(id){for(let n of graph.nodes||[])if(n.id===id)return n;return null}
  function position(n){return {x:n.parameters.uiX===undefined?80:n.parameters.uiX,y:n.parameters.uiY===undefined?80:n.parameters.uiY}}
@@ -113,7 +118,7 @@ Item {
        WorkbenchTextField {visible:typeof parent.value!=="boolean"&&typeof parent.value!=="number";Layout.fillWidth:true;text:typeof parent.value==="object"?JSON.stringify(parent.value):String(parent.value)
         onEditingFinished:{const old=parent.value;try{let value=typeof old==="number"?Number(text):typeof old==="boolean"?text==="true":typeof old==="object"?JSON.parse(text):text;if(typeof value==="number"&&!isFinite(value))return;root.patchParam(parent.modelData,value)}catch(e){root.message="参数格式错误："+e}}
        }
-       WorkbenchSpinBox {visible:typeof parent.value==="number";Layout.fillWidth:true;from:-100000000;to:100000000;property real multiplier:1000;value:Number(parent.value)*multiplier;textFromValue:function(v){return String(v/multiplier)};valueFromText:function(t){return Math.round(Number(t)*multiplier)};stepSize:100;onValueModified:root.patchParam(parent.modelData,value/multiplier)}
+       WorkbenchSpinBox {visible:typeof parent.value==="number";Layout.fillWidth:true;from:-100000000;to:100000000;property real multiplier:1000;value:Number(parent.value)*multiplier;textFromValue:function(v){return String(v/multiplier)};valueFromText:function(t){return Math.round(Number(t)*multiplier)};stepSize:100;objectName:"pcgParameter_"+parent.modelData;onScrubStarted:root.beginParameter();onScrubFinished:function(cancelled){root.finishParameter(cancelled)};onValueModified:root.patchParam(parent.modelData,value/multiplier,scrubbing)}
        WorkbenchCheckBox {visible:typeof parent.value==="boolean";checked:parent.value===true;text:"启用";onToggled:root.patchParam(parent.modelData,checked)}
        WorkbenchComboBox {visible:modelData==="block"||modelData==="under";Layout.fillWidth:true;model:editor.blockCatalog("");textRole:"title";valueRole:"name";onActivated:root.patchParam(parent.modelData,currentValue)}
        WorkbenchComboBox {visible:modelData==="assetId";Layout.fillWidth:true;model:editor.structureAssets;textRole:"name";valueRole:"id";onActivated:root.patchParam("assetId",currentValue)}

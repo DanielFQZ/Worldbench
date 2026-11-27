@@ -103,8 +103,17 @@ BlockState transformState(BlockState state, int turn, bool mx, bool mz) {
     return state;
 }
 } // namespace
-CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMarker> &markers) {
+CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMarker> &markers,
+                              const std::function<bool()> &keepGoing) {
     CaveAnalysis r;
+    auto cancelled = [&] {
+        if (!keepGoing || keepGoing()) return false;
+        r.cancelled = true;
+        r.labels.clear();
+        r.diagnostics = {"洞穴分析已取消"};
+        return true;
+    };
+    if (cancelled()) return r;
     r.width = a.width;
     r.height = a.height;
     r.depth = a.depth;
@@ -115,7 +124,9 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
     }
     std::vector<uint8_t> solid(size_t(count), 0);
     auto index = [&](int x, int y, int z) { return (y * a.depth + z) * a.width + x; };
-    for (auto &b : a.blocks)
+    size_t blockIndex = 0;
+    for (auto &b : a.blocks) {
+        if ((++blockIndex & 4095) == 0 && cancelled()) return r;
         if (!air(b.state)) {
             // Conservative discrete containment: partial models and fluids cannot seal
             // a voxel. Full glass is sealed; transparency alone is not the criterion.
@@ -128,6 +139,7 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
             if (!partial)
                 solid[index(b.x, b.y, b.z)] = 1;
         }
+    }
     std::vector<QVector3D> portals, seeds;
     for (auto &m : markers)
         if (m.assetId == a.id && m.enabled) {
@@ -148,6 +160,7 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
                      z <= int(std::max(m.position.z(), m.end.z())); ++z)
                     for (int x = int(std::min(m.position.x(), m.end.x()));
                          x <= int(std::max(m.position.x(), m.end.x())); ++x) {
+                        if ((index(x, y, z) & 4095) == 0 && cancelled()) return r;
                         auto i = index(x, y, z);
                         if (!solid[i]) {
                             solid[i] = 2;
@@ -184,6 +197,7 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
             push(a.width - 1, y, z);
         }
     for (size_t k = 0; k < queue.size(); ++k) {
+        if ((k & 4095) == 0 && cancelled()) return r;
         int i = queue[k], x = i % a.width, z = i / a.width % a.depth, y = i / (a.width * a.depth);
         push(x - 1, y, z);
         push(x + 1, y, z);
@@ -194,11 +208,13 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
     }
     r.labels.assign(size_t(count), 0);
     int inside = 0;
-    for (size_t i = 0; i < solid.size(); ++i)
+    for (size_t i = 0; i < solid.size(); ++i) {
+        if ((i & 16383) == 0 && cancelled()) return r;
         if (!solid[i] && !outside[i]) {
             r.labels[i] = 1;
             ++inside;
         }
+    }
     for (auto p : portals)
         r.labels[index(int(p.x()), int(p.y()), int(p.z()))] = 2;
     for (auto p : seeds) {
@@ -225,6 +241,7 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
         if (p.x() >= 0 && p.y() >= 0 && p.z() >= 0 && p.x() < a.width && p.y() < a.height && p.z() < a.depth)
             confirmedSeeds.insert(index(int(p.x()), int(p.y()), int(p.z())));
     for (size_t start = 0; start < r.labels.size(); ++start) {
+        if ((start & 16383) == 0 && cancelled()) return r;
         if (r.labels[start] != 1 || visited[start])
             continue;
         ++r.chambers;
@@ -232,6 +249,7 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
         visited[start] = 1;
         bool confirmed = false;
         for (size_t n = 0; n < chamber.size(); ++n) {
+            if ((n & 4095) == 0 && cancelled()) return r;
             const int i = chamber[n], x = i % a.width, z = i / a.width % a.depth, y = i / (a.width * a.depth);
             if (confirmedSeeds.contains(i))
                 confirmed = true;
@@ -258,6 +276,8 @@ CaveAnalysis analyzeAssetCave(const StructureAsset &a, const std::vector<CaveMar
     if (r.unconfirmedChambers)
         r.diagnostics << QString("%1 个孤立腔室未确认（紫色）；为每个需挖空的腔室添加内部种子。")
                              .arg(r.unconfirmedChambers);
+    r.interior = int(std::count(r.labels.begin(), r.labels.end(), 1));
+    r.portals = int(std::count(r.labels.begin(), r.labels.end(), 2));
     r.valid = r.diagnostics.isEmpty();
     return r;
 }

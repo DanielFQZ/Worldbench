@@ -1,9 +1,11 @@
 ﻿param(
-    [string]$Version = '0.26.4-pre.7',
+    [string]$Version = '0.26.4-pre.8',
     [string]$Root = (Split-Path $PSScriptRoot -Parent),
     [string]$Publisher = 'Worldbench Project'
 )
 $ErrorActionPreference = 'Stop'
+& python (Join-Path $PSScriptRoot 'verify-build.py') $Root $Version
+if ($LASTEXITCODE) { throw 'Refusing to package an unverified build.' }
 $dist = Join-Path $Root ("dist\Worldbench-" + $Version)
 $release = Join-Path $Root ("dist\release-" + $Version)
 if (-not (Test-Path -LiteralPath (Join-Path $dist 'Worldbench.exe'))) { throw "Build package not found: $dist" }
@@ -19,7 +21,10 @@ $iscc = @(
 if (-not $iscc) { throw 'Inno Setup 6 ISCC.exe is required. Install it with: winget install --id JRSoftware.InnoSetup --exact' }
 $icon = Join-Path $Root 'app\icons\worldbench.ico'
 if (-not (Test-Path -LiteralPath $icon)) { throw "Application icon not found: $icon" }
-Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction SilentlyContinue
+$distRoot = [IO.Path]::GetFullPath((Join-Path $Root 'dist')) + [IO.Path]::DirectorySeparatorChar
+$resolvedRelease = [IO.Path]::GetFullPath($release)
+if (-not $resolvedRelease.StartsWith($distRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Release path escapes dist.' }
+Remove-Item -LiteralPath $resolvedRelease -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $release | Out-Null
 $archive = Join-Path $release ("Worldbench-" + $Version + '-win-x64.zip')
 Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $archive -CompressionLevel Optimal

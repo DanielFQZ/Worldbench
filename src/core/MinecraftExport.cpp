@@ -341,6 +341,10 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
             throw std::runtime_error("无法创建导出目录");
         const int minCX = floorDiv(area.left(), 16), maxCX = floorDiv(area.right(), 16);
         const int minCZ = floorDiv(area.top(), 16), maxCZ = floorDiv(area.bottom(), 16);
+        // Blocks and entities use complete chunks, including negative chunks.
+        // Keep the requested center for spawn so rectangular maps do not shift it.
+        const QRect exportedArea(QPoint(minCX * 16, minCZ * 16),
+                     QPoint((maxCX + 1) * 16 - 1, (maxCZ + 1) * 16 - 1));
         const int total = (maxCX - minCX + 1) * (maxCZ - minCZ + 1);
         for (int rz = floorDiv(minCZ, 32); rz <= floorDiv(maxCZ, 32); ++rz)
             for (int rx = floorDiv(minCX, 32); rx <= floorDiv(maxCX, 32); ++rx) {
@@ -375,7 +379,7 @@ ExportResult exportMinecraft(const World &w, const QString &directory, std::atom
             std::map<std::pair<int, int>, std::map<std::pair<int, int>, std::vector<QByteArray>>> regions;
             for (auto &e : w.generated->entities) {
                 int x = int(std::floor(e.position.x())), z = int(std::floor(e.position.z()));
-                if (!area.contains(x, z))
+                if (!exportedArea.contains(x, z))
                     continue;
                 int cx = floorDiv(x, 16), cz = floorDiv(z, 16);
                 regions[{floorDiv(cx, 32), floorDiv(cz, 32)}][{cx, cz}].push_back(e.nbt);
