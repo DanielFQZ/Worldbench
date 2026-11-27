@@ -1,6 +1,6 @@
 # Worldbench 0.26.4-pre.8 测试单（UL）
 
-2026-11-28 · 稳定性修复版 · 用户尚未验收。最终发布/源码身份与开发验证记录见 DEVELOPMENT.md §1.14 和 `test-reference/0.26.4-pre.8/validation.json`。已发布 GitHub pre-release，公开清单切换后的实际下载复核正在完成；最终结果见上述开发记录。
+2026-11-28 · 稳定性修复版 · 用户尚未验收。最终发布/源码身份与开发验证记录见 DEVELOPMENT.md §1.14 和 `test-reference/0.26.4-pre.8/validation.json`。已发布 GitHub pre-release；公开静态清单和真实更新器下载均已验证，可在软件内检查更新进入本版。
 
 UK 已按“未逐项验收，转入稳定性修复”归档到仓库外 `E:/AppProject/Worldbench-test-archive/0.26.4-pre7-20261128-stability/`。本文件是唯一当期测试单，不追认旧轮次通过。
 

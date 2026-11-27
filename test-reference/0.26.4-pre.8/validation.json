@@ -1,0 +1,328 @@
+{
+  "version": "0.26.4-pre.8",
+  "validated_at": "2026-11-28T04:53:56.619380+08:00",
+  "source_commit": "d6b892c1effe067f410d7bef5fe3aa8805e1bd44",
+  "source_fixes_commit": "03a33b8d42801840252d2fa0c73b243fd21b6487",
+  "build_info": {
+    "test_document": "TESTING.md",
+    "tests_passed": true,
+    "mcp_sha256": "6c83a1daa5b6dccc20f6b9d9889fe268f5083fb97af4103a22a16ca542e40f43",
+    "version": "0.26.4-pre.8",
+    "source_clean": true,
+    "development_document": "DEVELOPMENT.md",
+    "source_commit": "d6b892c1effe067f410d7bef5fe3aa8805e1bd44",
+    "date": "2026-11-28",
+    "test_count": 28,
+    "test_report_sha256": "db78bc467231dd4919ba05faefeb6dc3186adb3b7295f236efdc87de8d01a9b2",
+    "executable_sha256": "cdd4df6dd64f1fa5e0b21d62b751ae297d9f41901ef562a32e73f92ccdb36096"
+  },
+  "ctest": {
+    "passed": 28,
+    "failed": 0,
+    "skipped": 0,
+    "tests": [
+      {
+        "name": "worldbench_startup",
+        "seconds": 0.0103498
+      },
+      {
+        "name": "worldbench_zip_install",
+        "seconds": 2.59329
+      },
+      {
+        "name": "worldbench_silent_install",
+        "seconds": 12.0177
+      },
+      {
+        "name": "worldbench_surface",
+        "seconds": 0.247976
+      },
+      {
+        "name": "worldbench_core",
+        "seconds": 0.861831
+      },
+      {
+        "name": "worldbench_export_decoder",
+        "seconds": 1.84828
+      },
+      {
+        "name": "worldbench_project_session",
+        "seconds": 0.0788195
+      },
+      {
+        "name": "worldbench_region",
+        "seconds": 0.184298
+      },
+      {
+        "name": "worldbench_storage",
+        "seconds": 6.25931
+      },
+      {
+        "name": "worldbench_ui",
+        "seconds": 65.0024
+      },
+      {
+        "name": "worldbench_preferences",
+        "seconds": 3.52794
+      },
+      {
+        "name": "worldbench_update_ui",
+        "seconds": 5.29844
+      },
+      {
+        "name": "worldbench_stability_ui",
+        "seconds": 4.79707
+      },
+      {
+        "name": "worldbench_assets",
+        "seconds": 0.128564
+      },
+      {
+        "name": "worldbench_updates",
+        "seconds": 0.734431
+      },
+      {
+        "name": "worldbench_terrain",
+        "seconds": 0.141601
+      },
+      {
+        "name": "worldbench_theme",
+        "seconds": 0.108081
+      },
+      {
+        "name": "worldbench_smart_blend",
+        "seconds": 0.107503
+      },
+      {
+        "name": "worldbench_far_scene",
+        "seconds": 0.195823
+      },
+      {
+        "name": "worldbench_creation",
+        "seconds": 3.18439
+      },
+      {
+        "name": "worldbench_stability_core",
+        "seconds": 0.0482161
+      },
+      {
+        "name": "worldbench_render",
+        "seconds": 76.3309
+      },
+      {
+        "name": "worldbench_display_options",
+        "seconds": 9.21931
+      },
+      {
+        "name": "worldbench_water",
+        "seconds": 31.1419
+      },
+      {
+        "name": "worldbench_surface_preview",
+        "seconds": 25.6794
+      },
+      {
+        "name": "worldbench_creation_ui",
+        "seconds": 43.6108
+      },
+      {
+        "name": "worldbench_release_gate",
+        "seconds": 0.0751919
+      },
+      {
+        "name": "worldbench_executable_mcp",
+        "seconds": 2.39318
+      }
+    ],
+    "total_wall_seconds": 295.86
+  },
+  "packaged_executable_mcp": {
+    "passed": true,
+    "checks": 127,
+    "discovered_tools": [
+      "world_info",
+      "creation",
+      "catalog",
+      "read_region",
+      "set_blocks",
+      "fill_box",
+      "sculpt",
+      "terrain_instance",
+      "sculpt_layer",
+      "environment",
+      "undo",
+      "height_region",
+      "region_job",
+      "redo",
+      "camera",
+      "screenshot"
+    ],
+    "tool_calls": {
+      "world_info": 22,
+      "catalog": 1,
+      "set_blocks": 1,
+      "read_region": 3,
+      "undo": 2,
+      "fill_box": 1,
+      "redo": 1,
+      "sculpt_layer": 1,
+      "sculpt": 1,
+      "height_region": 1,
+      "region_job": 1,
+      "environment": 1,
+      "terrain_instance": 1,
+      "creation": 6,
+      "unknown_tool": 1,
+      "camera": 1,
+      "screenshot": 1
+    },
+    "read_only_error_cases": [
+      "terrain_instance: missing id",
+      "unknown_tool"
+    ],
+    "profile_isolated": true,
+    "screenshot_bytes": 173960
+  },
+  "upgraded_executable_mcp": {
+    "passed": true,
+    "checks": 121,
+    "discovered_tools": [
+      "world_info",
+      "creation",
+      "catalog",
+      "read_region",
+      "set_blocks",
+      "fill_box",
+      "sculpt",
+      "terrain_instance",
+      "sculpt_layer",
+      "environment",
+      "undo",
+      "height_region",
+      "region_job",
+      "redo",
+      "camera",
+      "screenshot"
+    ],
+    "tool_calls": {
+      "world_info": 22,
+      "catalog": 1,
+      "set_blocks": 1,
+      "read_region": 3,
+      "undo": 2,
+      "fill_box": 1,
+      "redo": 1,
+      "sculpt_layer": 1,
+      "sculpt": 1,
+      "height_region": 1,
+      "region_job": 1,
+      "environment": 1,
+      "terrain_instance": 1,
+      "creation": 6,
+      "unknown_tool": 1,
+      "camera": 1,
+      "screenshot": 1
+    },
+    "read_only_error_cases": [
+      "terrain_instance: missing id",
+      "unknown_tool"
+    ],
+    "profile_isolated": true,
+    "screenshot_bytes": 174269
+  },
+  "isolated_full_package_upgrade": {
+    "passed": true,
+    "from_version": "0.26.4-pre.7",
+    "to_version": "0.26.4-pre.8",
+    "source_commit": "d6b892c1effe067f410d7bef5fe3aa8805e1bd44",
+    "archive_sha256": "06a1993a1aad93be5496e4f92c8ec29a9f0cf830dd34f3489500165b5ca42d30",
+    "verified_package_files": 1372,
+    "unrelated_file_preserved": true,
+    "mcp_after_upgrade": true,
+    "fixture_only": true,
+    "user_installation_modified": false,
+    "restart_mode": "NoRestart followed by explicit isolated automation launch"
+  },
+  "release": {
+    "url": "https://github.com/DanielFQZ/Worldbench/releases/tag/v0.26.4-pre.8",
+    "tag": "v0.26.4-pre.8",
+    "published_at": "2026-11-27T20:52:48Z",
+    "prerelease": true,
+    "draft": false,
+    "asset_count": 4,
+    "local_and_remote_size_sha256_match": true,
+    "assets": [
+      {
+        "name": "Worldbench-0.26.4-pre.8-setup.exe",
+        "size": 41410416,
+        "sha256": "ccb146087e50c80729619a45ae9d388e9688a860ab664baa862ea1e815fa604e"
+      },
+      {
+        "name": "Worldbench-0.26.4-pre.8-win-x64.zip",
+        "size": 51693449,
+        "sha256": "06a1993a1aad93be5496e4f92c8ec29a9f0cf830dd34f3489500165b5ca42d30"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "size": 204,
+        "sha256": "c96ecc69a4d1828ec113090e4e93aa8d8ac2c11d960a4e1f837a82a35b20e168"
+      },
+      {
+        "name": "Worldbench-self-signed.cer",
+        "size": 782,
+        "sha256": "53ded67fa55e31ca3f3e130e1e9d53178165d93471008c16cb982096933682c5"
+      }
+    ]
+  },
+  "public_update": {
+    "feed_url": "https://raw.githubusercontent.com/DanielFQZ/Worldbench/main/updates/windows-x64.json",
+    "http_status": 200,
+    "anonymous": true,
+    "cache_control": "max-age=300",
+    "feed_commit": "20075a4335009c42ead49f307ad4361927d0a455",
+    "feed_matches_local": true,
+    "real_qt_updater_download": true,
+    "downloaded_version": "0.26.4-pre.8",
+    "download_sha256": "06a1993a1aad93be5496e4f92c8ec29a9f0cf830dd34f3489500165b5ca42d30",
+    "download_size": 51693449,
+    "applied_to_user_installation": false
+  },
+  "issue_status": {
+    "AUD-01": "fixed_and_developer_verified",
+    "AUD-02": "fixed_and_developer_verified",
+    "AUD-03": "fixed_and_developer_verified",
+    "AUD-04": "fixed_and_developer_verified",
+    "AUD-05": "fixed_and_developer_verified",
+    "AUD-06": "fixed_and_developer_verified",
+    "AUD-07": "fixed_and_developer_verified",
+    "AUD-08": "fixed_and_developer_verified",
+    "AUD-09": "fixed_and_developer_verified",
+    "AUD-10": "fixed_and_developer_verified"
+  },
+  "earlier_runs": {
+    "initial_full_suite": "28/28, 295.08s",
+    "first_committed_suite": "28/28, 293.72s; packaging correctly stopped at Git environment import failure",
+    "build_environment_repair": "preserves inherited GIT_CONFIG_* including empty values; reproduced regression verified before final build",
+    "isolated_upgrade_harness_repair": "Initial helper passed the release archive and tracked updater directly; successful updater cleanup consumed them. Restored exact HEAD bytes, regenerated release assets, then retested with disposable copies; final 1,372 files and MCP passed. No product source changes or user installation writes."
+  },
+  "scope": "stability only; asset editor redesign and open/closed structure building tools pending user design confirmation",
+  "user_acceptance": "UL pending; UK archived without claiming acceptance",
+  "limitations": [
+    "No real-user UAC update/restart acceptance",
+    "No Minecraft client gameplay acceptance",
+    "No complex 8K/16K or common-hardware certification",
+    "No autosave/crash recovery or GPU device recovery added",
+    "Full ZIP upgrade used NoRestart followed by explicit isolated MCP startup; not a UAC/Explorer restart test"
+  ],
+  "user_installation_check": {
+    "version": "0.26.4-pre.7",
+    "executable_sha256": "43716094a5e41fca88298859e7820d29e116e1cbc726d2ef09ba41faf8222c60",
+    "source_commit": "d8377ee12d7ce1329e2dbdef266e0a0d328ad826",
+    "read_only_inspection": true,
+    "unchanged_after_validation": true
+  },
+  "visual_checks": {
+    "packaged_mcp_screenshot": "inspected; version pre.8 and rendered editor visible",
+    "upgraded_mcp_screenshot": "inspected; version pre.8 and rendered editor visible"
+  }
+}
